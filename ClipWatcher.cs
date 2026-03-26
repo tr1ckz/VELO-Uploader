@@ -93,6 +93,15 @@ public class ClipWatcher : IDisposable
         var fileName = Path.GetFileName(filePath);
 
         // Check ignored folders
+                // Skip files produced by our own compressor
+                var baseName = Path.GetFileNameWithoutExtension(filePath);
+                if (baseName.Contains(".velo-compressed", StringComparison.OrdinalIgnoreCase))
+                {
+                    Logger.Debug($"Skipped (compressed output): {fileName}");
+                    return;
+                }
+
+                // Check ignored folders
         if (IsInIgnoredFolder(filePath))
         {
             Logger.Debug($"Skipped (ignored folder): {fileName}");
