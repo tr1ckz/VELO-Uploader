@@ -253,10 +253,17 @@ public class ClipWatcher : IDisposable
         if (string.IsNullOrWhiteSpace(_settings.WatchFolder) || !Directory.Exists(_settings.WatchFolder))
             return;
 
+        // Build a set of filenames already successfully uploaded so we don't re-upload on restart
+        var alreadyUploaded = UploadHistoryManager.Load()
+            .Where(e => e.Success)
+            .Select(e => e.FileName.ToLowerInvariant())
+            .ToHashSet();
+
         var searchOption = _settings.WatchSubfolders ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
 
         Logger.Info($"Scanning existing files in: {_settings.WatchFolder}");
         int found = 0;
+        int skippedHistory = 0;
 
         foreach (var ext in VideoExtensions)
         {
@@ -268,8 +275,20 @@ public class ClipWatcher : IDisposable
             {
                 var fileName = Path.GetFileName(file);
 
+                // Skip our own compressed outputs (don't count them in found)
+                var baseName = Path.GetFileNameWithoutExtension(file);
+                if (baseName.Contains(".velo-compressed", StringComparison.OrdinalIgnoreCase)) continue;
+
                 if (IsInIgnoredFolder(file)) continue;
                 if (MatchesIgnoredPattern(fileName)) continue;
+
+                // Skip files already successfully uploaded in a prior session
+                if (alreadyUploaded.Contains(fileName.ToLowerInvariant()))
+                {
+                    skippedHistory++;
+                    Logger.Debug($"Skipped (already uploaded): {fileName}");
+                    continue;
+                }
 
                 if (_settings.MaxFileSizeMB > 0)
                 {
@@ -286,7 +305,8 @@ public class ClipWatcher : IDisposable
             }
         }
 
-        Logger.Info($"Scan complete — {found} existing clip(s) queued for upload.");
+        var skippedMsg = skippedHistory > 0 ? $", {skippedHistory} already uploaded" : "";
+        Logger.Info($"Scan complete — {found} existing clip(s) queued for upload{skippedMsg}.");
     }
 
     public void Dispose()
