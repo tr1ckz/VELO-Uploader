@@ -8,12 +8,25 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>VeloUploader</AssemblyName>
     <RootNamespace>VeloUploader</RootNamespace>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <Description>VELO auto-upload client for NVIDIA Instant Replay clips</Description>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <ApplicationIcon>velo.ico</ApplicationIcon>
   </PropertyGroup>
 
+  <ItemGroup>
+    <Content Include="velo.ico">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Always</CopyToPublishDirectory>
+    </Content>
+    <Content Include="logo.png">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Always</CopyToPublishDirectory>
+    </Content>
+    <EmbeddedResource Include="velo.ico" LogicalName="velo.ico" />
+    <EmbeddedResource Include="logo.png" LogicalName="logo.png" />
+  </ItemGroup>
 
 </Project>

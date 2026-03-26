@@ -15,6 +15,23 @@ static class Program
         }
 
         ApplicationConfiguration.Initialize();
+
+        // Catch exceptions thrown on the UI thread (including from async void)
+        Application.ThreadException += (_, e) =>
+        {
+            Logger.Error("Unhandled UI thread exception", e.Exception);
+            LocalCompressor.KillAll();
+        };
+        Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+
+        // Catch exceptions from non-UI threads
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+        {
+            if (e.ExceptionObject is Exception ex)
+                Logger.Error("Fatal unhandled exception", ex);
+            LocalCompressor.KillAll();
+        };
+
         Application.Run(new TrayContext());
     }
 }

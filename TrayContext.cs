@@ -6,14 +6,17 @@ public class TrayContext : ApplicationContext
     private readonly AppSettings _settings;
     private ClipWatcher? _watcher;
     private int _uploadCount;
+    private readonly CancellationTokenSource _cts = new();
 
     public TrayContext()
     {
         _settings = AppSettings.Load();
 
+        Logger.Info("VELO Uploader started.");
+
         _trayIcon = new NotifyIcon
         {
-            Icon = SystemIcons.Application,
+            Icon = LoadAppIcon(),
             Text = "VELO Uploader",
             Visible = true,
             ContextMenuStrip = BuildMenu()
@@ -27,6 +30,51 @@ public class TrayContext : ApplicationContext
             ShowSettings();
     }
 
+    private static Icon LoadAppIcon()
+    {
+        // Try embedded resource first (works in single-file publish)
+        try
+        {
+            var asm = typeof(TrayContext).Assembly;
+            using var stream = asm.GetManifestResourceStream("velo.ico");
+            if (stream != null)
+                return new Icon(stream, 32, 32);
+        }
+        catch { }
+
+        // Try file on disk
+        var dir = AppContext.BaseDirectory;
+        try
+        {
+            var icoPath = Path.Combine(dir, "velo.ico");
+            if (File.Exists(icoPath))
+                return new Icon(icoPath, 32, 32);
+        }
+        catch { }
+
+        // Fall back to logo.png → convert to Icon at runtime
+        try
+        {
+            using var pngStream = typeof(TrayContext).Assembly.GetManifestResourceStream("logo.png");
+            if (pngStream != null)
+            {
+                using var bmp = new Bitmap(pngStream);
+                // Create a proper 32x32 square icon
+                using var icon32 = new Bitmap(32, 32, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                using var g = Graphics.FromImage(icon32);
+                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                // Center-crop to square
+                int sq = Math.Min(bmp.Width, bmp.Height);
+                int sx = (bmp.Width - sq) / 2;
+                g.DrawImage(bmp, new Rectangle(0, 0, 32, 32), new Rectangle(sx, 0, sq, sq), GraphicsUnit.Pixel);
+                return Icon.FromHandle(icon32.GetHicon());
+            }
+        }
+        catch { }
+
+        return SystemIcons.Application;
+    }
+
     private bool IsConfigured() =>
         !string.IsNullOrWhiteSpace(_settings.ServerUrl) &&
         !string.IsNullOrWhiteSpace(_settings.ApiToken);
@@ -38,6 +86,13 @@ public class TrayContext : ApplicationContext
         var statusItem = new ToolStripMenuItem(_watcher?.IsWatching == true ? "● Watching" : "○ Not watching")
         { Enabled = false };
         menu.Items.Add(statusItem);
+
+        if (_uploadCount > 0)
+        {
+            var countItem = new ToolStripMenuItem($"  {_uploadCount} uploaded this session") { Enabled = false };
+            menu.Items.Add(countItem);
+        }
+
         menu.Items.Add(new ToolStripSeparator());
 
         var toggleItem = new ToolStripMenuItem(_watcher?.IsWatching == true ? "Pause" : "Resume");
@@ -54,11 +109,16 @@ public class TrayContext : ApplicationContext
         settingsItem.Click += (_, _) => ShowSettings();
         menu.Items.Add(settingsItem);
 
+        var logsItem = new ToolStripMenuItem("View Logs...");
+        logsItem.Click += (_, _) => ShowSettingsOnTab(2); // Logs tab
+        menu.Items.Add(logsItem);
+
         menu.Items.Add(new ToolStripSeparator());
 
         var exitItem = new ToolStripMenuItem("Exit");
         exitItem.Click += (_, _) =>
         {
+            Logger.Info("VELO Uploader exiting.");
             _watcher?.Dispose();
             _trayIcon.Visible = false;
             Application.Exit();
@@ -74,11 +134,13 @@ public class TrayContext : ApplicationContext
         _trayIcon.ContextMenuStrip = BuildMenu();
     }
 
+    private bool _initialLaunch = true;
+
     private void StartWatching()
     {
         if (!IsConfigured())
         {
-            ShowNotification("VELO Uploader", "Please configure your server URL and API token first.");
+            ShowToast("VELO Uploader", "Please configure server URL and API token first.");
             ShowSettings();
             return;
         }
@@ -87,56 +149,222 @@ public class TrayContext : ApplicationContext
         _watcher = new ClipWatcher(_settings, OnNewClip);
         _watcher.Start();
 
-        _trayIcon.Text = $"VELO Uploader — Watching {_settings.WatchFolder}";
+        // On first launch, scan existing files if enabled
+        if (_initialLaunch && _settings.ScanOnLaunch)
+        {
+            _initialLaunch = false;
+            _watcher.ScanExistingFiles();
+        }
+        else
+        {
+            _initialLaunch = false;
+        }
+
+        SetTrayText($"VELO Uploader — Watching {_settings.WatchFolder}");
         RefreshMenu();
-        ShowNotification("VELO Uploader", $"Watching for new clips in:\n{_settings.WatchFolder}");
+        ShowToast("VELO Uploader", $"Watching: {_settings.WatchFolder}", "Monitoring for new clips");
     }
 
     private void StopWatching()
     {
         _watcher?.Stop();
-        _trayIcon.Text = "VELO Uploader — Paused";
+        SetTrayText("VELO Uploader — Paused");
+        Logger.Info("Watching paused by user.");
         RefreshMenu();
+    }
+
+    /// Safely set tray icon tooltip — Windows limits this to 63 characters.
+    private void SetTrayText(string text)
+    {
+        const int maxLen = 63;
+        _trayIcon.Text = text.Length <= maxLen ? text : text[..maxLen];
     }
 
     private async void OnNewClip(string filePath)
     {
+        try
+        {
+            await ProcessClip(filePath, _cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            Logger.Info("Clip processing cancelled (app shutting down)");
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"Unexpected error processing clip: {Path.GetFileName(filePath)}", ex);
+            SetTrayText("VELO Uploader — Error (see logs)");
+            ShowToast("Error", Path.GetFileName(filePath), ex.Message);
+            LocalCompressor.KillAll();
+        }
+    }
+
+    private async Task ProcessClip(string filePath, CancellationToken ct = default)
+    {
         var fileName = Path.GetFileName(filePath);
-        ShowNotification("New clip detected", $"Uploading: {fileName}");
+        var uploadPath = filePath;
+        bool preCompressed = false;
+        string? compressedTempFile = null;
+        var originalSize = SafeFileLength(filePath);
+
+        // Local FFmpeg compression if enabled
+        if (_settings.LocalCompress && LocalCompressor.IsAvailable())
+        {
+            ShowToast("New clip detected", $"Compressing: {fileName}", "Running local FFmpeg compression...");
+
+            var compressProgress = new Progress<double>(p =>
+            {
+                SetTrayText($"VELO Uploader — Compressing {fileName} ({p:F0}%)");
+            });
+
+            var compressed = await LocalCompressor.CompressAsync(filePath, _settings.CompressionPreset, compressProgress, ct);
+            if (compressed != null)
+            {
+                uploadPath = compressed;
+                preCompressed = true;
+                compressedTempFile = compressed;
+                Logger.Info($"Using locally compressed file for upload: {Path.GetFileName(compressed)}");
+            }
+            else
+            {
+                if (_settings.StopOnCompressionFailure)
+                {
+                    Logger.Error("Local compression failed — hard-stop enabled, skipping upload");
+                    SetTrayText("VELO Uploader — Compression failed");
+                    ShowToast("Compression failed", fileName, "Upload skipped because hard-stop is enabled");
+                    SoundFeedback.PlayFailure(_settings.PlaySounds);
+                    UploadHistoryManager.Add(new UploadHistoryEntry
+                    {
+                        Timestamp = DateTime.Now,
+                        FileName = fileName,
+                        Success = false,
+                        Error = "Compression failed; upload skipped by hard-stop setting",
+                        UsedCompression = true,
+                        CompressionPreset = _settings.CompressionPreset,
+                        SourceSizeBytes = originalSize,
+                        UploadedSizeBytes = 0,
+                    });
+                    return;
+                }
+
+                Logger.Warn("Local compression failed, uploading original file");
+            }
+        }
+        else if (_settings.LocalCompress && !LocalCompressor.IsAvailable())
+        {
+            if (_settings.StopOnCompressionFailure)
+            {
+                Logger.Error("Local compression enabled but FFmpeg not found — hard-stop enabled, skipping upload");
+                SetTrayText("VELO Uploader — FFmpeg not found");
+                ShowToast("Compression unavailable", fileName, "FFmpeg not found; upload skipped");
+                SoundFeedback.PlayFailure(_settings.PlaySounds);
+                UploadHistoryManager.Add(new UploadHistoryEntry
+                {
+                    Timestamp = DateTime.Now,
+                    FileName = fileName,
+                    Success = false,
+                    Error = "FFmpeg not found; upload skipped by hard-stop setting",
+                    UsedCompression = true,
+                    CompressionPreset = _settings.CompressionPreset,
+                    SourceSizeBytes = originalSize,
+                    UploadedSizeBytes = 0,
+                });
+                return;
+            }
+
+            Logger.Warn("Local compression enabled but FFmpeg not found — uploading original");
+        }
+
+        ShowToast("Uploading", $"{fileName}", preCompressed ? "Uploading pre-compressed video..." : "Streaming upload in progress...");
 
         var progress = new Progress<double>(p =>
         {
-            _trayIcon.Text = $"VELO Uploader — Uploading {fileName} ({p:F0}%)";
+            SetTrayText($"VELO Uploader — Uploading {fileName} ({p:F0}%)");
         });
 
         var result = await UploadService.UploadAsync(
-            _settings.ServerUrl, _settings.ApiToken, filePath, progress);
+            _settings.ServerUrl, _settings.ApiToken, uploadPath, progress, ct,
+            maxRetries: _settings.MaxRetries, preCompressed: preCompressed);
 
         if (result.Success)
         {
             _uploadCount++;
             var url = $"{_settings.ServerUrl.TrimEnd('/')}/v/{result.Slug}";
-            ShowNotification("Upload complete", $"{fileName}\n{url}");
-            _trayIcon.Text = $"VELO Uploader — {_uploadCount} uploaded this session";
+            ShowToast("Upload complete", fileName, "Click to copy link", url, 6000);
+            SoundFeedback.PlaySuccess(_settings.PlaySounds);
+            SetTrayText($"VELO Uploader — {_uploadCount} uploaded this session");
+            RefreshMenu();
+            UploadHistoryManager.Add(new UploadHistoryEntry
+            {
+                Timestamp = DateTime.Now,
+                FileName = fileName,
+                Success = true,
+                Url = url,
+                UsedCompression = preCompressed,
+                CompressionPreset = preCompressed ? _settings.CompressionPreset : null,
+                SourceSizeBytes = originalSize,
+                UploadedSizeBytes = SafeFileLength(uploadPath),
+            });
+
+            // Delete after upload if enabled
+            if (_settings.DeleteAfterUpload)
+            {
+                try
+                {
+                    File.Delete(filePath);
+                    Logger.Info($"Deleted after upload: {fileName}");
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error($"Failed to delete after upload: {fileName}", ex);
+                }
+            }
+
+            // Clean up compressed temp file
+            if (compressedTempFile != null)
+            {
+                try { File.Delete(compressedTempFile); }
+                catch { }
+            }
         }
         else
         {
-            ShowNotification("Upload failed", $"{fileName}\n{result.Error}");
-            _trayIcon.Text = "VELO Uploader — Watching";
+            ShowToast("Upload failed", $"{fileName}", result.Error);
+            SoundFeedback.PlayFailure(_settings.PlaySounds);
+            SetTrayText("VELO Uploader — Watching");
+            UploadHistoryManager.Add(new UploadHistoryEntry
+            {
+                Timestamp = DateTime.Now,
+                FileName = fileName,
+                Success = false,
+                Error = result.Error,
+                UsedCompression = preCompressed,
+                CompressionPreset = preCompressed ? _settings.CompressionPreset : null,
+                SourceSizeBytes = originalSize,
+                UploadedSizeBytes = preCompressed ? SafeFileLength(uploadPath) : originalSize,
+            });
+
+            // Clean up compressed temp file on failure too
+            if (compressedTempFile != null)
+            {
+                try { File.Delete(compressedTempFile); }
+                catch { }
+            }
         }
     }
 
-    private void ShowNotification(string title, string message)
+    private void ShowToast(string title, string body, string? subtitle = null, string? copyToClipboard = null, int durationMs = 4000)
     {
         if (!_settings.ShowNotifications) return;
-        _trayIcon.BalloonTipTitle = title;
-        _trayIcon.BalloonTipText = message;
-        _trayIcon.ShowBalloonTip(3000);
+        try { ToastNotification.Show(title, body, subtitle, copyToClipboard, durationMs); }
+        catch { /* fallback to balloon */ _trayIcon.BalloonTipTitle = title; _trayIcon.BalloonTipText = body; _trayIcon.ShowBalloonTip(3000); }
     }
 
     private SettingsForm? _settingsForm;
 
-    private void ShowSettings()
+    private void ShowSettings() => ShowSettingsOnTab(0);
+
+    private void ShowSettingsOnTab(int tabIndex)
     {
         if (_settingsForm != null && !_settingsForm.IsDisposed)
         {
@@ -144,7 +372,7 @@ public class TrayContext : ApplicationContext
             return;
         }
 
-        _settingsForm = new SettingsForm(_settings);
+        _settingsForm = new SettingsForm(_settings, tabIndex);
         _settingsForm.FormClosed += (_, _) =>
         {
             _settingsForm = null;
@@ -154,6 +382,7 @@ public class TrayContext : ApplicationContext
             else if (IsConfigured())
                 StartWatching(); // Restart with new folder
         };
+
         _settingsForm.Show();
     }
 
@@ -161,9 +390,17 @@ public class TrayContext : ApplicationContext
     {
         if (disposing)
         {
+            _cts.Cancel();
+            LocalCompressor.KillAll();
             _watcher?.Dispose();
             _trayIcon.Dispose();
         }
         base.Dispose(disposing);
+    }
+
+    private static long SafeFileLength(string path)
+    {
+        try { return File.Exists(path) ? new FileInfo(path).Length : 0; }
+        catch { return 0; }
     }
 }
