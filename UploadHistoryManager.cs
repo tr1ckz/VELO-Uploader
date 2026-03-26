@@ -6,6 +6,7 @@ public class UploadHistoryEntry
 {
     public DateTime Timestamp { get; set; }
     public string FileName { get; set; } = "";
+    public string? FileHash { get; set; }
     public bool Success { get; set; }
     public string? Url { get; set; }
     public string? Error { get; set; }

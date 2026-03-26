@@ -1,5 +1,7 @@
 namespace VeloUploader;
 
+using System.Security.Cryptography;
+
 public class TrayContext : ApplicationContext
 {
     private readonly NotifyIcon _trayIcon;
@@ -206,6 +208,49 @@ public class TrayContext : ApplicationContext
         bool preCompressed = false;
         string? compressedTempFile = null;
         var originalSize = SafeFileLength(filePath);
+        string? sourceHash = null;
+
+        // Duplicate guard: skip upload if we've already uploaded identical content
+        sourceHash = await ComputeFileHashAsync(filePath, ct);
+        if (!string.IsNullOrWhiteSpace(sourceHash))
+        {
+            var duplicate = UploadHistoryManager.Load()
+                .FirstOrDefault(e => e.Success && !string.IsNullOrWhiteSpace(e.FileHash) && string.Equals(e.FileHash, sourceHash, StringComparison.OrdinalIgnoreCase));
+
+            if (duplicate != null)
+            {
+                Logger.Warn($"Skipped duplicate (same SHA-256 already uploaded): {fileName}");
+                ShowToast("Duplicate skipped", fileName, "Already uploaded previously (same content hash)");
+
+                if (_settings.DeleteAfterUpload)
+                {
+                    try
+                    {
+                        File.Delete(filePath);
+                        Logger.Info($"Deleted duplicate local file: {fileName}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Warn($"Could not delete duplicate local file: {ex.Message}");
+                    }
+                }
+
+                UploadHistoryManager.Add(new UploadHistoryEntry
+                {
+                    Timestamp = DateTime.Now,
+                    FileName = fileName,
+                    FileHash = sourceHash,
+                    Success = true,
+                    Url = duplicate.Url,
+                    Error = "Skipped duplicate — same file hash already uploaded",
+                    UsedCompression = false,
+                    CompressionPreset = null,
+                    SourceSizeBytes = originalSize,
+                    UploadedSizeBytes = 0,
+                });
+                return;
+            }
+        }
 
         // Local FFmpeg compression if enabled
         if (_settings.LocalCompress && LocalCompressor.IsAvailable())
@@ -312,6 +357,7 @@ public class TrayContext : ApplicationContext
             {
                 Timestamp = DateTime.Now,
                 FileName = fileName,
+                FileHash = sourceHash,
                 Success = true,
                 Url = url,
                 UsedCompression = preCompressed,
@@ -351,6 +397,7 @@ public class TrayContext : ApplicationContext
             {
                 Timestamp = DateTime.Now,
                 FileName = fileName,
+                FileHash = sourceHash,
                 Success = false,
                 Error = result.Error,
                 UsedCompression = preCompressed,
@@ -417,5 +464,27 @@ public class TrayContext : ApplicationContext
     {
         try { return File.Exists(path) ? new FileInfo(path).Length : 0; }
         catch { return 0; }
+    }
+
+    private static async Task<string?> ComputeFileHashAsync(string filePath, CancellationToken ct)
+    {
+        try
+        {
+            if (!File.Exists(filePath)) return null;
+
+            using var sha = SHA256.Create();
+            await using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 1024 * 128, true);
+            var hashBytes = await sha.ComputeHashAsync(stream, ct);
+            return Convert.ToHexString(hashBytes);
+        }
+        catch (OperationCanceledException)
+        {
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn($"Failed to compute SHA-256 hash for {Path.GetFileName(filePath)}: {ex.Message}");
+            return null;
+        }
     }
 }
