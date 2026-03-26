@@ -224,6 +224,20 @@ public class TrayContext : ApplicationContext
                 preCompressed = true;
                 compressedTempFile = compressed;
                 Logger.Info($"Using locally compressed file for upload: {Path.GetFileName(compressed)}");
+
+                // Delete original immediately after compression — no need to hold onto it during upload
+                if (_settings.DeleteAfterUpload)
+                {
+                    try
+                    {
+                        File.Delete(filePath);
+                        Logger.Info($"Deleted original after compression: {fileName}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Warn($"Could not delete original after compression: {ex.Message}");
+                    }
+                }
             }
             else
             {
@@ -306,8 +320,9 @@ public class TrayContext : ApplicationContext
                 UploadedSizeBytes = SafeFileLength(uploadPath),
             });
 
-            // Delete after upload if enabled
-            if (_settings.DeleteAfterUpload)
+            // Delete original after upload if enabled and compression wasn't used
+            // (if compression was used, original was already deleted right after compression)
+            if (_settings.DeleteAfterUpload && !preCompressed)
             {
                 try
                 {
