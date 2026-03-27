@@ -162,6 +162,9 @@ class DarkComboBox : Panel
 
 public class SettingsForm : Form
 {
+    private const int WM_SETTINGCHANGE = 0x001A;
+    private const int WM_THEMECHANGED = 0x031A;
+
     private readonly AppSettings _settings;
     private readonly DarkTextBox _urlBox, _tokenBox, _watchBox, _addFolderBox, _addPatternBox;
     private readonly CheckBox _subfoldersBox, _notifyBox, _deleteBox, _startupBox, _scanOnLaunchBox, _localCompressBox, _compressionHardFailBox, _soundBox, _selfSignedBox, _autoUpdateBox;
@@ -241,10 +244,10 @@ public class SettingsForm : Form
         catch { }
 
         // ── Header ──
-        var header = new Panel { Dock = DockStyle.Top, Height = 66, BackColor = C_ACCENT };
+        var header = new Panel { Dock = DockStyle.Top, Height = 66, BackColor = C_PANEL };
         header.Paint += (_, e) =>
         {
-            using var pen = new Pen(Color.White, 1);
+            using var pen = new Pen(C_ACCENT, 2);
             e.Graphics.DrawLine(pen, 0, 65, Width, 65);
         };
         Controls.Add(header);
@@ -261,8 +264,8 @@ public class SettingsForm : Form
         }
         catch { }
 
-        header.Controls.Add(MkLabel("VELO Uploader", 60, 10, new Font("Segoe UI", 13f, FontStyle.Bold), Color.White));
-        header.Controls.Add(MkLabel("Auto-upload your game clips", 62, 28, new Font("Segoe UI", 8f), Color.FromArgb(220, 220, 220)));
+        header.Controls.Add(MkLabel("VELO Uploader", 60, 6, new Font("Segoe UI", 13f, FontStyle.Bold), C_T1));
+        header.Controls.Add(MkLabel("Auto-upload your game clips", 62, 25, new Font("Segoe UI", 8f), C_T3));
         header.Controls.Add(MkLabel($"v{GitHubUpdater.GetCurrentVersion()}", Width - 84, 10, new Font("Segoe UI", 8f, FontStyle.Bold), C_ACCENT));
 
         // ── Custom tab bar ──
@@ -915,6 +918,7 @@ public class SettingsForm : Form
         // Defer server status check until after handle is created and start refresh timer
         Load += async (_, _) =>
         {
+            WindowDarkMode.ApplyForSystemTheme(Handle);
             await CheckServerStatusAsync();
             await RefreshQuotaAsync();
             _statusRefreshTimer.Start();
@@ -922,6 +926,19 @@ public class SettingsForm : Form
 
         SwitchTab(initialTab);
         ResumeLayout();
+    }
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        WindowDarkMode.ApplyForSystemTheme(Handle);
+    }
+
+    protected override void WndProc(ref Message m)
+    {
+        base.WndProc(ref m);
+        if ((m.Msg == WM_SETTINGCHANGE || m.Msg == WM_THEMECHANGED) && IsHandleCreated)
+            WindowDarkMode.ApplyForSystemTheme(Handle);
     }
 
     // ── Tab switching ──
