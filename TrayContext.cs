@@ -8,6 +8,9 @@ public class TrayContext : ApplicationContext
     private readonly AppSettings _settings;
     private ClipWatcher? _watcher;
     private int _uploadCount;
+    private int _successCount;
+    private long _totalBytes;
+    private StatusWindow? _statusWindow;
     private readonly CancellationTokenSource _cts = new();
     private bool _updateCheckInProgress;
 
@@ -117,6 +120,10 @@ public class TrayContext : ApplicationContext
         settingsItem.Click += (_, _) => ShowSettings();
         menu.Items.Add(settingsItem);
 
+        var statusItem2 = new ToolStripMenuItem("📊 Status Dashboard...");
+        statusItem2.Click += (_, _) => ShowStatusWindow();
+        menu.Items.Add(statusItem2);
+
         var logsItem = new ToolStripMenuItem("View Logs...");
         logsItem.Click += (_, _) => ShowSettingsOnTab(2); // Logs tab
         menu.Items.Add(logsItem);
@@ -174,6 +181,7 @@ public class TrayContext : ApplicationContext
 
         SetTrayText($"VELO Uploader — Watching {_settings.WatchFolder}");
         RefreshMenu();
+        UpdateStatusWindow();
         ShowToast("VELO Uploader", $"Watching: {_settings.WatchFolder}", "Monitoring for new clips");
     }
 
@@ -183,6 +191,7 @@ public class TrayContext : ApplicationContext
         SetTrayText("VELO Uploader — Paused");
         Logger.Info("Watching paused by user.");
         RefreshMenu();
+        UpdateStatusWindow();
     }
 
     private void BeginStartupUpdateCheck()
@@ -458,11 +467,19 @@ public class TrayContext : ApplicationContext
         if (result.Success)
         {
             _uploadCount++;
+            _successCount++;
+            _totalBytes += new FileInfo(uploadPath).Length;
             var url = $"{_settings.ServerUrl.TrimEnd('/')}/v/{result.Slug}";
             ShowToast("Upload complete", fileName, "Click to copy link", url, 6000);
             SoundFeedback.PlaySuccess(_settings.PlaySounds);
             SetTrayText($"VELO Uploader — {_uploadCount} uploaded this session");
             RefreshMenu();
+            UpdateStatusWindow();
+            if (_statusWindow != null && !_statusWindow.IsDisposed)
+            {
+                _statusWindow.AddEventLog($"✓ Uploaded: {fileName}", Color.FromArgb(74, 222, 128));
+                _statusWindow.ResetTask();
+            }
             UploadHistoryManager.Add(new UploadHistoryEntry
             {
                 Timestamp = DateTime.Now,
@@ -503,6 +520,12 @@ public class TrayContext : ApplicationContext
             ShowToast("Upload failed", $"{fileName}", result.Error);
             SoundFeedback.PlayFailure(_settings.PlaySounds);
             SetTrayText("VELO Uploader — Watching");
+            UpdateStatusWindow();
+            if (_statusWindow != null && !_statusWindow.IsDisposed)
+            {
+                _statusWindow.AddEventLog($"✗ Failed: {fileName} ({result.Error})", Color.FromArgb(248, 113, 113));
+                _statusWindow.ResetTask();
+            }
             UploadHistoryManager.Add(new UploadHistoryEntry
             {
                 Timestamp = DateTime.Now,
@@ -556,6 +579,31 @@ public class TrayContext : ApplicationContext
         };
 
         _settingsForm.Show();
+    }
+
+    private void ShowStatusWindow()
+    {
+        if (_statusWindow != null && !_statusWindow.IsDisposed)
+        {
+            _statusWindow.BringToFront();
+            return;
+        }
+
+        _statusWindow = new StatusWindow(null);
+        _statusWindow.OnCheckUpdatesClicked += async () => await CheckForUpdatesAsync(silentIfUpToDate: false);
+        _statusWindow.UpdateSystemStatus(_watcher?.IsWatching == true);
+        _statusWindow.UpdateStats(_uploadCount, _successCount, _totalBytes);
+        _statusWindow.FormClosed += (_, _) => _statusWindow = null;
+        _statusWindow.Show();
+    }
+
+    private void UpdateStatusWindow()
+    {
+        if (_statusWindow != null && !_statusWindow.IsDisposed)
+        {
+            _statusWindow.UpdateStats(_uploadCount, _successCount, _totalBytes);
+            _statusWindow.UpdateSystemStatus(_watcher?.IsWatching == true);
+        }
     }
 
     protected override void Dispose(bool disposing)
