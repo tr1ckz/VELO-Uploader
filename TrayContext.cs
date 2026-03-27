@@ -12,6 +12,7 @@ public class TrayContext : ApplicationContext
     private long _totalBytes;
     private readonly CancellationTokenSource _cts = new();
     private bool _updateCheckInProgress;
+    private readonly ClipProcessingQueue _processingQueue = new();
 
     public TrayContext()
     {
@@ -395,71 +396,81 @@ public class TrayContext : ApplicationContext
 
         // Local FFmpeg compression if enabled
         if (_settings.LocalCompress && LocalCompressor.IsAvailable())        {
-            ShowToast("New clip detected", $"Compressing: {fileName}", "Running local FFmpeg compression...");
-            if (_settingsForm != null && !_settingsForm.IsDisposed)
+            try
             {
-                _settingsForm.UpdateTaskProgress(fileName, 0, $"Compressing locally ({_settings.CompressionPreset})...");
-                _settingsForm.AddEventLog($"⚙ Compressing: {fileName} ({_settings.CompressionPreset})", Color.FromArgb(59, 130, 246));
-            }
-
-            var compressProgress = new Progress<double>(p =>
-            {
-                var percentage = (int)p;
-                SetTrayText($"VELO Uploader — Compressing {fileName} ({percentage}%)");
+                // Limit concurrent compressions to 1 to prevent resource exhaustion
+                await _processingQueue.WaitForCompressionSlotAsync(ct);
+                
+                ShowToast("New clip detected", $"Compressing: {fileName}", "Running local FFmpeg compression...");
                 if (_settingsForm != null && !_settingsForm.IsDisposed)
                 {
-                    _settingsForm.UpdateTaskProgress(fileName, percentage, $"Compressing locally ({_settings.CompressionPreset})...");
-                }
-            });
-
-            var compressed = await LocalCompressor.CompressAsync(filePath, _settings.CompressionPreset, compressProgress, ct);
-            if (compressed != null)
-            {
-                uploadPath = compressed;
-                preCompressed = true;
-                compressedTempFile = compressed;
-                Logger.Info($"Using locally compressed file for upload: {Path.GetFileName(compressed)}");
-                if (_settingsForm != null && !_settingsForm.IsDisposed)
-                {
-                    _settingsForm.UpdateTaskProgress(fileName, 100, "Compression complete - preparing upload...");
-                    _settingsForm.AddEventLog($"✓ Compression complete: {fileName}", Color.FromArgb(74, 222, 128));
+                    _settingsForm.UpdateTaskProgress(fileName, 0, $"Compressing locally ({_settings.CompressionPreset})...");
+                    _settingsForm.AddEventLog($"⚙ Compressing: {fileName} ({_settings.CompressionPreset})", Color.FromArgb(59, 130, 246));
                 }
 
-                // Handle original after compression — move or delete based on settings
-                HandleFileAfterUpload(filePath, _settings);
-            }
-            else
-            {
-                if (_settings.StopOnCompressionFailure)
+                var compressProgress = new Progress<double>(p =>
                 {
-                    Logger.Error("Local compression failed — hard-stop enabled, skipping upload");
-                    SetTrayText("VELO Uploader — Compression failed");
-                    ShowToast("Compression failed", fileName, "Upload skipped because hard-stop is enabled");
-                    SoundFeedback.PlayFailure(_settings.PlaySounds);
+                    var percentage = (int)p;
+                    SetTrayText($"VELO Uploader — Compressing {fileName} ({percentage}%)");
                     if (_settingsForm != null && !_settingsForm.IsDisposed)
                     {
-                        _settingsForm.AddEventLog($"✗ Compression failed: {fileName}", Color.FromArgb(248, 113, 113));
-                        _settingsForm.ResetTask();
+                        _settingsForm.UpdateTaskProgress(fileName, percentage, $"Compressing locally ({_settings.CompressionPreset})...");
                     }
-                    UploadHistoryManager.Add(new UploadHistoryEntry
-                    {
-                        Timestamp = DateTime.Now,
-                        FileName = fileName,
-                        Success = false,
-                        Error = "Compression failed; upload skipped by hard-stop setting",
-                        UsedCompression = true,
-                        CompressionPreset = _settings.CompressionPreset,
-                        SourceSizeBytes = originalSize,
-                        UploadedSizeBytes = 0,
-                    });
-                    return;
-                }
+                });
 
-                Logger.Warn("Local compression failed, uploading original file");
-                if (_settingsForm != null && !_settingsForm.IsDisposed)
+                var compressed = await LocalCompressor.CompressAsync(filePath, _settings.CompressionPreset, compressProgress, ct);
+                if (compressed != null)
                 {
-                    _settingsForm.AddEventLog($"⚠ Compression failed, uploading original: {fileName}", Color.FromArgb(251, 191, 36));
+                    uploadPath = compressed;
+                    preCompressed = true;
+                    compressedTempFile = compressed;
+                    Logger.Info($"Using locally compressed file for upload: {Path.GetFileName(compressed)}");
+                    if (_settingsForm != null && !_settingsForm.IsDisposed)
+                    {
+                        _settingsForm.UpdateTaskProgress(fileName, 100, "Compression complete - preparing upload...");
+                        _settingsForm.AddEventLog($"✓ Compression complete: {fileName}", Color.FromArgb(74, 222, 128));
+                    }
+
+                    // Handle original after compression — move or delete based on settings
+                    HandleFileAfterUpload(filePath, _settings);
                 }
+                else
+                {
+                    if (_settings.StopOnCompressionFailure)
+                    {
+                        Logger.Error("Local compression failed — hard-stop enabled, skipping upload");
+                        SetTrayText("VELO Uploader — Compression failed");
+                        ShowToast("Compression failed", fileName, "Upload skipped because hard-stop is enabled");
+                        SoundFeedback.PlayFailure(_settings.PlaySounds);
+                        if (_settingsForm != null && !_settingsForm.IsDisposed)
+                        {
+                            _settingsForm.AddEventLog($"✗ Compression failed: {fileName}", Color.FromArgb(248, 113, 113));
+                            _settingsForm.ResetTask();
+                        }
+                        UploadHistoryManager.Add(new UploadHistoryEntry
+                        {
+                            Timestamp = DateTime.Now,
+                            FileName = fileName,
+                            Success = false,
+                            Error = "Compression failed; upload skipped by hard-stop setting",
+                            UsedCompression = true,
+                            CompressionPreset = _settings.CompressionPreset,
+                            SourceSizeBytes = originalSize,
+                            UploadedSizeBytes = 0,
+                        });
+                        return;
+                    }
+
+                    Logger.Warn("Local compression failed, uploading original file");
+                    if (_settingsForm != null && !_settingsForm.IsDisposed)
+                    {
+                        _settingsForm.AddEventLog($"⚠ Compression failed, uploading original: {fileName}", Color.FromArgb(251, 191, 36));
+                    }
+                }
+            }
+            finally
+            {
+                _processingQueue.ReleaseCompressionSlot();
             }
         }
         else if (_settings.LocalCompress && !LocalCompressor.IsAvailable())
@@ -508,87 +519,96 @@ public class TrayContext : ApplicationContext
             }
         });
 
-        var result = await UploadService.UploadAsync(
-            _settings.ServerUrl, _settings.ApiToken, uploadPath, progress, ct,
-            maxRetries: _settings.MaxRetries, preCompressed: preCompressed);
-
-        if (result.Success)
+        // Limit concurrent uploads to 2 to prevent network/server overload
+        await _processingQueue.WaitForUploadSlotAsync(ct);
+        try
         {
-            _uploadCount++;
-            _successCount++;
-            _totalBytes += new FileInfo(uploadPath).Length;
-            var url = $"{_settings.ServerUrl.TrimEnd('/')}/v/{result.Slug}";
-            ShowToast("Upload complete", fileName, "Click to copy link", url, 6000);
-            SoundFeedback.PlaySuccess(_settings.PlaySounds);
-            SetTrayText($"VELO Uploader — {_uploadCount} uploaded this session");
-            RefreshMenu();
-            UpdateStatusWindow();
-            if (_settingsForm != null && !_settingsForm.IsDisposed)
+            var result = await UploadService.UploadAsync(
+                _settings.ServerUrl, _settings.ApiToken, uploadPath, progress, ct,
+                maxRetries: _settings.MaxRetries, preCompressed: preCompressed);
+
+            if (result.Success)
             {
-                _settingsForm.AddEventLog($"✓ Uploaded: {fileName}", Color.FromArgb(74, 222, 128));
-                _settingsForm.ResetTask();
-            }
+                _uploadCount++;
+                _successCount++;
+                _totalBytes += new FileInfo(uploadPath).Length;
+                var url = $"{_settings.ServerUrl.TrimEnd('/')}/v/{result.Slug}";
+                ShowToast("Upload complete", fileName, "Click to copy link", url, 6000);
+                SoundFeedback.PlaySuccess(_settings.PlaySounds);
+                SetTrayText($"VELO Uploader — {_uploadCount} uploaded this session");
+                RefreshMenu();
+                UpdateStatusWindow();
+                if (_settingsForm != null && !_settingsForm.IsDisposed)
+                {
+                    _settingsForm.AddEventLog($"✓ Uploaded: {fileName}", Color.FromArgb(74, 222, 128));
+                    _settingsForm.ResetTask();
+                }
                 // Quota will have changed — invalidate cache and refresh the status label
                 QuotaService.Invalidate();
                 if (_settingsForm != null && !_settingsForm.IsDisposed)
                     _settingsForm.RefreshQuotaLabel();
-            UploadHistoryManager.Add(new UploadHistoryEntry
-            {
-                Timestamp = DateTime.Now,
-                FileName = fileName,
-                FileHash = sourceHash,
-                Success = true,
-                Url = url,
-                UsedCompression = preCompressed,
-                CompressionPreset = preCompressed ? _settings.CompressionPreset : null,
-                SourceSizeBytes = originalSize,
-                UploadedSizeBytes = SafeFileLength(uploadPath),
-            });
+                UploadHistoryManager.Add(new UploadHistoryEntry
+                {
+                    Timestamp = DateTime.Now,
+                    FileName = fileName,
+                    FileHash = sourceHash,
+                    Success = true,
+                    Url = url,
+                    UsedCompression = preCompressed,
+                    CompressionPreset = preCompressed ? _settings.CompressionPreset : null,
+                    SourceSizeBytes = originalSize,
+                    UploadedSizeBytes = SafeFileLength(uploadPath),
+                });
 
-            // Handle original after upload if compression wasn't used
-            // (if compression was used, original was already handled right after compression)
-            if (!preCompressed)
-            {
-                HandleFileAfterUpload(filePath, _settings);
+                // Handle original after upload if compression wasn't used
+                // (if compression was used, original was already handled right after compression)
+                if (!preCompressed)
+                {
+                    HandleFileAfterUpload(filePath, _settings);
+                }
+
+                // Clean up compressed temp file
+                if (compressedTempFile != null)
+                {
+                    try { File.Delete(compressedTempFile); }
+                    catch { }
+                }
             }
-
-            // Clean up compressed temp file
-            if (compressedTempFile != null)
+            else
             {
-                try { File.Delete(compressedTempFile); }
-                catch { }
+                ShowToast("Upload failed", $"{fileName}", result.Error);
+                SoundFeedback.PlayFailure(_settings.PlaySounds);
+                SetTrayText("VELO Uploader — Watching");
+                UpdateStatusWindow();
+                if (_settingsForm != null && !_settingsForm.IsDisposed)
+                {
+                    _settingsForm.AddEventLog($"✗ Failed: {fileName} ({result.Error})", Color.FromArgb(248, 113, 113));
+                    _settingsForm.ResetTask();
+                }
+                UploadHistoryManager.Add(new UploadHistoryEntry
+                {
+                    Timestamp = DateTime.Now,
+                    FileName = fileName,
+                    FileHash = sourceHash,
+                    Success = false,
+                    Error = result.Error,
+                    UsedCompression = preCompressed,
+                    CompressionPreset = preCompressed ? _settings.CompressionPreset : null,
+                    SourceSizeBytes = originalSize,
+                    UploadedSizeBytes = preCompressed ? SafeFileLength(uploadPath) : originalSize,
+                });
+
+                // Clean up compressed temp file on failure too
+                if (compressedTempFile != null)
+                {
+                    try { File.Delete(compressedTempFile); }
+                    catch { }
+                }
             }
         }
-        else
+        finally
         {
-            ShowToast("Upload failed", $"{fileName}", result.Error);
-            SoundFeedback.PlayFailure(_settings.PlaySounds);
-            SetTrayText("VELO Uploader — Watching");
-            UpdateStatusWindow();
-            if (_settingsForm != null && !_settingsForm.IsDisposed)
-            {
-                _settingsForm.AddEventLog($"✗ Failed: {fileName} ({result.Error})", Color.FromArgb(248, 113, 113));
-                _settingsForm.ResetTask();
-            }
-            UploadHistoryManager.Add(new UploadHistoryEntry
-            {
-                Timestamp = DateTime.Now,
-                FileName = fileName,
-                FileHash = sourceHash,
-                Success = false,
-                Error = result.Error,
-                UsedCompression = preCompressed,
-                CompressionPreset = preCompressed ? _settings.CompressionPreset : null,
-                SourceSizeBytes = originalSize,
-                UploadedSizeBytes = preCompressed ? SafeFileLength(uploadPath) : originalSize,
-            });
-
-            // Clean up compressed temp file on failure too
-            if (compressedTempFile != null)
-            {
-                try { File.Delete(compressedTempFile); }
-                catch { }
-            }
+            _processingQueue.ReleaseUploadSlot();
         }
     }
 
