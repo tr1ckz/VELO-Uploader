@@ -174,6 +174,7 @@ public static class GitHubUpdater
     {
         var logPath = Path.Combine(Path.GetTempPath(), "VeloUploader_update.log");
         var escapedLogPath = EscapeForCmd(logPath);
+        var exeName = Path.GetFileName(exePath);
         
         return $"@echo off\r\n" +
                "setlocal enabledelayedexpansion\r\n" +
@@ -181,6 +182,7 @@ public static class GitHubUpdater
                $"set \"SRC={EscapeForCmd(sourceDir)}\"\r\n" +
                $"set \"DST={EscapeForCmd(targetDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))}\"\r\n" +
                $"set \"EXE={EscapeForCmd(exePath)}\"\r\n" +
+               $"set \"EXENAME={EscapeForCmd(exeName)}\"\r\n" +
                $"set \"PID={currentPid}\"\r\n" +
                ">>\"%LOGFILE%\" echo [%date% %time%] Starting update script\r\n" +
                ">>\"%LOGFILE%\" echo SRC=%SRC%\r\n" +
@@ -217,21 +219,31 @@ public static class GitHubUpdater
                ")\r\n" +
                "REM Clear readonly/system flags from target exe if present\r\n" +
                "if exist \"%EXE%\" attrib -R -H -S \"%EXE%\" 2>>\"%LOGFILE%\"\r\n" +
-               "REM Try robocopy multiple times to handle transient file locks\r\n" +
+               "REM Copy all files except the main executable first\r\n" +
                "set \"RBCODE=16\"\r\n" +
                "for /l %%r in (1,1,5) do (\r\n" +
-               "  robocopy \"%SRC%\" \"%DST%\" /E /R:2 /W:2 /NFL /NDL /NJH /NJS /NC /NS /NP /COPY:DAT 2>>\"%LOGFILE%\" >nul\r\n" +
+               "  robocopy \"%SRC%\" \"%DST%\" /E /R:2 /W:2 /NFL /NDL /NJH /NJS /NC /NS /NP /COPY:DAT /XF \"%EXENAME%\" 2>>\"%LOGFILE%\" >nul\r\n" +
                "  set \"RBCODE=!ERRORLEVEL!\"\r\n" +
-               "  if !RBCODE! LSS 8 goto copied\r\n" +
-               "  >>\"%LOGFILE%\" echo Robocopy attempt %%r failed with code !RBCODE!\r\n" +
+               "  if !RBCODE! LSS 8 goto copied_non_exe\r\n" +
+               "  >>\"%LOGFILE%\" echo Robocopy(non-exe) attempt %%r failed with code !RBCODE!\r\n" +
                "  timeout /t 2 /nobreak >nul\r\n" +
                ")\r\n" +
-               ">>\"%LOGFILE%\" echo Robocopy failed after retries with code !RBCODE!, trying xcopy fallback...\r\n" +
-               "xcopy \"%SRC%\\*\" \"%DST%\\\" /E /I /Y /Q 2>>\"%LOGFILE%\" >nul\r\n" +
-               "if errorlevel 1 (\r\n" +
-               "  >>\"%LOGFILE%\" echo ERROR: Fallback xcopy failed with code %ERRORLEVEL%\r\n" +
+               ">>\"%LOGFILE%\" echo WARNING: Non-exe file copy had errors after retries; continuing with exe replacement.\r\n" +
+               ":copied_non_exe\r\n" +
+               "REM Replace main executable with dedicated retries\r\n" +
+               "set \"SRCEXE=%SRC%\\%EXENAME%\"\r\n" +
+               "if not exist \"%SRCEXE%\" (\r\n" +
+               "  >>\"%LOGFILE%\" echo ERROR: Source executable not found: %SRCEXE%\r\n" +
                "  goto error\r\n" +
                ")\r\n" +
+               "for /l %%e in (1,1,20) do (\r\n" +
+               "  copy /Y \"%SRCEXE%\" \"%EXE%\" >nul 2>>\"%LOGFILE%\"\r\n" +
+               "  if not errorlevel 1 goto copied\r\n" +
+               "  >>\"%LOGFILE%\" echo Exe copy attempt %%e failed; retrying...\r\n" +
+               "  timeout /t 1 /nobreak >nul\r\n" +
+               ")\r\n" +
+               ">>\"%LOGFILE%\" echo ERROR: Unable to replace executable after retries.\r\n" +
+               "goto error\r\n" +
                "goto copied\r\n" +
                ":copied\r\n" +
                ">>\"%LOGFILE%\" echo File replacement completed successfully.\r\n" +
@@ -246,6 +258,7 @@ public static class GitHubUpdater
                "exit /b 0\r\n" +
                ":error\r\n" +
                ">>\"%LOGFILE%\" echo Update failed!\r\n" +
+             "if exist \"%EXE%\" start \"\" \"%EXE%\"\r\n" +
                "exit /b 1\r\n";
         }
 
