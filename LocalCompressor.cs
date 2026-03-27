@@ -281,22 +281,24 @@ public static class LocalCompressor
                 ScaleArgs = "-vf \"scale='min(1280,iw)':'min(720,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2\"",
                 AudioArgs = "-c:a aac -b:a 128k",
             },
-            // GPU-accelerated presets (NVIDIA NVENC)
+            // GPU-accelerated presets (NVIDIA NVENC).
+            // NVENC does not support -crf; use -rc:v vbr -cq for constant-quality VBR mode.
+            // -b:v 0 lets the encoder use CQ without a bitrate ceiling constraint.
             CompressionPreset.BalancedGPU => new PresetOptions
             {
-                VideoCodecArgs = "-c:v h264_nvenc -crf 23 -preset fast",
+                VideoCodecArgs = "-c:v h264_nvenc -preset fast -tune hq -rc:v vbr -cq 26 -b:v 0 -maxrate 8M -bufsize 16M",
                 ScaleArgs = "-vf \"scale='min(1920,iw)':'min(1080,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2\"",
                 AudioArgs = "-c:a aac -b:a 192k",
             },
             CompressionPreset.QualityGPU => new PresetOptions
             {
-                VideoCodecArgs = "-c:v h264_nvenc -crf 20 -preset lossless",
+                VideoCodecArgs = "-c:v h264_nvenc -preset slow -tune hq -rc:v vbr -cq 21 -b:v 0 -maxrate 20M -bufsize 40M",
                 ScaleArgs = "-vf \"scale='min(2560,iw)':'min(1440,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2\"",
                 AudioArgs = "-c:a aac -b:a 224k",
             },
             CompressionPreset.Discord_GPU => new PresetOptions
             {
-                VideoCodecArgs = "-c:v h264_nvenc -crf 28 -preset fast",
+                VideoCodecArgs = "-c:v h264_nvenc -preset fast -rc:v vbr -cq 28 -b:v 0 -maxrate 4M -bufsize 8M",
                 ScaleArgs = "-vf \"scale='min(1280,iw)':'min(720,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2\"",
                 AudioArgs = "-c:a aac -b:a 128k",
             },
