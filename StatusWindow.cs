@@ -234,10 +234,19 @@ public class StatusWindow : Form
 
     private void InvokeIfNeeded(Action action)
     {
-        if (InvokeRequired)
-            BeginInvoke(action);
-        else
-            action();
+        try
+        {
+            // Only invoke if the window handle has been created and we're not on the UI thread
+            if (IsHandleCreated && InvokeRequired)
+                BeginInvoke(action);
+            else if (IsHandleCreated)
+                action();
+            // If handle not created yet, skip the update (will be called again later)
+        }
+        catch
+        {
+            // Silently ignore invoke errors if window is being closed/disposed
+        }
     }
 
     private void CheckGPUStatus()
