@@ -707,19 +707,6 @@ public class TrayContext : ApplicationContext
             catch (Exception ex)
             {
                 Logger.Warn($"Could not move file to archive folder: {ex.Message}");
-                // Fall back to delete if move failed and DeleteAfterUpload is also enabled
-                if (settings.DeleteAfterUpload)
-                {
-                    try
-                    {
-                        File.Delete(filePath);
-                        Logger.Info($"Deleted (move failed, fallback): {Path.GetFileName(filePath)}");
-                    }
-                    catch (Exception delEx)
-                    {
-                        Logger.Error($"Failed to delete after move failed: {Path.GetFileName(filePath)}", delEx);
-                    }
-                }
             }
         }
         else if (settings.DeleteAfterUpload)

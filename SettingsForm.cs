@@ -265,7 +265,7 @@ public class SettingsForm : Form
         catch { }
 
         header.Controls.Add(MkLabel("VELO Uploader", 60, 6, new Font("Segoe UI", 13f, FontStyle.Bold), C_T1));
-        header.Controls.Add(MkLabel("Auto-upload your game clips", 62, 25, new Font("Segoe UI", 8f), C_T3));
+        header.Controls.Add(MkLabel("Auto-upload your game clips", 62, 24, new Font("Segoe UI", 10f, FontStyle.Bold), C_T3));
         header.Controls.Add(MkLabel($"v{GitHubUpdater.GetCurrentVersion()}", Width - 84, 10, new Font("Segoe UI", 8f, FontStyle.Bold), C_ACCENT));
 
         // ── Custom tab bar ──
@@ -488,6 +488,27 @@ public class SettingsForm : Form
         _moveBox.CheckedChanged += (_, _) => { _moveToBox.Inner.Enabled = _moveBox.Checked; moveBrowseBtn.Enabled = _moveBox.Checked; };
         _moveToBox.Inner.Enabled = _moveBox.Checked;
         moveBrowseBtn.Enabled = _moveBox.Checked;
+
+        // Delete and move are mutually exclusive actions after upload.
+        _deleteBox.CheckedChanged += (_, _) =>
+        {
+            if (_deleteBox.Checked)
+                _moveBox.Checked = false;
+            _moveToBox.Inner.Enabled = _moveBox.Checked;
+            moveBrowseBtn.Enabled = _moveBox.Checked;
+        };
+        _moveBox.CheckedChanged += (_, _) =>
+        {
+            if (_moveBox.Checked)
+                _deleteBox.Checked = false;
+            _moveToBox.Inner.Enabled = _moveBox.Checked;
+            moveBrowseBtn.Enabled = _moveBox.Checked;
+        };
+
+        if (_moveBox.Checked)
+            _deleteBox.Checked = false;
+        else if (_deleteBox.Checked)
+            _moveBox.Checked = false;
         y += 50;
 
         _scanOnLaunchBox = MkChk("Upload existing clips on launch", settings.ScanOnLaunch, lx, y);
@@ -1280,8 +1301,8 @@ public class SettingsForm : Form
         _settings.WatchFolder = _watchBox.Text.Trim();
         _settings.WatchSubfolders = _subfoldersBox.Checked;
         _settings.ShowNotifications = _notifyBox.Checked;
-        _settings.DeleteAfterUpload = _deleteBox.Checked;
         _settings.MoveAfterUpload = _moveBox.Checked;
+        _settings.DeleteAfterUpload = _deleteBox.Checked && !_settings.MoveAfterUpload;
         _settings.MoveToFolder = _moveToBox.Text.Trim();
         _settings.MaxRetries = (int)_retriesBox.Inner.Value;
         _settings.ScanOnLaunch = _scanOnLaunchBox.Checked;
