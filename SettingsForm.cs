@@ -940,7 +940,20 @@ public class SettingsForm : Form
 
     static void Section(Control p, string text, int x, int y)
     {
-        p.Controls.Add(new Label { Text = text, Location = new Point(x, y), AutoSize = true, ForeColor = C_ACCENT, Font = new Font("Segoe UI", 7.5f, FontStyle.Bold) });
+        var lbl = new Label
+        {
+            Text = text,
+            Location = new Point(x, y),
+            AutoSize = true,
+            ForeColor = C_ACCENT,
+            Font = new Font("Segoe UI", 7.5f, FontStyle.Bold),
+            UseMnemonic = false,
+        };
+        p.Controls.Add(lbl);
+        var lineX = x + lbl.PreferredWidth + 8;
+        var lineW = Math.Max(0, p.Width - lineX - x);
+        if (lineW > 0)
+            p.Controls.Add(new Panel { Location = new Point(lineX, y + 6), Size = new Size(lineW, 1), BackColor = C_BORDER });
     }
 
     static void Lbl(Control p, string text, int x, int y)
@@ -990,8 +1003,13 @@ public class SettingsForm : Form
             Font = new Font("Segoe UI", 7.5f, FontStyle.Bold),
             ForeColor = C_ACCENT,
             BackColor = Color.Transparent,
+            UseMnemonic = false,
         };
         parent.Controls.Add(lbl);
+        var lineX = x + lbl.PreferredWidth + 8;
+        var lineW = Math.Max(0, parent.Width - lineX - x);
+        if (lineW > 0)
+            parent.Controls.Add(new Panel { Location = new Point(lineX, y + 6), Size = new Size(lineW, 1), BackColor = C_BORDER });
     }
 
     private void CheckGPUStatus()
