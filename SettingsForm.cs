@@ -191,6 +191,7 @@ public class SettingsForm : Form
     private Label _versionLabel;
     private Button _updateCheckBtn;
     private Label _gpuStatusLabel;
+    private Label _serverStatusLabel;
     private Panel _currentTaskPanel;
 
     // Palette
@@ -785,6 +786,10 @@ public class SettingsForm : Form
         var ffmpegColor = LocalCompressor.IsAvailable() ? C_GREEN : C_RED;
         var ffmpegLabel = MkLabel(ffmpegStatus, lx, sy, new Font("Segoe UI", 9f), ffmpegColor);
         scroll.Controls.Add(ffmpegLabel);
+        sy += 24;
+
+        _serverStatusLabel = MkLabel("Server: Checking...", lx, sy, new Font("Segoe UI", 9f), C_T2);
+        scroll.Controls.Add(_serverStatusLabel);
         sy += 28;
 
         // Version Section
@@ -901,6 +906,7 @@ public class SettingsForm : Form
 
         // Check GPU availability
         CheckGPUStatus();
+        _ = CheckServerStatusAsync();
 
         SwitchTab(initialTab);
         ResumeLayout();
@@ -995,6 +1001,46 @@ public class SettingsForm : Form
                 _gpuStatusLabel.ForeColor = gpuAvail ? C_GREEN : C_T3;
             });
         });
+    }
+
+    private async Task CheckServerStatusAsync()
+    {
+        var baseUrl = _urlBox.Text.Trim();
+        if (string.IsNullOrEmpty(baseUrl) || baseUrl.Length < 10)
+        {
+            InvokeIfNeeded(() =>
+            {
+                _serverStatusLabel.Text = "Server: Not configured";
+                _serverStatusLabel.ForeColor = C_T3;
+            });
+            return;
+        }
+
+        try
+        {
+            using var handler = TlsCertHelper.CreateHandler(BuildTlsProbeSettings());
+            using var h = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(8) };
+            var url = baseUrl.TrimEnd('/') + "/api/health";
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var resp = await h.GetAsync(url);
+            sw.Stop();
+            var ok = resp.IsSuccessStatusCode;
+            InvokeIfNeeded(() =>
+            {
+                _serverStatusLabel.Text = ok
+                    ? $"● Server online ({sw.ElapsedMilliseconds} ms)"
+                    : $"⚠ Server error ({(int)resp.StatusCode})";
+                _serverStatusLabel.ForeColor = ok ? C_GREEN : C_ORANGE;
+            });
+        }
+        catch
+        {
+            InvokeIfNeeded(() =>
+            {
+                _serverStatusLabel.Text = "✗ Server unreachable";
+                _serverStatusLabel.ForeColor = C_ERR;
+            });
+        }
     }
 
     private void InvokeIfNeeded(Action action)
