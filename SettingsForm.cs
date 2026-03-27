@@ -164,7 +164,7 @@ public class SettingsForm : Form
 {
     private readonly AppSettings _settings;
     private readonly DarkTextBox _urlBox, _tokenBox, _watchBox, _addFolderBox, _addPatternBox;
-    private readonly CheckBox _subfoldersBox, _notifyBox, _deleteBox, _startupBox, _scanOnLaunchBox, _localCompressBox, _compressionHardFailBox, _soundBox, _selfSignedBox;
+    private readonly CheckBox _subfoldersBox, _notifyBox, _deleteBox, _startupBox, _scanOnLaunchBox, _localCompressBox, _compressionHardFailBox, _soundBox, _selfSignedBox, _autoUpdateBox;
     private readonly DarkTextBox _certPathBox;
     private readonly DarkNumeric _retriesBox, _maxSizeBox;
     private readonly DarkListBox _foldersList, _patternsList, _historyList;
@@ -317,7 +317,6 @@ public class SettingsForm : Form
         g.Controls.Add(_statusLabel);
         y += 18;
 
-        Section(g, "WATCH FOLDER", lx, y); y += 18;
         Section(g, "TLS / SECURITY", lx, y); y += 18;
 
         _selfSignedBox = MkChk("Allow self-signed / untrusted server certificate", settings.AllowSelfSignedCerts, lx, y);
@@ -375,6 +374,9 @@ public class SettingsForm : Form
         g.Controls.Add(_compressionHardFailBox);
         _soundBox = MkChk("Play success/failure sounds", settings.PlaySounds, lx + 210, y);
         g.Controls.Add(_soundBox);
+        y += 24;
+        _autoUpdateBox = MkChk("Check GitHub for app updates on launch", settings.AutoCheckForUpdates, lx, y);
+        g.Controls.Add(_autoUpdateBox);
         y += 24;
         Lbl(g, "Compression preset:", lx, y + 5);
         _presetBox = new DarkComboBox(lx + 110, y, 140, CompressionPreset.All, settings.CompressionPreset);
@@ -653,6 +655,7 @@ public class SettingsForm : Form
         _settings.LocalCompress = _localCompressBox.Checked;
         _settings.StopOnCompressionFailure = _compressionHardFailBox.Checked;
         _settings.PlaySounds = _soundBox.Checked;
+        _settings.AutoCheckForUpdates = _autoUpdateBox.Checked;
         _settings.CompressionPreset = (_presetBox.Inner.SelectedItem?.ToString() ?? CompressionPreset.Balanced);
         _settings.AllowSelfSignedCerts = _selfSignedBox.Checked;
         _settings.TrustedCertPath = _certPathBox.Text.Trim();

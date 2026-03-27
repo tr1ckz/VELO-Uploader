@@ -24,6 +24,7 @@ public class AppSettings
     public bool LocalCompress { get; set; } = false;
     public bool StopOnCompressionFailure { get; set; } = true;
     public bool PlaySounds { get; set; } = true;
+    public bool AutoCheckForUpdates { get; set; } = true;
     public string CompressionPreset { get; set; } = global::VeloUploader.CompressionPreset.Balanced;
     public bool AllowSelfSignedCerts { get; set; } = false;
     public string TrustedCertPath { get; set; } = "";

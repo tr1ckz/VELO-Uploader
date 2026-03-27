@@ -9,6 +9,7 @@ public class TrayContext : ApplicationContext
     private ClipWatcher? _watcher;
     private int _uploadCount;
     private readonly CancellationTokenSource _cts = new();
+    private bool _updateCheckInProgress;
 
     public TrayContext()
     {
@@ -32,6 +33,9 @@ public class TrayContext : ApplicationContext
             StartWatching();
         else
             ShowSettings();
+
+        if (_settings.AutoCheckForUpdates)
+            BeginStartupUpdateCheck();
     }
 
     private static Icon LoadAppIcon()
@@ -117,6 +121,10 @@ public class TrayContext : ApplicationContext
         logsItem.Click += (_, _) => ShowSettingsOnTab(2); // Logs tab
         menu.Items.Add(logsItem);
 
+        var updatesItem = new ToolStripMenuItem("Check for Updates...");
+        updatesItem.Click += async (_, _) => await CheckForUpdatesAsync(silentIfUpToDate: false);
+        menu.Items.Add(updatesItem);
+
         menu.Items.Add(new ToolStripSeparator());
 
         var exitItem = new ToolStripMenuItem("Exit");
@@ -175,6 +183,67 @@ public class TrayContext : ApplicationContext
         SetTrayText("VELO Uploader — Paused");
         Logger.Info("Watching paused by user.");
         RefreshMenu();
+    }
+
+    private void BeginStartupUpdateCheck()
+    {
+        var timer = new System.Windows.Forms.Timer { Interval = 4000 };
+        timer.Tick += async (_, _) =>
+        {
+            timer.Stop();
+            timer.Dispose();
+            await CheckForUpdatesAsync(silentIfUpToDate: true);
+        };
+        timer.Start();
+    }
+
+    private async Task CheckForUpdatesAsync(bool silentIfUpToDate)
+    {
+        if (_updateCheckInProgress)
+            return;
+
+        _updateCheckInProgress = true;
+        try
+        {
+            var release = await GitHubUpdater.CheckForUpdateAsync(_cts.Token);
+            if (release == null)
+            {
+                if (!silentIfUpToDate)
+                    MessageBox.Show($"You are already on the latest version ({GitHubUpdater.GetCurrentVersion()}).", "VELO Uploader", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            var result = MessageBox.Show(
+                $"A new version is available.\n\nCurrent: {GitHubUpdater.GetCurrentVersion()}\nLatest: {release.Version}\n\nDownload and apply the update now? The uploader will restart.",
+                "Update available",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Information);
+
+            if (result != DialogResult.Yes)
+                return;
+
+            ShowToast("VELO Uploader", $"Downloading update {release.TagName}", "The app will restart when it is ready.");
+            await GitHubUpdater.DownloadAndApplyAsync(release, _cts.Token);
+
+            Logger.Info($"Applying update {release.TagName}");
+            _cts.Cancel();
+            _watcher?.Dispose();
+            _trayIcon.Visible = false;
+            Application.Exit();
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Update check failed", ex);
+            if (!silentIfUpToDate)
+                MessageBox.Show($"Update failed:\n\n{ex.Message}", "VELO Uploader", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            _updateCheckInProgress = false;
+        }
     }
 
     /// Safely set tray icon tooltip — Windows limits this to 63 characters.
