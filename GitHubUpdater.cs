@@ -25,42 +25,66 @@ public static class GitHubUpdater
         http.DefaultRequestHeaders.UserAgent.ParseAdd($"VeloUploader/{GetCurrentVersion()}");
         http.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
 
-        using var response = await http.GetAsync(LatestReleaseApi, ct);
-        response.EnsureSuccessStatusCode();
-
-        using var stream = await response.Content.ReadAsStreamAsync(ct);
-        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
-        var root = doc.RootElement;
-
-        var tagName = root.GetProperty("tag_name").GetString() ?? "";
-        var releaseUrl = root.TryGetProperty("html_url", out var htmlUrlElement)
-            ? (htmlUrlElement.GetString() ?? $"https://github.com/{RepoOwner}/{RepoName}/releases")
-            : $"https://github.com/{RepoOwner}/{RepoName}/releases";
-
-        if (!Version.TryParse(tagName.TrimStart('v', 'V'), out var latestVersion))
-            return null;
-
-        if (latestVersion <= GetCurrentVersion())
-            return null;
-
-        string? assetName = null;
-        string? downloadUrl = null;
-
-        foreach (var asset in root.GetProperty("assets").EnumerateArray())
+        HttpResponseMessage response;
+        try
         {
-            var name = asset.GetProperty("name").GetString() ?? "";
-            if (!name.EndsWith("-win-x64.zip", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            assetName = name;
-            downloadUrl = asset.GetProperty("browser_download_url").GetString();
-            break;
+            response = await http.GetAsync(LatestReleaseApi, ct);
+        }
+        catch (HttpRequestException ex)
+        {
+            Logger.Error($"Update check failed: Network error - {ex.Message}");
+            return null;
         }
 
-        if (string.IsNullOrWhiteSpace(assetName) || string.IsNullOrWhiteSpace(downloadUrl))
+        if (!response.IsSuccessStatusCode)
+        {
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                Logger.Warn("Update check: No GitHub releases found. Visit https://github.com/tr1ckz/VELO-Uploader/releases to create releases from tags.");
+            }
+            else
+            {
+                Logger.Warn($"Update check failed: GitHub API returned {(int)response.StatusCode}");
+            }
             return null;
+        }
 
-        return new UpdateRelease(latestVersion, tagName, assetName, downloadUrl, releaseUrl);
+        using (response)
+        {
+            using var stream = await response.Content.ReadAsStreamAsync(ct);
+            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+            var root = doc.RootElement;
+
+            var tagName = root.GetProperty("tag_name").GetString() ?? "";
+            var releaseUrl = root.TryGetProperty("html_url", out var htmlUrlElement)
+                ? (htmlUrlElement.GetString() ?? $"https://github.com/{RepoOwner}/{RepoName}/releases")
+                : $"https://github.com/{RepoOwner}/{RepoName}/releases";
+
+            if (!Version.TryParse(tagName.TrimStart('v', 'V'), out var latestVersion))
+                return null;
+
+            if (latestVersion <= GetCurrentVersion())
+                return null;
+
+            string? assetName = null;
+            string? downloadUrl = null;
+
+            foreach (var asset in root.GetProperty("assets").EnumerateArray())
+            {
+                var name = asset.GetProperty("name").GetString() ?? "";
+                if (!name.EndsWith("-win-x64.zip", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                assetName = name;
+                downloadUrl = asset.GetProperty("browser_download_url").GetString();
+                break;
+            }
+
+            if (string.IsNullOrWhiteSpace(assetName) || string.IsNullOrWhiteSpace(downloadUrl))
+                return null;
+
+            return new UpdateRelease(latestVersion, tagName, assetName, downloadUrl, releaseUrl);
+        }
     }
 
     public static async Task DownloadAndApplyAsync(UpdateRelease release, CancellationToken ct = default)
@@ -72,12 +96,20 @@ public static class GitHubUpdater
         Directory.CreateDirectory(tempRoot);
         Directory.CreateDirectory(extractPath);
 
-        using (var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) })
+        try
         {
-            http.DefaultRequestHeaders.UserAgent.ParseAdd($"VeloUploader/{GetCurrentVersion()}");
-            await using var remote = await http.GetStreamAsync(release.DownloadUrl, ct);
-            await using var local = new FileStream(zipPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true);
-            await remote.CopyToAsync(local, ct);
+            using (var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) })
+            {
+                http.DefaultRequestHeaders.UserAgent.ParseAdd($"VeloUploader/{GetCurrentVersion()}");
+                await using var remote = await http.GetStreamAsync(release.DownloadUrl, ct);
+                await using var local = new FileStream(zipPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true);
+                await remote.CopyToAsync(local, ct);
+            }
+        }
+        catch (HttpRequestException ex)
+        {
+            Logger.Error($"Failed to download update: {ex.Message}");
+            throw new InvalidOperationException($"Failed to download update from {release.DownloadUrl}: {ex.Message}", ex);
         }
 
         ZipFile.ExtractToDirectory(zipPath, extractPath, overwriteFiles: true);
