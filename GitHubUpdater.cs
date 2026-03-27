@@ -141,42 +141,96 @@ public static class GitHubUpdater
         EnsureWritableInstallDirectory(AppContext.BaseDirectory);
 
         var scriptPath = Path.Combine(tempRoot, "apply-update.cmd");
-        File.WriteAllText(scriptPath, BuildUpdateScript(extractPath, AppContext.BaseDirectory, currentExe, Environment.ProcessId), Encoding.ASCII);
+        var scriptContent = BuildUpdateScript(extractPath, AppContext.BaseDirectory, currentExe, Environment.ProcessId);
+        File.WriteAllText(scriptPath, scriptContent, Encoding.ASCII);
+        
+        Logger.Info($"Update script created at: {scriptPath}");
+        Logger.Info($"Source: {extractPath}");
+        Logger.Info($"Target: {AppContext.BaseDirectory}");
+        Logger.Info($"Exe: {currentExe}");
+        Logger.Info($"PID: {Environment.ProcessId}");
 
-        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+        try
         {
-            FileName = scriptPath,
-            WorkingDirectory = tempRoot,
-            UseShellExecute = true,
-            CreateNoWindow = true,
-            WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
-        });
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = scriptPath,
+                WorkingDirectory = tempRoot,
+                UseShellExecute = true,
+                CreateNoWindow = true,
+                WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
+            };
+            System.Diagnostics.Process.Start(psi);
+            Logger.Info("Update script started successfully.");
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"Failed to start update script: {ex.Message}", ex);
+            throw;
+        }
     }
 
     private static string BuildUpdateScript(string sourceDir, string targetDir, string exePath, int currentPid)
     {
+        var logPath = Path.Combine(Path.GetTempPath(), "VeloUploader_update.log");
+        var escapedLogPath = EscapeForCmd(logPath);
+        
         return $"@echo off\r\n" +
                "setlocal enabledelayedexpansion\r\n" +
+               $"set \"LOGFILE={escapedLogPath}\"\r\n" +
                $"set \"SRC={EscapeForCmd(sourceDir)}\"\r\n" +
                $"set \"DST={EscapeForCmd(targetDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))}\"\r\n" +
                $"set \"EXE={EscapeForCmd(exePath)}\"\r\n" +
                $"set \"PID={currentPid}\"\r\n" +
-               "REM Wait up to 10 seconds for graceful exit\r\n" +
-               "for /l %%i in (1,1,10) do (\r\n" +
+               ">>\"%LOGFILE%\" echo [%date% %time%] Starting update script\r\n" +
+               ">>\"%LOGFILE%\" echo SRC=%SRC%\r\n" +
+               ">>\"%LOGFILE%\" echo DST=%DST%\r\n" +
+               ">>\"%LOGFILE%\" echo EXE=%EXE%\r\n" +
+               ">>\"%LOGFILE%\" echo PID=%PID%\r\n" +
+               "REM Check if process is running\r\n" +
+               "tasklist /FI \"PID eq !PID!\" 2>nul | find \"!PID!\" >nul\r\n" +
+               "if errorlevel 1 >>\"%LOGFILE%\" echo Process already terminated.\r\n" +
+               "if not errorlevel 1 >>\"%LOGFILE%\" echo Waiting for process %PID% to exit...\r\n" +
+               "REM Wait up to 15 seconds for graceful exit\r\n" +
+               "for /l %%i in (1,1,15) do (\r\n" +
                "  tasklist /FI \"PID eq !PID!\" 2>nul | find \"!PID!\" >nul\r\n" +
-               "  if errorlevel 1 goto copy\r\n" +
+               "  if errorlevel 1 goto waitdone\r\n" +
                "  timeout /t 1 /nobreak >nul\r\n" +
                ")\r\n" +
+               ":waitdone\r\n" +
                "REM Force kill if still running\r\n" +
-               "taskkill /PID %PID% /F /T >nul 2>&1\r\n" +
-               "timeout /t 2 /nobreak >nul\r\n" +
+               ">>\"%LOGFILE%\" echo Forcing kill of process %PID%\r\n" +
+               "taskkill /PID %PID% /F /T 2>>\"%LOGFILE%\" >nul\r\n" +
+               "timeout /t 3 /nobreak >nul\r\n" +
+               ">>\"%LOGFILE%\" echo Starting file replacement...\r\n" +
+               "REM Verify directories exist\r\n" +
+               "if not exist \"%SRC%\" (\r\n" +
+               "  >>\"%LOGFILE%\" echo ERROR: Source directory not found: %SRC%\r\n" +
+               "  goto error\r\n" +
+               ")\r\n" +
+               "if not exist \"%DST%\" (\r\n" +
+               "  >>\"%LOGFILE%\" echo ERROR: Target directory not found: %DST%\r\n" +
+               "  goto error\r\n" +
+               ")\r\n" +
                ":copy\r\n" +
-               "robocopy \"%SRC%\" \"%DST%\" /E /R:3 /W:1 /NFL /NDL /NJH /NJS /NC /NS /NP >nul\r\n" +
+               "robocopy \"%SRC%\" \"%DST%\" /E /R:5 /W:2 /NFL /NDL /NJH /NJS /NC /NS /NP 2>>\"%LOGFILE%\" >nul\r\n" +
+               "if errorlevel 8 (\r\n" +
+               "  >>\"%LOGFILE%\" echo ERROR: Robocopy failed with code %ERRORLEVEL%\r\n" +
+               "  goto error\r\n" +
+               ")\r\n" +
+               ">>\"%LOGFILE%\" echo File replacement completed successfully.\r\n" +
                "if exist \"%EXE%\" (\r\n" +
+               "  >>\"%LOGFILE%\" echo Restarting application: %EXE%\r\n" +
                "  timeout /t 1 /nobreak >nul\r\n" +
                "  start \"\" \"%EXE%\"\r\n" +
+               ") else (\r\n" +
+               "  >>\"%LOGFILE%\" echo ERROR: Executable not found: %EXE%\r\n" +
                ")\r\n" +
-               "exit /b 0\r\n";
+               ">>\"%LOGFILE%\" echo [%date% %time%] Update script completed.\r\n" +
+               "exit /b 0\r\n" +
+               ":error\r\n" +
+               ">>\"%LOGFILE%\" echo Update failed!\r\n" +
+               "exit /b 1\r\n";
         }
 
     private static void EnsureWritableInstallDirectory(string directory)
@@ -194,4 +248,18 @@ public static class GitHubUpdater
     }
 
     private static string EscapeForCmd(string value) => value.Replace("\"", "\"\"");
+
+    public static string GetUpdateLogPath() => Path.Combine(Path.GetTempPath(), "VeloUploader_update.log");
+
+    public static string GetUpdateLog()
+    {
+        var logPath = GetUpdateLogPath();
+        try
+        {
+            if (File.Exists(logPath))
+                return File.ReadAllText(logPath);
+        }
+        catch { }
+        return "";
+    }
 }

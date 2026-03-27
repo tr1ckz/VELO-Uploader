@@ -255,15 +255,19 @@ public class TrayContext : ApplicationContext
                 }
             }, _cts.Token);
 
-            if (progressForm.ShowDialog() == DialogResult.OK || progressForm.IsDisposed)
+            var dialogResult = progressForm.ShowDialog();
+            await updateTask;
+            
+            if (dialogResult == DialogResult.OK)
             {
-                await updateTask;
-
-                Logger.Info($"Applying update {release.TagName}");
+                Logger.Info($"Applying update {release.TagName} - exiting app");
                 _cts.Cancel();
                 _watcher?.Dispose();
                 _trayIcon.Visible = false;
                 Application.Exit();
+                // Give the app a moment to clean up, then force exit
+                await Task.Delay(500);
+                Environment.Exit(0);
             }
         }
         catch (OperationCanceledException)
