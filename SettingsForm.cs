@@ -241,10 +241,10 @@ public class SettingsForm : Form
         catch { }
 
         // ── Header ──
-        var header = new Panel { Dock = DockStyle.Top, Height = 66, BackColor = C_PANEL };
+        var header = new Panel { Dock = DockStyle.Top, Height = 66, BackColor = C_ACCENT };
         header.Paint += (_, e) =>
         {
-            using var pen = new Pen(C_ACCENT, 2);
+            using var pen = new Pen(Color.White, 1);
             e.Graphics.DrawLine(pen, 0, 65, Width, 65);
         };
         Controls.Add(header);
@@ -261,8 +261,8 @@ public class SettingsForm : Form
         }
         catch { }
 
-        header.Controls.Add(MkLabel("VELO Uploader", 60, 6, new Font("Segoe UI", 13f, FontStyle.Bold), C_T1));
-        header.Controls.Add(MkLabel("Auto-upload your game clips", 62, 25, new Font("Segoe UI", 8f), C_T3));
+        header.Controls.Add(MkLabel("VELO Uploader", 60, 10, new Font("Segoe UI", 13f, FontStyle.Bold), Color.White));
+        header.Controls.Add(MkLabel("Auto-upload your game clips", 62, 28, new Font("Segoe UI", 8f), Color.FromArgb(220, 220, 220)));
         header.Controls.Add(MkLabel($"v{GitHubUpdater.GetCurrentVersion()}", Width - 84, 10, new Font("Segoe UI", 8f, FontStyle.Bold), C_ACCENT));
 
         // ── Custom tab bar ──
