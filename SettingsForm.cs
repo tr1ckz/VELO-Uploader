@@ -792,6 +792,10 @@ public class SettingsForm : Form
         scroll.Controls.Add(_serverStatusLabel);
         sy += 28;
 
+            _quotaStatusLabel = MkLabel("Storage: Checking...", lx, sy, new Font("Segoe UI", 9f), C_T2);
+            scroll.Controls.Add(_quotaStatusLabel);
+            sy += 28;
+
         // Version Section
         MkSectionLabel(scroll, "APPLICATION", lx, sy); sy += 22;
 
@@ -911,6 +915,7 @@ public class SettingsForm : Form
         CheckGPUStatus();
         // Defer server status check until after handle is created
         Load += async (_, _) => await CheckServerStatusAsync();
+            Load += async (_, _) => await RefreshQuotaAsync();
 
         SwitchTab(initialTab);
         ResumeLayout();
@@ -1064,6 +1069,41 @@ public class SettingsForm : Form
             });
         }
     }
+
+        private Label? _quotaStatusLabel;
+
+        internal void RefreshQuotaLabel()
+        {
+            if (_quotaStatusLabel == null) return;
+            _ = RefreshQuotaAsync();
+        }
+
+        private async Task RefreshQuotaAsync()
+        {
+            QuotaService.Invalidate();
+            var quota = await QuotaService.GetAsync(_settings);
+            InvokeIfNeeded(() =>
+            {
+                if (_quotaStatusLabel == null) return;
+                if (quota == null)
+                {
+                    _quotaStatusLabel.Text = "Storage: unavailable";
+                    _quotaStatusLabel.ForeColor = C_T3;
+                    return;
+                }
+                if (!quota.HasQuota)
+                {
+                    _quotaStatusLabel.Text = $"Storage: {quota.UsedFormatted} used (unlimited)";
+                    _quotaStatusLabel.ForeColor = C_T2;
+                    return;
+                }
+                var quotaBytes = quota.QuotaBytes!.Value;
+                var pct = (int)Math.Min(100, quota.UsedBytes * 100L / quotaBytes);
+                var color = pct >= 90 ? C_ERR : pct >= 75 ? C_ORANGE : C_GREEN;
+                _quotaStatusLabel.Text = $"Storage: {quota.UsedFormatted} / {quota.QuotaFormatted} ({pct}% used, {quota.FreeFormatted} free)";
+                _quotaStatusLabel.ForeColor = color;
+            });
+        }
 
     private void InvokeIfNeeded(Action action)
     {

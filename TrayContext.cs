@@ -366,9 +366,33 @@ public class TrayContext : ApplicationContext
             }
         }
 
-        // Local FFmpeg compression if enabled
-        if (_settings.LocalCompress && LocalCompressor.IsAvailable())
+        // Quota check: bail out before compression or upload if user is over quota
+        var quota = await QuotaService.GetAsync(_settings, ct);
+        if (quota != null && quota.WouldExceed(originalSize))
         {
+              var detail = $"Used {quota.UsedFormatted} / {quota.QuotaFormatted} — need {FormatBytes(originalSize)}, only {quota.FreeFormatted} free";
+            Logger.Warn($"Quota exceeded, skipping: {fileName} — {detail}");
+            SetTrayText("VELO Uploader — Quota exceeded");
+            ShowToast("Quota exceeded", fileName, detail);
+            SoundFeedback.PlayFailure(_settings.PlaySounds);
+            if (_settingsForm != null && !_settingsForm.IsDisposed)
+                _settingsForm.AddEventLog($"✗ Quota exceeded: {fileName} ({detail})", Color.FromArgb(248, 113, 113));
+            UploadHistoryManager.Add(new UploadHistoryEntry
+            {
+                Timestamp = DateTime.Now,
+                FileName = fileName,
+                FileHash = sourceHash,
+                Success = false,
+                Error = detail,
+                UsedCompression = false,
+                SourceSizeBytes = originalSize,
+                UploadedSizeBytes = 0,
+            });
+            return;
+        }
+
+        // Local FFmpeg compression if enabled
+        if (_settings.LocalCompress && LocalCompressor.IsAvailable())        {
             ShowToast("New clip detected", $"Compressing: {fileName}", "Running local FFmpeg compression...");
             if (_settingsForm != null && !_settingsForm.IsDisposed)
             {
@@ -513,6 +537,10 @@ public class TrayContext : ApplicationContext
                 _settingsForm.AddEventLog($"✓ Uploaded: {fileName}", Color.FromArgb(74, 222, 128));
                 _settingsForm.ResetTask();
             }
+                // Quota will have changed — invalidate cache and refresh the status label
+                QuotaService.Invalidate();
+                if (_settingsForm != null && !_settingsForm.IsDisposed)
+                    _settingsForm.RefreshQuotaLabel();
             UploadHistoryManager.Add(new UploadHistoryEntry
             {
                 Timestamp = DateTime.Now,
@@ -649,6 +677,13 @@ public class TrayContext : ApplicationContext
         try { return File.Exists(path) ? new FileInfo(path).Length : 0; }
         catch { return 0; }
     }
+
+        private static string FormatBytes(long bytes)
+        {
+            if (bytes >= 1_073_741_824L) return $"{bytes / 1_073_741_824.0:F1} GB";
+            if (bytes >= 1_048_576L) return $"{bytes / 1_048_576.0:F1} MB";
+            return $"{bytes / 1024.0:F1} KB";
+        }
 
     private static async Task<string?> ComputeFileHashAsync(string filePath, CancellationToken ct)
     {
