@@ -201,7 +201,7 @@ public class SettingsForm : Form
         SuspendLayout();
 
         Text = "VELO Uploader";
-        ClientSize = new Size(568, 680);
+        ClientSize = new Size(680, 820);
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
@@ -219,11 +219,11 @@ public class SettingsForm : Form
         catch { }
 
         // ── Header ──
-        var header = new Panel { Dock = DockStyle.Top, Height = 54, BackColor = C_PANEL };
+        var header = new Panel { Dock = DockStyle.Top, Height = 66, BackColor = C_PANEL };
         header.Paint += (_, e) =>
         {
             using var pen = new Pen(C_ACCENT, 2);
-            e.Graphics.DrawLine(pen, 0, 53, Width, 53);
+            e.Graphics.DrawLine(pen, 0, 65, Width, 65);
         };
         Controls.Add(header);
 
@@ -240,10 +240,11 @@ public class SettingsForm : Form
         catch { }
 
         header.Controls.Add(MkLabel("VELO Uploader", 60, 6, new Font("Segoe UI", 13f, FontStyle.Bold), C_T1));
-        header.Controls.Add(MkLabel("Auto-upload your game clips", 62, 30, new Font("Segoe UI", 8f), C_T3));
+        header.Controls.Add(MkLabel("Auto-upload your game clips", 62, 25, new Font("Segoe UI", 8f), C_T3));
+        header.Controls.Add(MkLabel($"v{GitHubUpdater.GetCurrentVersion()}", Width - 84, 10, new Font("Segoe UI", 8f, FontStyle.Bold), C_ACCENT));
 
         // ── Custom tab bar ──
-        var tabBar = new Panel { Location = new Point(0, 54), Size = new Size(568, 36), BackColor = C_PANEL };
+        var tabBar = new Panel { Location = new Point(0, 66), Size = new Size(680, 36), BackColor = C_PANEL };
         Controls.Add(tabBar);
 
         _tabBtns = new Button[4];
@@ -254,8 +255,8 @@ public class SettingsForm : Form
             var btn = new Button
             {
                 Text = tabNames[i],
-            Location = new Point(i * 120 + 16, 0),
-            Size = new Size(110, 36),
+            Location = new Point(i * 130 + 16, 0),
+            Size = new Size(120, 36),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.Transparent,
                 ForeColor = C_T3,
@@ -284,8 +285,8 @@ public class SettingsForm : Form
         {
             _pages[i] = new Panel
             {
-                Location = new Point(0, 90),
-                Size = new Size(568, 590),
+                Location = new Point(0, 102),
+                Size = new Size(680, 716),
                 BackColor = C_BG,
                 Visible = i == initialTab,
             };
@@ -296,8 +297,11 @@ public class SettingsForm : Form
         //  PAGE 0: GENERAL
         // ═══════════════════════════════════════
         var g = _pages[0];
-        int y = 12, lx = 18, w = 532;
+        int y = 14, lx = 22, w = 636;
 
+        // ─────────────────────────────────────
+        // SECTION: CONNECTION
+        // ─────────────────────────────────────
         Section(g, "CONNECTION", lx, y); y += 18;
 
         Lbl(g, "Server URL", lx, y);
@@ -306,15 +310,12 @@ public class SettingsForm : Form
         y += 50;
 
         Lbl(g, "API Token", lx, y);
-        _tokenBox = new DarkTextBox(settings.ApiToken, "velo_...", lx, y + 16, w - 188);
+        _tokenBox = new DarkTextBox(settings.ApiToken, "velo_...", lx, y + 16, w - 180);
         _tokenBox.UseSystemPasswordChar = true;
         g.Controls.Add(_tokenBox);
-        _testBtn = MkBtn("Test API", lx + w - 180, y + 16, 84, 28, C_ACCENT, C_ACCENT_H);
+        _testBtn = MkBtn("Test API", lx + w - 172, y + 16, 80, 28, C_ACCENT, C_ACCENT_H);
         _testBtn.Click += async (_, _) => await TestConnection();
         g.Controls.Add(_testBtn);
-        _testTlsBtn = MkBtn("Test TLS", lx + w - 88, y + 16, 88, 28, C_BTN, C_BTN_H);
-        _testTlsBtn.Click += async (_, _) => await TestTlsConnection();
-        g.Controls.Add(_testTlsBtn);
         y += 50;
 
         _statusLabel = new Label
@@ -326,17 +327,19 @@ public class SettingsForm : Form
             TextAlign = ContentAlignment.MiddleLeft,
         };
         g.Controls.Add(_statusLabel);
-        y += 36;
+        y += 42;
 
+        // ─────────────────────────────────────
+        // SECTION: TLS / SECURITY
+        // ─────────────────────────────────────
         Section(g, "TLS / SECURITY", lx, y); y += 18;
 
         _selfSignedBox = MkChk("Allow self-signed / untrusted server certificate", settings.AllowSelfSignedCerts, lx, y);
         g.Controls.Add(_selfSignedBox);
-        y += 24;
+        y += 28;
 
         Lbl(g, "Pinned certificate (optional)", lx, y);
         y += 16;
-
         _certPathBox = new DarkTextBox(settings.TrustedCertPath, "Trusted .crt/.cer/.pem file for certificate pinning", lx, y, w);
         g.Controls.Add(_certPathBox);
         y += 34;
@@ -344,14 +347,14 @@ public class SettingsForm : Form
         _certInfoLabel = new Label
         {
             Location = new Point(lx, y),
-            Size = new Size(270, 28),
+            Size = new Size(w - 272, 28),
             ForeColor = C_T3,
             Font = new Font("Segoe UI", 7.5f),
             TextAlign = ContentAlignment.MiddleLeft,
         };
         g.Controls.Add(_certInfoLabel);
 
-        var certBrowseBtn = MkBtn("Browse", lx + w - 262, y, 70, 28, C_BTN, C_BTN_H);
+        var certBrowseBtn = MkBtn("Browse", lx + w - 264, y, 72, 28, C_BTN, C_BTN_H);
         certBrowseBtn.Click += (_, _) =>
         {
             using var d = new OpenFileDialog
@@ -366,59 +369,73 @@ public class SettingsForm : Form
             }
         };
         g.Controls.Add(certBrowseBtn);
-        var genCertBtn = MkBtn("Generate cert", lx + w - 184, y, 106, 28, C_BTN, C_BTN_H);
+        var genCertBtn = MkBtn("Generate", lx + w - 188, y, 78, 28, C_BTN, C_BTN_H);
         genCertBtn.Click += (_, _) => GenerateCert();
         g.Controls.Add(genCertBtn);
-        var tlsProbeBtn = MkBtn("Probe TLS", lx + w - 72, y, 72, 28, C_ACCENT, C_ACCENT_H);
-        tlsProbeBtn.Click += async (_, _) => await TestTlsConnection();
-        g.Controls.Add(tlsProbeBtn);
-        y += 36;
+        _testTlsBtn = MkBtn("Test TLS", lx + w - 104, y, 96, 28, C_ACCENT, C_ACCENT_H);
+        _testTlsBtn.Click += async (_, _) => await TestTlsConnection();
+        g.Controls.Add(_testTlsBtn);
+        y += 42;
 
-        Section(g, "WATCH FOLDER", lx, y); y += 18;
+        // ─────────────────────────────────────
+        // SECTION: WATCH FOLDER & CLIPS
+        // ─────────────────────────────────────
+        Section(g, "WATCH FOLDER & CLIPS", lx, y); y += 18;
 
-        _watchBox = new DarkTextBox(settings.WatchFolder, @"D:\recordings", lx, y, w - 82);
+        Lbl(g, "Watch folder", lx, y);
+        _watchBox = new DarkTextBox(settings.WatchFolder, @"D:\recordings", lx, y + 16, w - 78);
         g.Controls.Add(_watchBox);
-        var browseBtn = MkBtn("Browse", lx + w - 74, y, 74, 28, C_BTN, C_BTN_H);
+        var browseBtn = MkBtn("Browse", lx + w - 72, y + 16, 72, 28, C_BTN, C_BTN_H);
         browseBtn.Click += (_, _) => { using var d = new FolderBrowserDialog { SelectedPath = _watchBox.Text }; if (d.ShowDialog() == DialogResult.OK) _watchBox.Text = d.SelectedPath; };
         g.Controls.Add(browseBtn);
-        y += 34;
+        y += 50;
 
         _subfoldersBox = MkChk("Include subfolders", settings.WatchSubfolders, lx, y);
         g.Controls.Add(_subfoldersBox);
-        y += 24;
-
-        Section(g, "OPTIONS", lx, y); y += 18;
-
-        _notifyBox = MkChk("Desktop notifications", settings.ShowNotifications, lx, y);
-        g.Controls.Add(_notifyBox);
-        _deleteBox = MkChk("Delete clip after upload", settings.DeleteAfterUpload, lx + 210, y);
+        _deleteBox = MkChk("Delete clip after upload", settings.DeleteAfterUpload, lx + 340, y);
         g.Controls.Add(_deleteBox);
-        y += 24;
+        y += 28;
+
+        _scanOnLaunchBox = MkChk("Upload existing clips on launch", settings.ScanOnLaunch, lx, y);
+        g.Controls.Add(_scanOnLaunchBox);
+        _notifyBox = MkChk("Desktop notifications", settings.ShowNotifications, lx + 340, y);
+        g.Controls.Add(_notifyBox);
+        y += 42;
+
+        // ─────────────────────────────────────
+        // SECTION: COMPRESSION
+        // ─────────────────────────────────────
+        Section(g, "UPLOAD OPTIONS", lx, y); y += 18;
+
+        Lbl(g, "Compression preset:", lx, y + 5);
+        _presetBox = new DarkComboBox(lx + 120, y, 140, CompressionPreset.All, settings.CompressionPreset);
+        g.Controls.Add(_presetBox);
+
+        Lbl(g, "Retries:", lx + 340, y + 5);
+        _retriesBox = new DarkNumeric(settings.MaxRetries, 1, 10, lx + 400, y, 60);
+        g.Controls.Add(_retriesBox);
+        y += 38;
+
+        _localCompressBox = MkChk("Compress locally before upload (FFmpeg)", settings.LocalCompress, lx, y);
+        g.Controls.Add(_localCompressBox);
+        _compressionHardFailBox = MkChk("Skip upload if compression fails", settings.StopOnCompressionFailure, lx + 340, y);
+        g.Controls.Add(_compressionHardFailBox);
+        y += 42;
+
+        // ─────────────────────────────────────
+        // SECTION: SYSTEM
+        // ─────────────────────────────────────
+        Section(g, "SYSTEM", lx, y); y += 18;
 
         _startupBox = MkChk("Start with Windows", StartupManager.IsRegistered(), lx, y);
         g.Controls.Add(_startupBox);
-        _scanOnLaunchBox = MkChk("Upload existing clips on launch", settings.ScanOnLaunch, lx + 210, y);
-        g.Controls.Add(_scanOnLaunchBox);
-        y += 24;
-        _localCompressBox = MkChk("Compress locally before upload (FFmpeg)", settings.LocalCompress, lx, y);
-        g.Controls.Add(_localCompressBox);
-        y += 24;
-        _compressionHardFailBox = MkChk("Skip upload if compression fails", settings.StopOnCompressionFailure, lx, y);
-        g.Controls.Add(_compressionHardFailBox);
-        _soundBox = MkChk("Play success/failure sounds", settings.PlaySounds, lx + 210, y);
+        _soundBox = MkChk("Play success/failure sounds", settings.PlaySounds, lx + 340, y);
         g.Controls.Add(_soundBox);
-        y += 24;
+        y += 28;
+
         _autoUpdateBox = MkChk("Check GitHub for app updates on launch", settings.AutoCheckForUpdates, lx, y);
         g.Controls.Add(_autoUpdateBox);
-        y += 24;
-        Lbl(g, "Compression preset:", lx, y + 5);
-        _presetBox = new DarkComboBox(lx + 110, y, 140, CompressionPreset.All, settings.CompressionPreset);
-        g.Controls.Add(_presetBox);
-        y += 34;
-        Lbl(g, "Retries:", lx, y + 2);
-        _retriesBox = new DarkNumeric(settings.MaxRetries, 1, 10, lx + 54, y - 2, 54);
-        g.Controls.Add(_retriesBox);
-        y += 34;
+        y += 42;
 
         var saveBtn = MkBtn("Save && Start Watching", lx + w - 208, y, 208, 38, C_ACCENT, C_ACCENT_H);
         saveBtn.Font = new Font("Segoe UI", 10f, FontStyle.Bold);
