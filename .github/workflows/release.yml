@@ -17,8 +17,14 @@ jobs:
         with:
           dotnet-version: "9.0.x"
 
+      - name: Derive app version from tag
+        shell: pwsh
+        run: |
+          $v = "${{ github.ref_name }}".TrimStart('v', 'V')
+          "APP_VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Publish
-        run: dotnet publish VeloUploader.csproj -c Release -r win-x64 --self-contained -o publish
+        run: dotnet publish VeloUploader.csproj -c Release -r win-x64 --self-contained -o publish -p:Version=${{ env.APP_VERSION }}
 
       - name: Zip release
         run: Compress-Archive -Path publish/* -DestinationPath VeloUploader-${{ github.ref_name }}-win-x64.zip
