@@ -51,19 +51,17 @@ dotnet run
 
 ### FFmpeg Setup
 
-**Option 1: Portable FFmpeg (bundled in releases)** ⭐ *Recommended for users*
-- Download the latest release from [Releases](../../releases)
-- The `.zip` file includes a portable FFmpeg build
-- Just extract and run — no additional installation needed
+**Automatic on First Launch** ⭐ *Recommended*
+- If compression is enabled and FFmpeg is not found, a prompt appears on startup
+- Click "Install FFmpeg" and winget will download and install it (~2 minutes)
+- Compression features become available after restart
 
-**Option 2: Install via winget** *For source builds and development*
+**Manual Installation** *For developers and advanced users*
 ```powershell
 winget install -e --id Gyan.FFmpeg
 ```
 
-**Option 3: Download standalone** *Manual setup*
-- Download from [FFmpeg official](https://ffmpeg.org/download.html) or [gyan.dev](https://www.gyan.dev/ffmpeg/)
-- Extract to `ffmpeg-portable` folder inside the app directory, or add to your system PATH
+Or download directly from [FFmpeg official](https://ffmpeg.org/download.html) or [gyan.dev](https://www.gyan.dev/ffmpeg/) and add to system PATH.
 
 ### Self-contained release build
 
@@ -71,6 +69,6 @@ winget install -e --id Gyan.FFmpeg
 dotnet publish -c Release -r win-x64 --self-contained -o publish
 ```
 
-The GitHub Actions workflow in `.github/workflows/release.yml` runs this automatically when a version tag is pushed, and bundles portable FFmpeg in the release .zip.
+The GitHub Actions workflow in `.github/workflows/release.yml` runs this automatically when a version tag is pushed.
 
 

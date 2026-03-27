@@ -18,8 +18,13 @@ public class TrayContext : ApplicationContext
         _settings = AppSettings.Load();
 
         Logger.Info("VELO Uploader started.");
-    UploadService.Reconfigure(_settings);
+        UploadService.Reconfigure(_settings);
 
+        // Check and prompt for FFmpeg installation on first launch if needed
+        if (_settings.LocalCompress && !FFmpegHelper.IsFFmpegAvailable())
+        {
+            CheckFFmpegInstallation();
+        }
 
         _trayIcon = new NotifyIcon
         {
@@ -38,6 +43,13 @@ public class TrayContext : ApplicationContext
 
         if (_settings.AutoCheckForUpdates)
             BeginStartupUpdateCheck();
+    }
+
+    private void CheckFFmpegInstallation()
+    {
+        using var prompt = new FFmpegInstallPrompt();
+        prompt.ShowDialog();
+        Logger.Info("FFmpeg installation prompt dismissed");
     }
 
     private static Icon LoadAppIcon()

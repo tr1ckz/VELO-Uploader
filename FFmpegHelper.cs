@@ -1,32 +1,16 @@
 namespace VeloUploader;
 
 /// <summary>
-/// Helper to locate and manage FFmpeg (portable bundled version or system PATH).
-/// Checks for portable FFmpeg first, then falls back to system PATH.
+/// Helper to locate FFmpeg in system PATH and offer installation via winget.
 /// </summary>
 public static class FFmpegHelper
 {
-    // Portable FFmpeg directory relative to app root
-    private static readonly string PortableFFmpegDir = 
-        Path.Combine(AppContext.BaseDirectory, "ffmpeg-portable");
-    
-    private static readonly string PortableFFmpegExe = 
-        Path.Combine(PortableFFmpegDir, "bin", "ffmpeg.exe");
-
     /// <summary>
-    /// Get the full path to the FFmpeg executable.
-    /// Returns path if available (portable or system), null if not found.
+    /// Get the full path to the FFmpeg executable from system PATH.
+    /// Returns null if not found.
     /// </summary>
     public static string? GetFFmpegPath()
     {
-        // Check portable version first
-        if (File.Exists(PortableFFmpegExe))
-        {
-            Logger.Debug($"Using portable FFmpeg: {PortableFFmpegExe}");
-            return PortableFFmpegExe;
-        }
-
-        // Fall back to system PATH
         try
         {
             var psi = new System.Diagnostics.ProcessStartInfo("where", "ffmpeg")
@@ -43,7 +27,7 @@ public static class FFmpegHelper
                 proc.WaitForExit(3000);
                 if (!string.IsNullOrEmpty(output) && File.Exists(output))
                 {
-                    Logger.Debug($"Using system FFmpeg: {output}");
+                    Logger.Debug($"Found FFmpeg: {output}");
                     return output;
                 }
             }
@@ -54,7 +38,7 @@ public static class FFmpegHelper
     }
 
     /// <summary>
-    /// Check if FFmpeg is available (portable or system PATH).
+    /// Check if FFmpeg is available in system PATH.
     /// </summary>
     public static bool IsFFmpegAvailable()
     {
@@ -82,34 +66,43 @@ public static class FFmpegHelper
     }
 
     /// <summary>
-    /// Get the portable FFmpeg directory path (where it should be extracted).
+    /// Install FFmpeg via winget in the background.
+    /// Returns true if installation started successfully.
     /// </summary>
-    public static string GetPortableFFmpegDir() => PortableFFmpegDir;
+    public static bool TryInstallFFmpeg()
+    {
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo("winget", "install -e --id Gyan.FFmpeg")
+            {
+                UseShellExecute = false,
+                CreateNoWindow = false, // Show the command window for visibility
+                RedirectStandardOutput = false,
+                RedirectStandardError = false,
+            };
+            using var proc = System.Diagnostics.Process.Start(psi);
+            proc?.WaitForExit();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Failed to start FFmpeg installation", ex);
+            return false;
+        }
+    }
 
     /// <summary>
-    /// Check if portable FFmpeg is installed.
-    /// </summary>
-    public static bool IsPortableFFmpegInstalled() => File.Exists(PortableFFmpegExe);
-
-    /// <summary>
-    /// Get download URL for portable FFmpeg (gyan.dev full build).
-    /// </summary>
-    public static string GetDownloadUrl() => 
-        "https://github.com/GyanD/codexffmpeg/releases/download/8.1/ffmpeg-8.1-full_build.zip";
-
-    /// <summary>
-    /// Get helpful message for users about portable FFmpeg.
+    /// Get helpful message for users about FFmpeg installation.
     /// </summary>
     public static string GetFFmpegNotFoundMessage() =>
         @"FFmpeg not found on this system.
 
-Compression features require FFmpeg, which can be installed as a portable bundled package or via winget.
+Compression features require FFmpeg, which can be installed instantly via Windows Package Manager (winget).
 
-To use compression:
-• Download the portable FFmpeg package from your VELO release
-• Extract it to the app folder as 'ffmpeg-portable'
-OR
-• Run: winget install -e --id Gyan.FFmpeg
+Would you like to install FFmpeg now? The installation takes about 1-2 minutes and will download the full build with all codecs and hardware acceleration support.
+
+You can also install manually later:
+winget install -e --id Gyan.FFmpeg
 
 Compression will be disabled until FFmpeg is installed.";
 }

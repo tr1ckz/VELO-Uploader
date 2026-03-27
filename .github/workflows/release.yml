@@ -26,31 +26,6 @@ jobs:
       - name: Publish
         run: dotnet publish VeloUploader.csproj -c Release -r win-x64 --self-contained -o publish -p:Version=${{ env.APP_VERSION }}
 
-      - name: Download portable FFmpeg
-        shell: pwsh
-        run: |
-          # Download FFmpeg portable full build
-          $ffmpegUrl = "https://github.com/GyanD/codexffmpeg/releases/download/8.1/ffmpeg-8.1-full_build.zip"
-          $zipPath = "ffmpeg-portable.zip"
-          $extractPath = "publish/ffmpeg-portable"
-          
-          Write-Host "Downloading FFmpeg from $ffmpegUrl..."
-          Invoke-WebRequest -Uri $ffmpegUrl -OutFile $zipPath -UseBasicParsing
-          
-          Write-Host "Extracting to $extractPath..."
-          Expand-Archive -Path $zipPath -DestinationPath $extractPath
-          
-          # The archive structure is ffmpeg-8.1-full_build/bin/ffmpeg.exe
-          # Move contents to make bin/ directly under ffmpeg-portable/
-          $srcBin = Get-ChildItem -Path "$extractPath" -Directory | Where-Object { $_.Name -match "^ffmpeg-" } | Select-Object -First 1
-          if ($srcBin) {
-            Move-Item -Path "$($srcBin.FullName)/*" -Destination $extractPath -Force
-            Remove-Item -Path "$($srcBin.FullName)" -Force
-          }
-          
-          Write-Host "FFmpeg portable ready at: $extractPath/bin/ffmpeg.exe"
-          Remove-Item $zipPath
-
       - name: Zip release
         run: Compress-Archive -Path publish/* -DestinationPath VeloUploader-${{ github.ref_name }}-win-x64.zip
 
