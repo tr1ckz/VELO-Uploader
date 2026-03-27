@@ -193,6 +193,7 @@ public class SettingsForm : Form
     private Label _gpuStatusLabel;
     private Label _serverStatusLabel;
     private Panel _currentTaskPanel;
+    private System.Windows.Forms.Timer _statusRefreshTimer;
 
     // Palette
     static readonly Color C_BG = Color.FromArgb(12, 12, 15);
@@ -684,18 +685,10 @@ public class SettingsForm : Form
         //  PAGE 4: STATUS
         // ═══════════════════════════════════════
         var s = _pages[4];
-        var scroll = new Panel
-        {
-            Location = new Point(0, 0),
-            Size = new Size(680, pageHeight),
-            BackColor = C_BG,
-            AutoScroll = true,
-        };
-
         int sy = 14;
 
         // Current Task Section
-        MkSectionLabel(scroll, "CURRENT TASK", lx, sy); sy += 22;
+        MkSectionLabel(s, "CURRENT TASK", lx, sy); sy += 22;
 
         _currentTaskPanel = new Panel
         {
@@ -753,54 +746,51 @@ public class SettingsForm : Form
         };
         _currentTaskPanel.Controls.Add(_taskSpeedLabel);
 
-        scroll.Controls.Add(_currentTaskPanel);
+        s.Controls.Add(_currentTaskPanel);
         sy += 100;
 
-        // Stats Section
-        MkSectionLabel(scroll, "SESSION STATISTICS", lx, sy); sy += 22;
+        // Stats Section (compact - single line each)
+        MkSectionLabel(s, "SESSION STATISTICS", lx, sy); sy += 18;
 
-        _statsUploadsLabel = MkLabel("📤 Uploads: 0", lx, sy, new Font("Segoe UI", 9f, FontStyle.Bold), C_GREEN);
-        scroll.Controls.Add(_statsUploadsLabel);
-        sy += 24;
+        _statsUploadsLabel = MkLabel("📤 Uploads: 0", lx, sy, new Font("Segoe UI", 8.5f, FontStyle.Bold), C_GREEN);
+        s.Controls.Add(_statsUploadsLabel);
+        sy += 20;
 
-        _statsSuccessLabel = MkLabel("✓ Success rate: N/A", lx, sy, new Font("Segoe UI", 9f), C_T2);
-        scroll.Controls.Add(_statsSuccessLabel);
-        sy += 24;
+        _statsSuccessLabel = MkLabel("✓ Success rate: N/A", lx + 200, sy - 20, new Font("Segoe UI", 8.5f), C_T2);
+        s.Controls.Add(_statsSuccessLabel);
 
-        _statsSizeLabel = MkLabel("📦 Total size: 0 MB", lx, sy, new Font("Segoe UI", 9f), C_T2);
-        scroll.Controls.Add(_statsSizeLabel);
-        sy += 28;
+        _statsSizeLabel = MkLabel("📦 Total size: 0 MB", lx, sy, new Font("Segoe UI", 8.5f), C_T2);
+        s.Controls.Add(_statsSizeLabel);
+        sy += 22;
 
-        // System Status Section
-        MkSectionLabel(scroll, "SYSTEM STATUS", lx, sy); sy += 22;
+        // System Status Section (2-column compact layout)
+        MkSectionLabel(s, "SYSTEM STATUS", lx, sy); sy += 18;
 
-        _systemStatusLabel = MkLabel("● Watching", lx, sy, new Font("Segoe UI", 9f, FontStyle.Bold), C_GREEN);
-        scroll.Controls.Add(_systemStatusLabel);
-        sy += 24;
+        _systemStatusLabel = MkLabel("● Watching", lx, sy, new Font("Segoe UI", 8.5f, FontStyle.Bold), C_GREEN);
+        s.Controls.Add(_systemStatusLabel);
 
-        _gpuStatusLabel = MkLabel("GPU: Checking...", lx, sy, new Font("Segoe UI", 9f), C_T2);
-        scroll.Controls.Add(_gpuStatusLabel);
-        sy += 24;
+        _gpuStatusLabel = MkLabel("GPU: Checking...", lx + 300, sy, new Font("Segoe UI", 8.5f), C_T2);
+        s.Controls.Add(_gpuStatusLabel);
+        sy += 20;
 
         var ffmpegStatus = LocalCompressor.IsAvailable() ? "✓ FFmpeg available" : "✗ FFmpeg not found";
         var ffmpegColor = LocalCompressor.IsAvailable() ? C_GREEN : C_RED;
-        var ffmpegLabel = MkLabel(ffmpegStatus, lx, sy, new Font("Segoe UI", 9f), ffmpegColor);
-        scroll.Controls.Add(ffmpegLabel);
+        var ffmpegLabel = MkLabel(ffmpegStatus, lx, sy, new Font("Segoe UI", 8.5f), ffmpegColor);
+        s.Controls.Add(ffmpegLabel);
+
+        _serverStatusLabel = MkLabel("Server: Checking...", lx + 300, sy, new Font("Segoe UI", 8.5f), C_T2);
+        s.Controls.Add(_serverStatusLabel);
+        sy += 20;
+
+        _quotaStatusLabel = MkLabel("Storage: Checking...", lx, sy, new Font("Segoe UI", 8.5f), C_T2);
+        s.Controls.Add(_quotaStatusLabel);
         sy += 24;
 
-        _serverStatusLabel = MkLabel("Server: Checking...", lx, sy, new Font("Segoe UI", 9f), C_T2);
-        scroll.Controls.Add(_serverStatusLabel);
-        sy += 28;
-
-            _quotaStatusLabel = MkLabel("Storage: Checking...", lx, sy, new Font("Segoe UI", 9f), C_T2);
-            scroll.Controls.Add(_quotaStatusLabel);
-            sy += 28;
-
         // Version Section
-        MkSectionLabel(scroll, "APPLICATION", lx, sy); sy += 22;
+        MkSectionLabel(s, "APPLICATION", lx, sy); sy += 18;
 
-        _versionLabel = MkLabel($"v{GitHubUpdater.GetCurrentVersion()}", lx, sy, new Font("Segoe UI", 9f, FontStyle.Bold), C_ACCENT);
-        scroll.Controls.Add(_versionLabel);
+        _versionLabel = MkLabel($"v{GitHubUpdater.GetCurrentVersion()}", lx, sy, new Font("Segoe UI", 8.5f, FontStyle.Bold), C_ACCENT);
+        s.Controls.Add(_versionLabel);
 
         _updateCheckBtn = new Button
         {
@@ -889,16 +879,16 @@ public class SettingsForm : Form
                 _updateCheckBtn.Enabled = true;
             }
         };
-        scroll.Controls.Add(_updateCheckBtn);
-        sy += 32;
+        s.Controls.Add(_updateCheckBtn);
 
-        // Event Log Section
-        MkSectionLabel(scroll, "EVENT LOG", lx, sy); sy += 22;
+        // Event Log Section (compact in remaining space)
+        sy += 36;
+        MkSectionLabel(s, "EVENT LOG", lx, sy); sy += 18;
 
         _eventLogBox = new RichTextBox
         {
             Location = new Point(lx, sy),
-            Size = new Size(w, 200),
+            Size = new Size(w, 120),
             BackColor = C_PANEL,
             ForeColor = C_T2,
             BorderStyle = BorderStyle.FixedSingle,
@@ -907,15 +897,28 @@ public class SettingsForm : Form
             WordWrap = true,
             ScrollBars = RichTextBoxScrollBars.Vertical,
         };
-        scroll.Controls.Add(_eventLogBox);
+        s.Controls.Add(_eventLogBox);
 
-        s.Controls.Add(scroll);
+        // Setup refresh timer (every 15 seconds)
+        _statusRefreshTimer = new System.Windows.Forms.Timer
+        {
+            Interval = 15000, // 15 seconds
+        };
+        _statusRefreshTimer.Tick += async (_, _) =>
+        {
+            await CheckServerStatusAsync();
+            _ = RefreshQuotaAsync();
+        };
 
         // Check GPU availability
         CheckGPUStatus();
-        // Defer server status check until after handle is created
-        Load += async (_, _) => await CheckServerStatusAsync();
-            Load += async (_, _) => await RefreshQuotaAsync();
+        // Defer server status check until after handle is created and start refresh timer
+        Load += async (_, _) =>
+        {
+            await CheckServerStatusAsync();
+            await RefreshQuotaAsync();
+            _statusRefreshTimer.Start();
+        };
 
         SwitchTab(initialTab);
         ResumeLayout();
