@@ -31,7 +31,7 @@ public class FFmpegInstallPrompt : Form
         MaximizeBox = false;
         MinimizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
-        Size = new Size(500, 320);
+        Size = new Size(500, 410);
         BackColor = C_BG;
         ForeColor = C_T1;
         Font = new Font("Segoe UI", 10f);
@@ -57,7 +57,7 @@ public class FFmpegInstallPrompt : Form
         {
             Text = "FFmpeg enables local video compression before upload, saving bandwidth and storage space.\n\nThe installation takes 1-2 minutes and includes full codec support with hardware acceleration.",
             Location = new Point(20, 60),
-            Size = new Size(460, 80),
+            Size = new Size(460, 110),
             Font = new Font("Segoe UI", 9.5f),
             ForeColor = C_T3,
             BackColor = Color.Transparent,
@@ -68,7 +68,7 @@ public class FFmpegInstallPrompt : Form
         // Progress bar (hidden initially)
         _progressBar = new ProgressBar
         {
-            Location = new Point(20, 150),
+            Location = new Point(20, 185),
             Size = new Size(460, 8),
             Style = ProgressBarStyle.Continuous,
             Visible = false,
@@ -79,7 +79,7 @@ public class FFmpegInstallPrompt : Form
         _statusLabel = new Label
         {
             Text = "Installing FFmpeg...",
-            Location = new Point(20, 165),
+            Location = new Point(20, 200),
             Size = new Size(460, 20),
             Font = new Font("Segoe UI", 9f),
             ForeColor = C_T3,
@@ -92,7 +92,7 @@ public class FFmpegInstallPrompt : Form
         _installBtn = new Button
         {
             Text = "Install FFmpeg",
-            Location = new Point(300, 260),
+            Location = new Point(300, 350),
             Size = new Size(180, 40),
             BackColor = C_ACCENT,
             ForeColor = C_T1,
@@ -109,7 +109,7 @@ public class FFmpegInstallPrompt : Form
         _skipBtn = new Button
         {
             Text = "Skip for Now",
-            Location = new Point(20, 260),
+            Location = new Point(20, 350),
             Size = new Size(120, 40),
             BackColor = C_BTN_BG,
             ForeColor = C_T3,

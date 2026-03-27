@@ -222,7 +222,7 @@ public class SettingsForm : Form
         SuspendLayout();
 
         Text = "VELO Uploader";
-        ClientSize = new Size(680, 820);
+        ClientSize = new Size(680, 900);
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
@@ -477,6 +477,7 @@ public class SettingsForm : Form
 
         _moveBox = MkChk("Move clip after upload", settings.MoveAfterUpload, lx, y);
         g.Controls.Add(_moveBox);
+        y += 24;
         Lbl(g, "Destination folder", lx, y);
         _moveToBox = new DarkTextBox(settings.MoveToFolder, @"D:\archived-clips", lx, y + 16, w - 78);
         g.Controls.Add(_moveToBox);
