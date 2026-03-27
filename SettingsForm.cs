@@ -408,8 +408,17 @@ public class SettingsForm : Form
         Section(g, "UPLOAD OPTIONS", lx, y); y += 18;
 
         Lbl(g, "Compression preset:", lx, y + 5);
-        _presetBox = new DarkComboBox(lx + 120, y, 140, CompressionPreset.All, settings.CompressionPreset);
+        
+        // Show GPU presets if available, otherwise CPU only
+        var gpuAvailable = LocalCompressor.IsGPUAvailable();
+        var presetOptions = gpuAvailable ? CompressionPreset.All : CompressionPreset.AllCPU;
+        _presetBox = new DarkComboBox(lx + 120, y, 140, presetOptions, settings.CompressionPreset);
         g.Controls.Add(_presetBox);
+
+        // Show GPU status label
+        var gpuStatus = gpuAvailable ? "GPU ready ✓" : "CPU only";
+        var gpuStatusColor = gpuAvailable ? C_GREEN : C_T3;
+        g.Controls.Add(MkLabel(gpuStatus, lx + w - 120, y + 5, new Font("Segoe UI", 7.5f, FontStyle.Bold), gpuStatusColor));
 
         Lbl(g, "Retries:", lx + 340, y + 5);
         _retriesBox = new DarkNumeric(settings.MaxRetries, 1, 10, lx + 400, y, 60);

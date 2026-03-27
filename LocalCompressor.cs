@@ -71,6 +71,46 @@ public static class LocalCompressor
     }
 
     /// <summary>
+    /// Check if GPU acceleration is available (NVIDIA NVENC).
+    /// </summary>
+    public static bool IsGPUAvailable()
+    {
+        try
+        {
+            // Check for NVIDIA NVENC codec support
+            var psi = new ProcessStartInfo("ffmpeg", "-codecs")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            using var proc = Process.Start(psi);
+            if (proc == null) return false;
+
+            var output = proc.StandardOutput.ReadToEnd();
+            proc.WaitForExit(5000);
+
+            // Look for NVIDIA NVENC codecs (h264_nvenc for H.264, hevc_nvenc for H.265)
+            var hasNVENC = output.Contains("h264_nvenc") || output.Contains("hevc_nvenc");
+            if (hasNVENC)
+            {
+                Logger.Info("GPU acceleration available: NVIDIA NVENC detected");
+                return true;
+            }
+
+            // Could also check for other GPUs here (AMD VCE, Intel QSV, etc.)
+            // For now, just NVIDIA NVENC
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Logger.Debug($"GPU check failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Compress a video file using FFmpeg. Returns the path to the compressed file, or null on failure.
     /// The compressed file is placed next to the original with a .velo-compressed.mp4 suffix.
     /// </summary>
@@ -102,7 +142,7 @@ public static class LocalCompressor
             $"\"{outputPath}\""
         );
 
-        Logger.Info($"Compressing locally: {Path.GetFileName(inputPath)} ({preset})");
+        Logger.Info($"Compressing locally: {Path.GetFileName(inputPath)} ({preset}){(IsGPU(preset) ? " [GPU ACCELERATED]" : "")}");
         Logger.Debug($"ffmpeg {args}");
 
         var psi = new ProcessStartInfo("ffmpeg", args)
@@ -191,8 +231,9 @@ public static class LocalCompressor
             var originalSize = new FileInfo(inputPath).Length;
             var compressedSize = new FileInfo(outputPath).Length;
             var ratio = (1.0 - (double)compressedSize / originalSize) * 100;
+            var encoder = IsGPU(preset) ? "GPU" : "CPU";
 
-            Logger.Info($"Compression complete: {originalSize / 1024 / 1024}MB → {compressedSize / 1024 / 1024}MB ({ratio:F1}% smaller)");
+            Logger.Info($"Compression complete ({encoder}): {originalSize / 1024 / 1024}MB → {compressedSize / 1024 / 1024}MB ({ratio:F1}% smaller)");
             progress?.Report(100);
 
             return outputPath;
@@ -240,6 +281,25 @@ public static class LocalCompressor
                 ScaleArgs = "-vf \"scale='min(1280,iw)':'min(720,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2\"",
                 AudioArgs = "-c:a aac -b:a 128k",
             },
+            // GPU-accelerated presets (NVIDIA NVENC)
+            CompressionPreset.BalancedGPU => new PresetOptions
+            {
+                VideoCodecArgs = "-c:v h264_nvenc -crf 23 -preset fast",
+                ScaleArgs = "-vf \"scale='min(1920,iw)':'min(1080,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2\"",
+                AudioArgs = "-c:a aac -b:a 192k",
+            },
+            CompressionPreset.QualityGPU => new PresetOptions
+            {
+                VideoCodecArgs = "-c:v h264_nvenc -crf 20 -preset lossless",
+                ScaleArgs = "-vf \"scale='min(2560,iw)':'min(1440,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2\"",
+                AudioArgs = "-c:a aac -b:a 224k",
+            },
+            CompressionPreset.Discord_GPU => new PresetOptions
+            {
+                VideoCodecArgs = "-c:v h264_nvenc -crf 28 -preset fast",
+                ScaleArgs = "-vf \"scale='min(1280,iw)':'min(720,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2\"",
+                AudioArgs = "-c:a aac -b:a 128k",
+            },
             _ => new PresetOptions
             {
                 VideoCodecArgs = "-c:v libx264 -crf 23 -preset slow",
@@ -247,5 +307,11 @@ public static class LocalCompressor
                 AudioArgs = "-c:a aac -b:a 192k",
             },
         };
+    }
+
+    private static bool IsGPU(string preset)
+    {
+        return preset.Contains("GPU") || preset.Equals(CompressionPreset.BalancedGPU) || 
+               preset.Equals(CompressionPreset.QualityGPU) || preset.Equals(CompressionPreset.Discord_GPU);
     }
 }

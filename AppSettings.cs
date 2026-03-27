@@ -54,10 +54,15 @@ public class AppSettings
 
 public static class CompressionPreset
 {
-    public const string Balanced = "Balanced";
-    public const string Quality = "Quality";
-    public const string Aggressive = "Aggressive";
-    public const string Discord = "Discord";
+    public const string Balanced = "Balanced (CPU)";
+    public const string Quality = "Quality (CPU)";
+    public const string Aggressive = "Aggressive (CPU)";
+    public const string Discord = "Discord (CPU)";
+    public const string BalancedGPU = "Balanced (GPU)";
+    public const string QualityGPU = "Quality (GPU)";
+    public const string Discord_GPU = "Discord (GPU)";
 
-    public static readonly string[] All = [Balanced, Quality, Aggressive, Discord];
+    public static readonly string[] All = [Balanced, Quality, Aggressive, Discord, BalancedGPU, QualityGPU, Discord_GPU];
+    public static readonly string[] AllCPU = [Balanced, Quality, Aggressive, Discord];
+    public static readonly string[] AllGPU = [BalancedGPU, QualityGPU, Discord_GPU];
 }
