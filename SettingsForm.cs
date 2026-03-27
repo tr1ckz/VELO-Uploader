@@ -854,7 +854,17 @@ public class SettingsForm : Form
                             }
                         });
 
-                        progressForm.ShowDialog();
+                        var dialogResult = progressForm.ShowDialog();
+                        await updateTask;
+
+                        if (dialogResult == DialogResult.OK)
+                        {
+                            Logger.Info($"Applying update {release.TagName} - exiting app from SettingsForm");
+                            await Task.Delay(300);
+                            Application.Exit();
+                            await Task.Delay(500);
+                            Environment.Exit(0);
+                        }
                     }
                 }
             }

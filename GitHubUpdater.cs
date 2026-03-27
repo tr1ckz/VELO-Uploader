@@ -198,10 +198,13 @@ public static class GitHubUpdater
                "  timeout /t 1 /nobreak >nul\r\n" +
                ")\r\n" +
                ":waitdone\r\n" +
-               "REM Force kill if still running\r\n" +
-               ">>\"%LOGFILE%\" echo Forcing kill of process %PID%\r\n" +
-               "taskkill /PID %PID% /F /T 2>>\"%LOGFILE%\" >nul\r\n" +
-               "timeout /t 3 /nobreak >nul\r\n" +
+               "REM Force kill only if still running\r\n" +
+               "tasklist /FI \"PID eq !PID!\" 2>nul | find \"!PID!\" >nul\r\n" +
+               "if not errorlevel 1 (\r\n" +
+               "  >>\"%LOGFILE%\" echo Forcing kill of process %PID%\r\n" +
+               "  taskkill /PID %PID% /F 2>>\"%LOGFILE%\" >nul\r\n" +
+               "  timeout /t 5 /nobreak >nul\r\n" +
+               ")\r\n" +
                ">>\"%LOGFILE%\" echo Starting file replacement...\r\n" +
                "REM Verify directories exist\r\n" +
                "if not exist \"%SRC%\" (\r\n" +
@@ -212,12 +215,25 @@ public static class GitHubUpdater
                "  >>\"%LOGFILE%\" echo ERROR: Target directory not found: %DST%\r\n" +
                "  goto error\r\n" +
                ")\r\n" +
-               ":copy\r\n" +
-               "robocopy \"%SRC%\" \"%DST%\" /E /R:5 /W:2 /NFL /NDL /NJH /NJS /NC /NS /NP 2>>\"%LOGFILE%\" >nul\r\n" +
-               "if errorlevel 8 (\r\n" +
-               "  >>\"%LOGFILE%\" echo ERROR: Robocopy failed with code %ERRORLEVEL%\r\n" +
+               "REM Clear readonly/system flags from target exe if present\r\n" +
+               "if exist \"%EXE%\" attrib -R -H -S \"%EXE%\" 2>>\"%LOGFILE%\"\r\n" +
+               "REM Try robocopy multiple times to handle transient file locks\r\n" +
+               "set \"RBCODE=16\"\r\n" +
+               "for /l %%r in (1,1,5) do (\r\n" +
+               "  robocopy \"%SRC%\" \"%DST%\" /E /R:2 /W:2 /NFL /NDL /NJH /NJS /NC /NS /NP /COPY:DAT 2>>\"%LOGFILE%\" >nul\r\n" +
+               "  set \"RBCODE=!ERRORLEVEL!\"\r\n" +
+               "  if !RBCODE! LSS 8 goto copied\r\n" +
+               "  >>\"%LOGFILE%\" echo Robocopy attempt %%r failed with code !RBCODE!\r\n" +
+               "  timeout /t 2 /nobreak >nul\r\n" +
+               ")\r\n" +
+               ">>\"%LOGFILE%\" echo Robocopy failed after retries with code !RBCODE!, trying xcopy fallback...\r\n" +
+               "xcopy \"%SRC%\\*\" \"%DST%\\\" /E /I /Y /Q 2>>\"%LOGFILE%\" >nul\r\n" +
+               "if errorlevel 1 (\r\n" +
+               "  >>\"%LOGFILE%\" echo ERROR: Fallback xcopy failed with code %ERRORLEVEL%\r\n" +
                "  goto error\r\n" +
                ")\r\n" +
+               "goto copied\r\n" +
+               ":copied\r\n" +
                ">>\"%LOGFILE%\" echo File replacement completed successfully.\r\n" +
                "if exist \"%EXE%\" (\r\n" +
                "  >>\"%LOGFILE%\" echo Restarting application: %EXE%\r\n" +
