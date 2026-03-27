@@ -845,22 +845,25 @@ public class SettingsForm : Form
                                     onProgress: (downloaded, total) => progressForm.SetProgress(downloaded, total)
                                 );
                                 
+                                // SetCompleting sets DialogResult = OK which auto-closes the ShowDialog form
                                 progressForm.SetCompleting();
-                                await Task.Delay(800);
-                                progressForm.Invoke(() => progressForm.Close());
                             }
                             catch (Exception ex)
                             {
-                                progressForm.Invoke(() => 
+                                if (progressForm.IsHandleCreated)
                                 {
-                                    MessageBox.Show($"Update failed: {ex.Message}", "VELO Uploader", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                                    progressForm.Close();
-                                });
+                                    progressForm.BeginInvoke(() =>
+                                    {
+                                        MessageBox.Show($"Update failed: {ex.Message}", "VELO Uploader", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                                        progressForm.DialogResult = DialogResult.Cancel;
+                                    });
+                                }
                             }
                         });
 
                         var dialogResult = progressForm.ShowDialog();
-                        await updateTask;
+                        // Swallow any Invoke errors from task (form already closed)
+                        try { await updateTask; } catch { }
 
                         if (dialogResult == DialogResult.OK)
                         {
@@ -906,7 +909,8 @@ public class SettingsForm : Form
 
         // Check GPU availability
         CheckGPUStatus();
-        _ = CheckServerStatusAsync();
+        // Defer server status check until after handle is created
+        Load += async (_, _) => await CheckServerStatusAsync();
 
         SwitchTab(initialTab);
         ResumeLayout();

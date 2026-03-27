@@ -147,9 +147,10 @@ public class UpdateProgressForm : Form
 
     public void SetFileName(string filename)
     {
+        if (!IsHandleCreated) return;
         if (InvokeRequired)
         {
-            Invoke(() => SetFileName(filename));
+            BeginInvoke(() => SetFileName(filename));
             return;
         }
 
@@ -158,9 +159,10 @@ public class UpdateProgressForm : Form
 
     public void SetProgress(long downloadedBytes, long totalBytes)
     {
+        if (!IsHandleCreated) return;
         if (InvokeRequired)
         {
-            Invoke(() => SetProgress(downloadedBytes, totalBytes));
+            BeginInvoke(() => SetProgress(downloadedBytes, totalBytes));
             return;
         }
 
@@ -199,9 +201,10 @@ public class UpdateProgressForm : Form
 
     public void SetCompleting()
     {
+        if (!IsHandleCreated) return;
         if (InvokeRequired)
         {
-            Invoke(SetCompleting);
+            BeginInvoke(SetCompleting);
             return;
         }
 
@@ -210,6 +213,7 @@ public class UpdateProgressForm : Form
         _progressBar.Value = 100;
         _speedLabel.Text = "Extracting and applying...";
         DialogResult = DialogResult.OK;
+        // Setting DialogResult on a ShowDialog form closes it automatically
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
