@@ -140,9 +140,9 @@ public static class GitHubUpdater
 
         EnsureWritableInstallDirectory(AppContext.BaseDirectory);
 
-        var scriptPath = Path.Combine(tempRoot, "apply-update.cmd");
+        var scriptPath = Path.Combine(tempRoot, "apply-update.ps1");
         var scriptContent = BuildUpdateScript(extractPath, AppContext.BaseDirectory, currentExe, Environment.ProcessId);
-        File.WriteAllText(scriptPath, scriptContent, Encoding.ASCII);
+        File.WriteAllText(scriptPath, scriptContent, Encoding.UTF8);
         
         Logger.Info($"Update script created at: {scriptPath}");
         Logger.Info($"Source: {extractPath}");
@@ -154,10 +154,9 @@ public static class GitHubUpdater
         {
             var psi = new System.Diagnostics.ProcessStartInfo
             {
-                FileName = scriptPath,
-                WorkingDirectory = tempRoot,
+                FileName = "powershell.exe",
+                Arguments = $"-ExecutionPolicy Bypass -NonInteractive -WindowStyle Hidden -File \"{scriptPath}\"",
                 UseShellExecute = true,
-                CreateNoWindow = true,
                 WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
             };
             System.Diagnostics.Process.Start(psi);
@@ -173,94 +172,89 @@ public static class GitHubUpdater
     private static string BuildUpdateScript(string sourceDir, string targetDir, string exePath, int currentPid)
     {
         var logPath = Path.Combine(Path.GetTempPath(), "VeloUploader_update.log");
-        var escapedLogPath = EscapeForCmd(logPath);
         var exeName = Path.GetFileName(exePath);
-        
-        return $"@echo off\r\n" +
-               "setlocal enabledelayedexpansion\r\n" +
-               $"set \"LOGFILE={escapedLogPath}\"\r\n" +
-               $"set \"SRC={EscapeForCmd(sourceDir)}\"\r\n" +
-               $"set \"DST={EscapeForCmd(targetDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))}\"\r\n" +
-               $"set \"EXE={EscapeForCmd(exePath)}\"\r\n" +
-               $"set \"EXENAME={EscapeForCmd(exeName)}\"\r\n" +
-               $"set \"PID={currentPid}\"\r\n" +
-               ">>\"%LOGFILE%\" echo [%date% %time%] Starting update script\r\n" +
-               ">>\"%LOGFILE%\" echo SRC=%SRC%\r\n" +
-               ">>\"%LOGFILE%\" echo DST=%DST%\r\n" +
-               ">>\"%LOGFILE%\" echo EXE=%EXE%\r\n" +
-               ">>\"%LOGFILE%\" echo PID=%PID%\r\n" +
-               "REM Check if process is running\r\n" +
-               "tasklist /FI \"PID eq !PID!\" 2>nul | find \"!PID!\" >nul\r\n" +
-               "if errorlevel 1 >>\"%LOGFILE%\" echo Process already terminated.\r\n" +
-               "if not errorlevel 1 >>\"%LOGFILE%\" echo Waiting for process %PID% to exit...\r\n" +
-               "REM Wait up to 15 seconds for graceful exit\r\n" +
-               "for /l %%i in (1,1,15) do (\r\n" +
-               "  tasklist /FI \"PID eq !PID!\" 2>nul | find \"!PID!\" >nul\r\n" +
-               "  if errorlevel 1 goto waitdone\r\n" +
-               "  timeout /t 1 /nobreak >nul\r\n" +
-               ")\r\n" +
-               ":waitdone\r\n" +
-               "REM Force kill only if still running\r\n" +
-               "tasklist /FI \"PID eq !PID!\" 2>nul | find \"!PID!\" >nul\r\n" +
-               "if not errorlevel 1 (\r\n" +
-               "  >>\"%LOGFILE%\" echo Forcing kill of process %PID%\r\n" +
-               "  taskkill /PID %PID% /F 2>>\"%LOGFILE%\" >nul\r\n" +
-               "  timeout /t 5 /nobreak >nul\r\n" +
-               ")\r\n" +
-               ">>\"%LOGFILE%\" echo Starting file replacement...\r\n" +
-               "REM Verify directories exist\r\n" +
-               "if not exist \"%SRC%\" (\r\n" +
-               "  >>\"%LOGFILE%\" echo ERROR: Source directory not found: %SRC%\r\n" +
-               "  goto error\r\n" +
-               ")\r\n" +
-               "if not exist \"%DST%\" (\r\n" +
-               "  >>\"%LOGFILE%\" echo ERROR: Target directory not found: %DST%\r\n" +
-               "  goto error\r\n" +
-               ")\r\n" +
-               "REM Clear readonly/system flags from target exe if present\r\n" +
-               "if exist \"%EXE%\" attrib -R -H -S \"%EXE%\" 2>>\"%LOGFILE%\"\r\n" +
-               "REM Copy all files except the main executable first\r\n" +
-               "set \"RBCODE=16\"\r\n" +
-               "for /l %%r in (1,1,5) do (\r\n" +
-               "  robocopy \"%SRC%\" \"%DST%\" /E /R:2 /W:2 /NFL /NDL /NJH /NJS /NC /NS /NP /COPY:DAT /XF \"%EXENAME%\" 2>>\"%LOGFILE%\" >nul\r\n" +
-               "  set \"RBCODE=!ERRORLEVEL!\"\r\n" +
-               "  if !RBCODE! LSS 8 goto copied_non_exe\r\n" +
-               "  >>\"%LOGFILE%\" echo Robocopy(non-exe) attempt %%r failed with code !RBCODE!\r\n" +
-               "  timeout /t 2 /nobreak >nul\r\n" +
-               ")\r\n" +
-               ">>\"%LOGFILE%\" echo WARNING: Non-exe file copy had errors after retries; continuing with exe replacement.\r\n" +
-               ":copied_non_exe\r\n" +
-               "REM Replace main executable with dedicated retries\r\n" +
-               "set \"SRCEXE=%SRC%\\%EXENAME%\"\r\n" +
-               "if not exist \"%SRCEXE%\" (\r\n" +
-               "  >>\"%LOGFILE%\" echo ERROR: Source executable not found: %SRCEXE%\r\n" +
-               "  goto error\r\n" +
-               ")\r\n" +
-               "for /l %%e in (1,1,20) do (\r\n" +
-               "  copy /Y \"%SRCEXE%\" \"%EXE%\" >nul 2>>\"%LOGFILE%\"\r\n" +
-               "  if not errorlevel 1 goto copied\r\n" +
-               "  >>\"%LOGFILE%\" echo Exe copy attempt %%e failed; retrying...\r\n" +
-               "  timeout /t 1 /nobreak >nul\r\n" +
-               ")\r\n" +
-               ">>\"%LOGFILE%\" echo ERROR: Unable to replace executable after retries.\r\n" +
-               "goto error\r\n" +
-               "goto copied\r\n" +
-               ":copied\r\n" +
-               ">>\"%LOGFILE%\" echo File replacement completed successfully.\r\n" +
-               "if exist \"%EXE%\" (\r\n" +
-               "  >>\"%LOGFILE%\" echo Restarting application: %EXE%\r\n" +
-               "  timeout /t 1 /nobreak >nul\r\n" +
-               "  start \"\" \"%EXE%\"\r\n" +
-               ") else (\r\n" +
-               "  >>\"%LOGFILE%\" echo ERROR: Executable not found: %EXE%\r\n" +
-               ")\r\n" +
-               ">>\"%LOGFILE%\" echo [%date% %time%] Update script completed.\r\n" +
-               "exit /b 0\r\n" +
-               ":error\r\n" +
-               ">>\"%LOGFILE%\" echo Update failed!\r\n" +
-             "if exist \"%EXE%\" start \"\" \"%EXE%\"\r\n" +
-               "exit /b 1\r\n";
-        }
+        var dst = targetDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        // Embed values as single-quoted PS literals (escape single quotes by doubling them)
+        static string Ps(string s) => "'" + s.Replace("'", "''") + "'";
+
+        return
+            $"$LOGFILE = {Ps(logPath)}\r\n" +
+            $"$SRC     = {Ps(sourceDir)}\r\n" +
+            $"$DST     = {Ps(dst)}\r\n" +
+            $"$EXE     = {Ps(exePath)}\r\n" +
+            $"$EXENAME = {Ps(exeName)}\r\n" +
+            $"$WAITPID = {currentPid}\r\n" +
+            "\r\n" +
+            "function Log([string]$msg) { \"$(Get-Date -Format 'o') $msg\" | Add-Content -LiteralPath $LOGFILE }\r\n" +
+            "\r\n" +
+            "Log 'Starting update script'\r\n" +
+            "Log \"SRC=$SRC\"\r\n" +
+            "Log \"DST=$DST\"\r\n" +
+            "Log \"EXE=$EXE\"\r\n" +
+            "Log \"PID=$WAITPID\"\r\n" +
+            "\r\n" +
+            "# Wait for old process to exit (up to 30s)\r\n" +
+            "$proc = Get-Process -Id $WAITPID -ErrorAction SilentlyContinue\r\n" +
+            "if ($proc) {\r\n" +
+            "    Log 'Waiting for process to exit...'\r\n" +
+            "    $waited = 0\r\n" +
+            "    while ($waited -lt 30) {\r\n" +
+            "        Start-Sleep -Seconds 1\r\n" +
+            "        $waited++\r\n" +
+            "        if (-not (Get-Process -Id $WAITPID -ErrorAction SilentlyContinue)) { break }\r\n" +
+            "    }\r\n" +
+            "}\r\n" +
+            "# Force kill if still alive\r\n" +
+            "if (Get-Process -Id $WAITPID -ErrorAction SilentlyContinue) {\r\n" +
+            "    Log 'Force killing process'\r\n" +
+            "    Stop-Process -Id $WAITPID -Force -ErrorAction SilentlyContinue\r\n" +
+            "    Start-Sleep -Seconds 2\r\n" +
+            "}\r\n" +
+            "\r\n" +
+            "Log 'Starting file replacement...'\r\n" +
+            "\r\n" +
+            "if (-not (Test-Path -LiteralPath $SRC)) { Log \"ERROR: SRC not found: $SRC\"; Start-Process $EXE; exit 1 }\r\n" +
+            "if (-not (Test-Path -LiteralPath $DST)) { Log \"ERROR: DST not found: $DST\"; Start-Process $EXE; exit 1 }\r\n" +
+            "\r\n" +
+            "# Copy all non-exe files\r\n" +
+            "try {\r\n" +
+            "    Get-ChildItem -LiteralPath $SRC -Recurse -File | Where-Object { $_.Name -ne $EXENAME } | ForEach-Object {\r\n" +
+            "        $rel  = $_.FullName.Substring($SRC.Length).TrimStart([char]'\\', [char]'/')\r\n" +
+            "        $dest = Join-Path $DST $rel\r\n" +
+            "        $dir  = Split-Path $dest -Parent\r\n" +
+            "        if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }\r\n" +
+            "        Copy-Item -LiteralPath $_.FullName -Destination $dest -Force\r\n" +
+            "    }\r\n" +
+            "    Log 'Non-exe files copied.'\r\n" +
+            "} catch {\r\n" +
+            "    Log \"WARNING: Non-exe copy error: $_\"\r\n" +
+            "}\r\n" +
+            "\r\n" +
+            "# Replace exe with retries\r\n" +
+            "$srcExe = Join-Path $SRC $EXENAME\r\n" +
+            "if (-not (Test-Path -LiteralPath $srcExe)) { Log \"ERROR: Source exe not found: $srcExe\"; Start-Process $EXE; exit 1 }\r\n" +
+            "$replaced = $false\r\n" +
+            "for ($i = 1; $i -le 20; $i++) {\r\n" +
+            "    try {\r\n" +
+            "        Copy-Item -LiteralPath $srcExe -Destination $EXE -Force -ErrorAction Stop\r\n" +
+            "        $replaced = $true\r\n" +
+            "        Log \"Exe replaced on attempt $i\"\r\n" +
+            "        break\r\n" +
+            "    } catch {\r\n" +
+            "        Log \"Exe copy attempt $i failed: $_\"\r\n" +
+            "        Start-Sleep -Seconds 1\r\n" +
+            "    }\r\n" +
+            "}\r\n" +
+            "\r\n" +
+            "if (-not $replaced) { Log 'ERROR: Failed to replace exe after 20 attempts.'; Start-Process $EXE; exit 1 }\r\n" +
+            "\r\n" +
+            "Log 'Update complete. Restarting...'\r\n" +
+            "Start-Sleep -Seconds 1\r\n" +
+            "Start-Process -FilePath $EXE\r\n" +
+            "Log 'Done.'\r\n" +
+            "exit 0\r\n";
+    }
 
     private static void EnsureWritableInstallDirectory(string directory)
     {
@@ -275,8 +269,6 @@ public static class GitHubUpdater
             throw new InvalidOperationException("The app folder is not writable. Move VELO Uploader to a writable folder before using auto-update.", ex);
         }
     }
-
-    private static string EscapeForCmd(string value) => value.Replace("\"", "\"\"");
 
     public static string GetUpdateLogPath() => Path.Combine(Path.GetTempPath(), "VeloUploader_update.log");
 
