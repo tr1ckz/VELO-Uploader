@@ -177,6 +177,21 @@ public class SettingsForm : Form
     private readonly Button[] _tabBtns;
     private int _activeTab;
     private List<UploadHistoryEntry> _historyEntries = [];
+    
+    // Status Dashboard UI components
+    private ProgressBar _taskProgressBar;
+    private Label _taskStatusLabel;
+    private Label _taskFileLabel;
+    private Label _taskSpeedLabel;
+    private RichTextBox _eventLogBox;
+    private Label _statsUploadsLabel;
+    private Label _statsSuccessLabel;
+    private Label _statsSizeLabel;
+    private Label _systemStatusLabel;
+    private Label _versionLabel;
+    private Button _updateCheckBtn;
+    private Label _gpuStatusLabel;
+    private Panel _currentTaskPanel;
 
     // Palette
     static readonly Color C_BG = Color.FromArgb(12, 12, 15);
@@ -192,6 +207,7 @@ public class SettingsForm : Form
     static readonly Color C_BTN_H = Color.FromArgb(52, 52, 62);
     static readonly Color C_RED = Color.FromArgb(160, 38, 38);
     static readonly Color C_GREEN = Color.FromArgb(74, 222, 128);
+    static readonly Color C_ORANGE = Color.FromArgb(251, 146, 60);
     static readonly Color C_ERR = Color.FromArgb(248, 113, 113);
 
     public SettingsForm(AppSettings settings, int initialTab = 0)
@@ -247,15 +263,15 @@ public class SettingsForm : Form
         var tabBar = new Panel { Location = new Point(0, 66), Size = new Size(680, 36), BackColor = C_PANEL };
         Controls.Add(tabBar);
 
-        _tabBtns = new Button[4];
-        string[] tabNames = ["General", "Filters", "Logs", "History"];
-        for (int i = 0; i < 4; i++)
+        _tabBtns = new Button[5];
+        string[] tabNames = ["General", "Filters", "Logs", "History", "Status"];
+        for (int i = 0; i < 5; i++)
         {
             int idx = i;
             var btn = new Button
             {
                 Text = tabNames[i],
-            Location = new Point(i * 130 + 16, 0),
+            Location = new Point(i * 120 + 20, 0),
             Size = new Size(120, 36),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.Transparent,
@@ -280,8 +296,8 @@ public class SettingsForm : Form
         };
 
         // ── Pages ──
-        _pages = new Panel[4];
-        for (int i = 0; i < 4; i++)
+        _pages = new Panel[5];
+        for (int i = 0; i < 5; i++)
         {
             _pages[i] = new Panel
             {
@@ -605,6 +621,219 @@ public class SettingsForm : Form
         };
         UploadHistoryManager.Changed += OnHistoryChanged;
 
+        // ═══════════════════════════════════════
+        //  PAGE 4: STATUS
+        // ═══════════════════════════════════════
+        var s = _pages[4];
+        var scroll = new Panel
+        {
+            Location = new Point(0, 0),
+            Size = new Size(680, 716),
+            BackColor = C_BG,
+            AutoScroll = true,
+        };
+
+        int sy = 14;
+
+        // Current Task Section
+        MkSectionLabel(scroll, "CURRENT TASK", lx, sy); sy += 22;
+
+        _currentTaskPanel = new Panel
+        {
+            Location = new Point(lx, sy),
+            Size = new Size(w, 90),
+            BackColor = C_PANEL,
+            BorderStyle = BorderStyle.FixedSingle,
+        };
+        _currentTaskPanel.Paint += (_, e) =>
+        {
+            using var pen = new Pen(C_BORDER, 1);
+            e.Graphics.DrawRectangle(pen, 0, 0, _currentTaskPanel.Width - 1, _currentTaskPanel.Height - 1);
+        };
+
+        _taskFileLabel = new Label
+        {
+            Location = new Point(10, 8),
+            Size = new Size(w - 20, 18),
+            ForeColor = C_T1,
+            Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+            Text = "Idle — waiting for clips...",
+        };
+        _currentTaskPanel.Controls.Add(_taskFileLabel);
+
+        _taskStatusLabel = new Label
+        {
+            Location = new Point(10, 28),
+            Size = new Size(w - 20, 16),
+            ForeColor = C_T2,
+            Font = new Font("Segoe UI", 8f),
+            Text = "",
+        };
+        _currentTaskPanel.Controls.Add(_taskStatusLabel);
+
+        _taskProgressBar = new ProgressBar
+        {
+            Location = new Point(10, 46),
+            Size = new Size(w - 20, 8),
+            Value = 0,
+            Maximum = 100,
+            Style = ProgressBarStyle.Continuous,
+            BackColor = C_PANEL,
+            ForeColor = C_ACCENT,
+        };
+        _currentTaskPanel.Controls.Add(_taskProgressBar);
+
+        _taskSpeedLabel = new Label
+        {
+            Location = new Point(10, 58),
+            Size = new Size(w - 20, 14),
+            ForeColor = C_T3,
+            Font = new Font("Segoe UI", 7.5f),
+            TextAlign = ContentAlignment.TopRight,
+            Text = "",
+        };
+        _currentTaskPanel.Controls.Add(_taskSpeedLabel);
+
+        scroll.Controls.Add(_currentTaskPanel);
+        sy += 100;
+
+        // Stats Section
+        MkSectionLabel(scroll, "SESSION STATISTICS", lx, sy); sy += 22;
+
+        _statsUploadsLabel = MkLabel("📤 Uploads: 0", lx, sy, new Font("Segoe UI", 9f, FontStyle.Bold), C_GREEN);
+        scroll.Controls.Add(_statsUploadsLabel);
+        sy += 24;
+
+        _statsSuccessLabel = MkLabel("✓ Success rate: N/A", lx, sy, new Font("Segoe UI", 9f), C_T2);
+        scroll.Controls.Add(_statsSuccessLabel);
+        sy += 24;
+
+        _statsSizeLabel = MkLabel("📦 Total size: 0 MB", lx, sy, new Font("Segoe UI", 9f), C_T2);
+        scroll.Controls.Add(_statsSizeLabel);
+        sy += 28;
+
+        // System Status Section
+        MkSectionLabel(scroll, "SYSTEM STATUS", lx, sy); sy += 22;
+
+        _systemStatusLabel = MkLabel("● Watching", lx, sy, new Font("Segoe UI", 9f, FontStyle.Bold), C_GREEN);
+        scroll.Controls.Add(_systemStatusLabel);
+        sy += 24;
+
+        _gpuStatusLabel = MkLabel("GPU: Checking...", lx, sy, new Font("Segoe UI", 9f), C_T2);
+        scroll.Controls.Add(_gpuStatusLabel);
+        sy += 24;
+
+        var ffmpegStatus = LocalCompressor.IsAvailable() ? "✓ FFmpeg available" : "✗ FFmpeg not found";
+        var ffmpegColor = LocalCompressor.IsAvailable() ? C_GREEN : C_RED;
+        var ffmpegLabel = MkLabel(ffmpegStatus, lx, sy, new Font("Segoe UI", 9f), ffmpegColor);
+        scroll.Controls.Add(ffmpegLabel);
+        sy += 28;
+
+        // Version Section
+        MkSectionLabel(scroll, "APPLICATION", lx, sy); sy += 22;
+
+        _versionLabel = MkLabel($"v{GitHubUpdater.GetCurrentVersion()}", lx, sy, new Font("Segoe UI", 9f, FontStyle.Bold), C_ACCENT);
+        scroll.Controls.Add(_versionLabel);
+
+        _updateCheckBtn = new Button
+        {
+            Location = new Point(lx + 200, sy - 2),
+            Size = new Size(120, 28),
+            Text = "Check Updates",
+            FlatStyle = FlatStyle.Flat,
+            BackColor = C_ACCENT,
+            ForeColor = Color.White,
+            Font = new Font("Segoe UI", 8f),
+            Cursor = Cursors.Hand,
+        };
+        _updateCheckBtn.FlatAppearance.BorderSize = 0;
+        _updateCheckBtn.FlatAppearance.MouseOverBackColor = C_ACCENT_H;
+        _updateCheckBtn.Click += async (_, _) => 
+        {
+            _updateCheckBtn.Enabled = false;
+            try
+            {
+                var release = await GitHubUpdater.CheckForUpdateAsync();
+                if (release == null)
+                {
+                    MessageBox.Show($"You are already on the latest version ({GitHubUpdater.GetCurrentVersion()}).", "VELO Uploader", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                else
+                {
+                    var result = MessageBox.Show(
+                        $"A new version is available.\n\nCurrent: {GitHubUpdater.GetCurrentVersion()}\nLatest: {release.Version}\n\nDownload and apply the update now? The uploader will restart.",
+                        "Update available",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Information);
+
+                    if (result == DialogResult.Yes)
+                    {
+                        var cts = new CancellationTokenSource();
+                        using var progressForm = new UpdateProgressForm(cts);
+                        progressForm.SetFileName(release.AssetName);
+
+                        var updateTask = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                await GitHubUpdater.DownloadAndApplyAsync(
+                                    release,
+                                    cts.Token,
+                                    onProgress: (downloaded, total) => progressForm.SetProgress(downloaded, total)
+                                );
+                                
+                                progressForm.SetCompleting();
+                                await Task.Delay(800);
+                                progressForm.Invoke(() => progressForm.Close());
+                            }
+                            catch (Exception ex)
+                            {
+                                progressForm.Invoke(() => 
+                                {
+                                    MessageBox.Show($"Update failed: {ex.Message}", "VELO Uploader", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                                    progressForm.Close();
+                                });
+                            }
+                        });
+
+                        progressForm.ShowDialog();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Check failed: {ex.Message}", "VELO Uploader", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                _updateCheckBtn.Enabled = true;
+            }
+        };
+        scroll.Controls.Add(_updateCheckBtn);
+        sy += 32;
+
+        // Event Log Section
+        MkSectionLabel(scroll, "EVENT LOG", lx, sy); sy += 22;
+
+        _eventLogBox = new RichTextBox
+        {
+            Location = new Point(lx, sy),
+            Size = new Size(w, 200),
+            BackColor = C_PANEL,
+            ForeColor = C_T2,
+            BorderStyle = BorderStyle.FixedSingle,
+            Font = new Font("Consolas", 8f),
+            ReadOnly = true,
+            WordWrap = true,
+            ScrollBars = RichTextBoxScrollBars.Vertical,
+        };
+        scroll.Controls.Add(_eventLogBox);
+
+        s.Controls.Add(scroll);
+
+        // Check GPU availability
+        CheckGPUStatus();
+
         SwitchTab(initialTab);
         ResumeLayout();
     }
@@ -614,7 +843,7 @@ public class SettingsForm : Form
     void SwitchTab(int idx)
     {
         _activeTab = idx;
-        for (int i = 0; i < 4; i++)
+        for (int i = 0; i < 5; i++)
         {
             _pages[i].Visible = i == idx;
             _tabBtns[i].ForeColor = i == idx ? C_T1 : C_T3;
@@ -671,6 +900,120 @@ public class SettingsForm : Form
             Font = new Font("Segoe UI", 8.5f),
             Cursor = Cursors.Hand,
         };
+    }
+
+    static void MkSectionLabel(Control parent, string title, int x, int y)
+    {
+        var lbl = new Label
+        {
+            Text = title,
+            Location = new Point(x, y),
+            AutoSize = true,
+            Font = new Font("Segoe UI", 7.5f, FontStyle.Bold),
+            ForeColor = C_ACCENT,
+            BackColor = Color.Transparent,
+        };
+        parent.Controls.Add(lbl);
+    }
+
+    private void CheckGPUStatus()
+    {
+        Task.Run(() =>
+        {
+            var gpuAvail = LocalCompressor.IsGPUAvailable();
+            InvokeIfNeeded(() =>
+            {
+                _gpuStatusLabel.Text = gpuAvail ? "✓ GPU (NVIDIA NVENC) available" : "○ GPU not available (CPU mode)";
+                _gpuStatusLabel.ForeColor = gpuAvail ? C_GREEN : C_T3;
+            });
+        });
+    }
+
+    private void InvokeIfNeeded(Action action)
+    {
+        try
+        {
+            if (IsHandleCreated && InvokeRequired)
+                BeginInvoke(action);
+            else if (IsHandleCreated)
+                action();
+        }
+        catch
+        {
+            // Silently ignore invoke errors if window is being closed/disposed
+        }
+    }
+
+    public void UpdateTaskProgress(string fileName, int progress, string status = "")
+    {
+        InvokeIfNeeded(() =>
+        {
+            _taskFileLabel.Text = $"📁 {fileName}";
+            _taskProgressBar.Value = Math.Max(0, Math.Min(100, progress));
+            _taskStatusLabel.Text = status;
+            if (progress == 100)
+                _taskSpeedLabel.Text = "✓ Complete";
+        });
+    }
+
+    public void UpdateTaskSpeed(double speedMBps, string eta)
+    {
+        InvokeIfNeeded(() =>
+        {
+            _taskSpeedLabel.Text = $"⚡ {speedMBps:F2} MB/s   ETA: {eta}";
+        });
+    }
+
+    public void UpdateStats(int uploads, int successful, long bytes)
+    {
+        InvokeIfNeeded(() =>
+        {
+            _statsUploadsLabel.Text = $"📤 Uploads: {uploads}";
+            var successRate = uploads > 0 ? (successful * 100 / uploads) : 0;
+            _statsSuccessLabel.Text = $"✓ Success rate: {successRate}% ({successful}/{uploads})";
+            var sizeMB = bytes / (1024.0 * 1024.0);
+            _statsSizeLabel.Text = $"📦 Total size: {sizeMB:F1} MB";
+        });
+    }
+
+    public void UpdateSystemStatus(bool isWatching)
+    {
+        InvokeIfNeeded(() =>
+        {
+            if (isWatching)
+            {
+                _systemStatusLabel.Text = "● Watching";
+                _systemStatusLabel.ForeColor = C_GREEN;
+            }
+            else
+            {
+                _systemStatusLabel.Text = "⏸ Paused";
+                _systemStatusLabel.ForeColor = C_ORANGE;
+            }
+        });
+    }
+
+    public void AddEventLog(string message, Color color)
+    {
+        InvokeIfNeeded(() =>
+        {
+            _eventLogBox.SelectionStart = _eventLogBox.TextLength;
+            _eventLogBox.SelectionLength = 0;
+            _eventLogBox.SelectionColor = color;
+            _eventLogBox.AppendText($"[{DateTime.Now:HH:mm:ss}] {message}\n");
+            _eventLogBox.ScrollToCaret();
+        });
+    }
+
+    public void ResetTask()
+    {
+        InvokeIfNeeded(() =>
+        {
+            _taskFileLabel.Text = "Idle — waiting for clips...";
+            _taskProgressBar.Value = 0;
+            _taskStatusLabel.Text = "";
+            _taskSpeedLabel.Text = "";
+        });
     }
 
     // ── Logging ──

@@ -10,7 +10,6 @@ public class TrayContext : ApplicationContext
     private int _uploadCount;
     private int _successCount;
     private long _totalBytes;
-    private StatusWindow? _statusWindow;
     private readonly CancellationTokenSource _cts = new();
     private bool _updateCheckInProgress;
 
@@ -119,10 +118,6 @@ public class TrayContext : ApplicationContext
         var settingsItem = new ToolStripMenuItem("Settings...");
         settingsItem.Click += (_, _) => ShowSettings();
         menu.Items.Add(settingsItem);
-
-        var statusItem2 = new ToolStripMenuItem("📊 Status Dashboard...");
-        statusItem2.Click += (_, _) => ShowStatusWindow();
-        menu.Items.Add(statusItem2);
 
         var logsItem = new ToolStripMenuItem("View Logs...");
         logsItem.Click += (_, _) => ShowSettingsOnTab(2); // Logs tab
@@ -457,7 +452,12 @@ public class TrayContext : ApplicationContext
 
         var progress = new Progress<double>(p =>
         {
-            SetTrayText($"VELO Uploader — Uploading {fileName} ({p:F0}%)");
+            var percentage = (int)p;
+            SetTrayText($"VELO Uploader — Uploading {fileName} ({percentage}%)");
+            if (_settingsForm != null && !_settingsForm.IsDisposed)
+            {
+                _settingsForm.UpdateTaskProgress(fileName, percentage, preCompressed ? "Uploading pre-compressed..." : "Uploading...");
+            }
         });
 
         var result = await UploadService.UploadAsync(
@@ -475,10 +475,10 @@ public class TrayContext : ApplicationContext
             SetTrayText($"VELO Uploader — {_uploadCount} uploaded this session");
             RefreshMenu();
             UpdateStatusWindow();
-            if (_statusWindow != null && !_statusWindow.IsDisposed)
+            if (_settingsForm != null && !_settingsForm.IsDisposed)
             {
-                _statusWindow.AddEventLog($"✓ Uploaded: {fileName}", Color.FromArgb(74, 222, 128));
-                _statusWindow.ResetTask();
+                _settingsForm.AddEventLog($"✓ Uploaded: {fileName}", Color.FromArgb(74, 222, 128));
+                _settingsForm.ResetTask();
             }
             UploadHistoryManager.Add(new UploadHistoryEntry
             {
@@ -521,10 +521,10 @@ public class TrayContext : ApplicationContext
             SoundFeedback.PlayFailure(_settings.PlaySounds);
             SetTrayText("VELO Uploader — Watching");
             UpdateStatusWindow();
-            if (_statusWindow != null && !_statusWindow.IsDisposed)
+            if (_settingsForm != null && !_settingsForm.IsDisposed)
             {
-                _statusWindow.AddEventLog($"✗ Failed: {fileName} ({result.Error})", Color.FromArgb(248, 113, 113));
-                _statusWindow.ResetTask();
+                _settingsForm.AddEventLog($"✗ Failed: {fileName} ({result.Error})", Color.FromArgb(248, 113, 113));
+                _settingsForm.ResetTask();
             }
             UploadHistoryManager.Add(new UploadHistoryEntry
             {
@@ -564,10 +564,18 @@ public class TrayContext : ApplicationContext
         if (_settingsForm != null && !_settingsForm.IsDisposed)
         {
             _settingsForm.BringToFront();
+            // If switching to Status tab, update its content
+            if (tabIndex == 4)
+                _settingsForm.UpdateStats(_uploadCount, _successCount, _totalBytes);
             return;
         }
 
         _settingsForm = new SettingsForm(_settings, tabIndex);
+        
+        // If opening with Status tab, update its content
+        if (tabIndex == 4)
+            _settingsForm.UpdateStats(_uploadCount, _successCount, _totalBytes);
+        
         _settingsForm.FormClosed += (_, _) =>
         {
             _settingsForm = null;
@@ -581,28 +589,12 @@ public class TrayContext : ApplicationContext
         _settingsForm.Show();
     }
 
-    private void ShowStatusWindow()
-    {
-        if (_statusWindow != null && !_statusWindow.IsDisposed)
-        {
-            _statusWindow.BringToFront();
-            return;
-        }
-
-        _statusWindow = new StatusWindow(null);
-        _statusWindow.OnCheckUpdatesClicked += async () => await CheckForUpdatesAsync(silentIfUpToDate: false);
-        _statusWindow.UpdateSystemStatus(_watcher?.IsWatching == true);
-        _statusWindow.UpdateStats(_uploadCount, _successCount, _totalBytes);
-        _statusWindow.FormClosed += (_, _) => _statusWindow = null;
-        _statusWindow.Show();
-    }
-
     private void UpdateStatusWindow()
     {
-        if (_statusWindow != null && !_statusWindow.IsDisposed)
+        if (_settingsForm != null && !_settingsForm.IsDisposed)
         {
-            _statusWindow.UpdateStats(_uploadCount, _successCount, _totalBytes);
-            _statusWindow.UpdateSystemStatus(_watcher?.IsWatching == true);
+            _settingsForm.UpdateStats(_uploadCount, _successCount, _totalBytes);
+            _settingsForm.UpdateSystemStatus(_watcher?.IsWatching == true);
         }
     }
 
