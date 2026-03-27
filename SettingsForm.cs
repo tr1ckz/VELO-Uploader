@@ -402,12 +402,12 @@ public class SettingsForm : Form
             TextAlign = ContentAlignment.MiddleLeft,
         };
         g.Controls.Add(_statusLabel);
-        y += 42;
+        y += 22;
 
         // ─────────────────────────────────────
-        // SECTION: TLS / SECURITY
+        // SECTION: SECURITY
         // ─────────────────────────────────────
-        Section(g, "TLS / SECURITY", lx, y); y += 18;
+        Section(g, "SECURITY", lx, y); y += 18;
 
         _selfSignedBox = MkChk("Allow self-signed / untrusted server certificate", settings.AllowSelfSignedCerts, lx, y);
         g.Controls.Add(_selfSignedBox);
@@ -453,9 +453,9 @@ public class SettingsForm : Form
         y += 42;
 
         // ─────────────────────────────────────
-        // SECTION: WATCH FOLDER & CLIPS
+        // SECTION: RECORDINGS
         // ─────────────────────────────────────
-        Section(g, "WATCH FOLDER & CLIPS", lx, y); y += 18;
+        Section(g, "RECORDINGS", lx, y); y += 18;
 
         Lbl(g, "Watch folder", lx, y);
         _watchBox = new DarkTextBox(settings.WatchFolder, @"D:\recordings", lx, y + 16, w - 78);
@@ -480,7 +480,7 @@ public class SettingsForm : Form
         // ─────────────────────────────────────
         // SECTION: COMPRESSION
         // ─────────────────────────────────────
-        Section(g, "UPLOAD OPTIONS", lx, y); y += 18;
+        Section(g, "COMPRESSION", lx, y); y += 18;
 
         Lbl(g, "Compression preset:", lx, y + 5);
         
