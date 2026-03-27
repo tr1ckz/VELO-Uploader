@@ -209,6 +209,7 @@ public class UpdateProgressForm : Form
         _statusLabel.Text = "Finalizing update...";
         _progressBar.Value = 100;
         _speedLabel.Text = "Extracting and applying...";
+        DialogResult = DialogResult.OK;
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)

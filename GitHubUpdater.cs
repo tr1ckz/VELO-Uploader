@@ -156,21 +156,28 @@ public static class GitHubUpdater
     private static string BuildUpdateScript(string sourceDir, string targetDir, string exePath, int currentPid)
     {
         return $"@echo off\r\n" +
-               "setlocal\r\n" +
+               "setlocal enabledelayedexpansion\r\n" +
                $"set \"SRC={EscapeForCmd(sourceDir)}\"\r\n" +
                $"set \"DST={EscapeForCmd(targetDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))}\"\r\n" +
                $"set \"EXE={EscapeForCmd(exePath)}\"\r\n" +
                $"set \"PID={currentPid}\"\r\n" +
-               "for /l %%i in (1,1,90) do (\r\n" +
-               "  tasklist /FI \"PID eq %PID%\" | find \"%PID%\" >nul\r\n" +
+               "REM Wait up to 10 seconds for graceful exit\r\n" +
+               "for /l %%i in (1,1,10) do (\r\n" +
+               "  tasklist /FI \"PID eq !PID!\" 2>nul | find \"!PID!\" >nul\r\n" +
                "  if errorlevel 1 goto copy\r\n" +
                "  timeout /t 1 /nobreak >nul\r\n" +
                ")\r\n" +
+               "REM Force kill if still running\r\n" +
+               "taskkill /PID %PID% /F /T >nul 2>&1\r\n" +
+               "timeout /t 2 /nobreak >nul\r\n" +
                ":copy\r\n" +
-               "robocopy \"%SRC%\" \"%DST%\" /E /R:2 /W:1 /NFL /NDL /NJH /NJS /NC /NS /NP >nul\r\n" +
-               "start \"\" \"%EXE%\"\r\n" +
+               "robocopy \"%SRC%\" \"%DST%\" /E /R:3 /W:1 /NFL /NDL /NJH /NJS /NC /NS /NP >nul\r\n" +
+               "if exist \"%EXE%\" (\r\n" +
+               "  timeout /t 1 /nobreak >nul\r\n" +
+               "  start \"\" \"%EXE%\"\r\n" +
+               ")\r\n" +
                "exit /b 0\r\n";
-    }
+        }
 
     private static void EnsureWritableInstallDirectory(string directory)
     {
