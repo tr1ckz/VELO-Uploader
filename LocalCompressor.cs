@@ -47,28 +47,9 @@ public static class LocalCompressor
     }
 
     /// <summary>
-    /// Check if ffmpeg is available on this system.
+    /// Check if ffmpeg is available on this system (portable or system PATH).
     /// </summary>
-    public static bool IsAvailable()
-    {
-        try
-        {
-            var psi = new ProcessStartInfo("ffmpeg", "-version")
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-            using var proc = Process.Start(psi);
-            proc?.WaitForExit(5000);
-            return proc?.ExitCode == 0;
-        }
-        catch
-        {
-            return false;
-        }
-    }
+    public static bool IsAvailable() => FFmpegHelper.IsFFmpegAvailable();
 
     /// <summary>
     /// Check if GPU acceleration is available (NVIDIA NVENC).
@@ -77,8 +58,12 @@ public static class LocalCompressor
     {
         try
         {
+            var ffmpegPath = FFmpegHelper.GetFFmpegPath();
+            if (string.IsNullOrEmpty(ffmpegPath))
+                return false;
+
             // Check for NVIDIA NVENC codec support
-            var psi = new ProcessStartInfo("ffmpeg", "-codecs")
+            var psi = new ProcessStartInfo(ffmpegPath, "-codecs")
             {
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -145,7 +130,14 @@ public static class LocalCompressor
         Logger.Info($"Compressing locally: {Path.GetFileName(inputPath)} ({preset}){(IsGPU(preset) ? " [GPU ACCELERATED]" : "")}");
         Logger.Debug($"ffmpeg {args}");
 
-        var psi = new ProcessStartInfo("ffmpeg", args)
+        var ffmpegPath = FFmpegHelper.GetFFmpegPath();
+        if (string.IsNullOrEmpty(ffmpegPath))
+        {
+            Logger.Error("FFmpeg not found - compression unavailable");
+            return null;
+        }
+
+        var psi = new ProcessStartInfo(ffmpegPath, args)
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,

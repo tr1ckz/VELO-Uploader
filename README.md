@@ -40,12 +40,30 @@ The app runs in the system tray. Double-click the tray icon to open settings. Ri
 
 ## Building from source
 
-Requires [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0) and [FFmpeg](https://ffmpeg.org/download.html) in `PATH` if compression is used.
+Requires [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0).
+
+FFmpeg is optional but recommended for the compression feature. The app works fine without it — compression will simply be unavailable.
 
 ```powershell
 dotnet build
 dotnet run
 ```
+
+### FFmpeg Setup
+
+**Option 1: Portable FFmpeg (bundled in releases)** ⭐ *Recommended for users*
+- Download the latest release from [Releases](../../releases)
+- The `.zip` file includes a portable FFmpeg build
+- Just extract and run — no additional installation needed
+
+**Option 2: Install via winget** *For source builds and development*
+```powershell
+winget install -e --id Gyan.FFmpeg
+```
+
+**Option 3: Download standalone** *Manual setup*
+- Download from [FFmpeg official](https://ffmpeg.org/download.html) or [gyan.dev](https://www.gyan.dev/ffmpeg/)
+- Extract to `ffmpeg-portable` folder inside the app directory, or add to your system PATH
 
 ### Self-contained release build
 
@@ -53,5 +71,6 @@ dotnet run
 dotnet publish -c Release -r win-x64 --self-contained -o publish
 ```
 
-The GitHub Actions workflow in `.github/workflows/release.yml` runs this automatically when a version tag is pushed.
+The GitHub Actions workflow in `.github/workflows/release.yml` runs this automatically when a version tag is pushed, and bundles portable FFmpeg in the release .zip.
+
 
