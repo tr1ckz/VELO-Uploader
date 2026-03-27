@@ -2,6 +2,15 @@ using System.Text.Json;
 
 namespace VeloUploader;
 
+public enum QuotaFetchStatus
+{
+    Ok,
+    NotConfigured,
+    Unauthorized,
+    ServerOutdated,
+    NetworkError,
+}
+
 public record QuotaInfo(long UsedBytes, long? QuotaBytes)
 {
     public bool HasQuota => QuotaBytes.HasValue;
@@ -20,10 +29,15 @@ public record QuotaInfo(long UsedBytes, long? QuotaBytes)
     }
 }
 
+public record QuotaFetchResult(QuotaFetchStatus Status, QuotaInfo? Quota, string? Message = null)
+{
+    public bool Success => Status == QuotaFetchStatus.Ok && Quota != null;
+}
+
 public static class QuotaService
 {
     private static readonly SemaphoreSlim _lock = new(1, 1);
-    private static QuotaInfo? _cached;
+    private static QuotaFetchResult? _cached;
     private static DateTime _cacheExpiry = DateTime.MinValue;
     private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(2);
 
@@ -31,10 +45,10 @@ public static class QuotaService
     /// Fetch storage quota from the server. Returns null on network error.
     /// Results are cached for 2 minutes.
     /// </summary>
-    public static async Task<QuotaInfo?> GetAsync(AppSettings settings, CancellationToken ct = default)
+    public static async Task<QuotaFetchResult> GetAsync(AppSettings settings, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(settings.ServerUrl) || string.IsNullOrWhiteSpace(settings.ApiToken))
-            return null;
+            return new QuotaFetchResult(QuotaFetchStatus.NotConfigured, null, "Uploader not configured");
 
         await _lock.WaitAsync(ct);
         try
@@ -52,7 +66,16 @@ public static class QuotaService
             if (!response.IsSuccessStatusCode)
             {
                 Logger.Warn($"Quota check returned {(int)response.StatusCode}");
-                return null;
+                var result = response.StatusCode switch
+                {
+                    System.Net.HttpStatusCode.Unauthorized => new QuotaFetchResult(QuotaFetchStatus.Unauthorized, null, "API token unauthorized"),
+                    System.Net.HttpStatusCode.Forbidden => new QuotaFetchResult(QuotaFetchStatus.Unauthorized, null, "API token forbidden"),
+                    System.Net.HttpStatusCode.NotFound => new QuotaFetchResult(QuotaFetchStatus.ServerOutdated, null, "Server missing /api/quota"),
+                    _ => new QuotaFetchResult(QuotaFetchStatus.NetworkError, null, $"Server returned {(int)response.StatusCode}"),
+                };
+                _cached = result;
+                _cacheExpiry = DateTime.UtcNow.Add(CacheTtl);
+                return result;
             }
 
             var body = await response.Content.ReadAsStringAsync(ct);
@@ -64,15 +87,18 @@ public static class QuotaService
             if (root.GetProperty("quotaBytes").ValueKind != JsonValueKind.Null)
                 quotaBytes = root.GetProperty("quotaBytes").GetInt64();
 
-            _cached = new QuotaInfo(usedBytes, quotaBytes);
+            _cached = new QuotaFetchResult(QuotaFetchStatus.Ok, new QuotaInfo(usedBytes, quotaBytes));
             _cacheExpiry = DateTime.UtcNow.Add(CacheTtl);
             return _cached;
         }
-        catch (OperationCanceledException) { return null; }
+        catch (OperationCanceledException)
+        {
+            return new QuotaFetchResult(QuotaFetchStatus.NetworkError, null, "Quota check timed out");
+        }
         catch (Exception ex)
         {
             Logger.Warn($"Quota check failed: {ex.Message}");
-            return null;
+            return new QuotaFetchResult(QuotaFetchStatus.NetworkError, null, ex.Message);
         }
         finally
         {

@@ -367,9 +367,10 @@ public class TrayContext : ApplicationContext
         }
 
         // Quota check: bail out before compression or upload if user is over quota
-        var quota = await QuotaService.GetAsync(_settings, ct);
-        if (quota != null && quota.WouldExceed(originalSize))
+        var quotaResult = await QuotaService.GetAsync(_settings, ct);
+        if (quotaResult.Success && quotaResult.Quota!.WouldExceed(originalSize))
         {
+            var quota = quotaResult.Quota!;
               var detail = $"Used {quota.UsedFormatted} / {quota.QuotaFormatted} — need {FormatBytes(originalSize)}, only {quota.FreeFormatted} free";
             Logger.Warn($"Quota exceeded, skipping: {fileName} — {detail}");
             SetTrayText("VELO Uploader — Quota exceeded");

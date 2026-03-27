@@ -1081,16 +1081,25 @@ public class SettingsForm : Form
         private async Task RefreshQuotaAsync()
         {
             QuotaService.Invalidate();
-            var quota = await QuotaService.GetAsync(_settings);
+            var quotaResult = await QuotaService.GetAsync(_settings);
             InvokeIfNeeded(() =>
             {
                 if (_quotaStatusLabel == null) return;
-                if (quota == null)
+                if (!quotaResult.Success)
                 {
-                    _quotaStatusLabel.Text = "Storage: unavailable";
-                    _quotaStatusLabel.ForeColor = C_T3;
+                    _quotaStatusLabel.Text = quotaResult.Status switch
+                    {
+                        QuotaFetchStatus.ServerOutdated => "Storage: server needs update",
+                        QuotaFetchStatus.Unauthorized => "Storage: API token unauthorized",
+                        QuotaFetchStatus.NotConfigured => "Storage: uploader not configured",
+                        _ => "Storage: unavailable",
+                    };
+                    _quotaStatusLabel.ForeColor = quotaResult.Status == QuotaFetchStatus.ServerOutdated || quotaResult.Status == QuotaFetchStatus.Unauthorized
+                        ? C_ORANGE
+                        : C_T3;
                     return;
                 }
+                var quota = quotaResult.Quota!;
                 if (!quota.HasQuota)
                 {
                     _quotaStatusLabel.Text = $"Storage: {quota.UsedFormatted} used (unlimited)";
