@@ -222,14 +222,49 @@ public class TrayContext : ApplicationContext
             if (result != DialogResult.Yes)
                 return;
 
-            ShowToast("VELO Uploader", $"Downloading update {release.TagName}", "The app will restart when it is ready.");
-            await GitHubUpdater.DownloadAndApplyAsync(release, _cts.Token);
+            // Show progress dialog
+            using var progressForm = new UpdateProgressForm(_cts);
+            progressForm.SetFileName(release.AssetName);
 
-            Logger.Info($"Applying update {release.TagName}");
-            _cts.Cancel();
-            _watcher?.Dispose();
-            _trayIcon.Visible = false;
-            Application.Exit();
+            var updateTask = Task.Run(async () =>
+            {
+                try
+                {
+                    await GitHubUpdater.DownloadAndApplyAsync(
+                        release,
+                        _cts.Token,
+                        onProgress: (downloaded, total) => progressForm.SetProgress(downloaded, total)
+                    );
+                    
+                    progressForm.SetCompleting();
+                    await Task.Delay(800);
+                    progressForm.Invoke(() => progressForm.Close());
+                }
+                catch (OperationCanceledException)
+                {
+                    progressForm.Invoke(() => progressForm.Close());
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error("Update download failed", ex);
+                    progressForm.Invoke(() =>
+                    {
+                        MessageBox.Show($"Update failed:\n\n{ex.Message}", "VELO Uploader", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        progressForm.Close();
+                    });
+                }
+            }, _cts.Token);
+
+            if (progressForm.ShowDialog() == DialogResult.OK || progressForm.IsDisposed)
+            {
+                await updateTask;
+
+                Logger.Info($"Applying update {release.TagName}");
+                _cts.Cancel();
+                _watcher?.Dispose();
+                _trayIcon.Visible = false;
+                Application.Exit();
+            }
         }
         catch (OperationCanceledException)
         {

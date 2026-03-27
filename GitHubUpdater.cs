@@ -87,7 +87,7 @@ public static class GitHubUpdater
         }
     }
 
-    public static async Task DownloadAndApplyAsync(UpdateRelease release, CancellationToken ct = default)
+    public static async Task DownloadAndApplyAsync(UpdateRelease release, CancellationToken ct = default, Action<long, long>? onProgress = null)
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), "VeloUploaderUpdate", release.TagName + "-" + Guid.NewGuid().ToString("N"));
         var zipPath = Path.Combine(tempRoot, release.AssetName);
@@ -101,9 +101,27 @@ public static class GitHubUpdater
             using (var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) })
             {
                 http.DefaultRequestHeaders.UserAgent.ParseAdd($"VeloUploader/{GetCurrentVersion()}");
-                await using var remote = await http.GetStreamAsync(release.DownloadUrl, ct);
+                
+                var request = new HttpRequestMessage(HttpMethod.Get, release.DownloadUrl);
+                using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+                response.EnsureSuccessStatusCode();
+
+                var totalBytes = response.Content.Headers.ContentLength ?? 0;
+                onProgress?.Invoke(0, totalBytes);
+
+                await using var remote = await response.Content.ReadAsStreamAsync(ct);
                 await using var local = new FileStream(zipPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true);
-                await remote.CopyToAsync(local, ct);
+
+                var buffer = new byte[81920];
+                int bytesRead;
+                long totalRead = 0;
+
+                while ((bytesRead = await remote.ReadAsync(buffer, 0, buffer.Length, ct)) > 0)
+                {
+                    await local.WriteAsync(buffer, 0, bytesRead, ct);
+                    totalRead += bytesRead;
+                    onProgress?.Invoke(totalRead, totalBytes);
+                }
             }
         }
         catch (HttpRequestException ex)
