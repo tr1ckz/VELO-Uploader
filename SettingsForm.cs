@@ -166,8 +166,8 @@ public class SettingsForm : Form
     private const int WM_THEMECHANGED = 0x031A;
 
     private readonly AppSettings _settings;
-    private readonly DarkTextBox _urlBox, _tokenBox, _watchBox, _addFolderBox, _addPatternBox;
-    private readonly CheckBox _subfoldersBox, _notifyBox, _deleteBox, _startupBox, _scanOnLaunchBox, _localCompressBox, _compressionHardFailBox, _soundBox, _selfSignedBox, _autoUpdateBox;
+    private readonly DarkTextBox _urlBox, _tokenBox, _watchBox, _addFolderBox, _addPatternBox, _moveToBox;
+    private readonly CheckBox _subfoldersBox, _notifyBox, _deleteBox, _moveBox, _startupBox, _scanOnLaunchBox, _localCompressBox, _compressionHardFailBox, _soundBox, _selfSignedBox, _autoUpdateBox;
     private readonly DarkTextBox _certPathBox;
     private readonly Label _certInfoLabel;
     private readonly DarkNumeric _retriesBox, _maxSizeBox;
@@ -474,6 +474,20 @@ public class SettingsForm : Form
         _deleteBox = MkChk("Delete clip after upload", settings.DeleteAfterUpload, lx + 340, y);
         g.Controls.Add(_deleteBox);
         y += 28;
+
+        _moveBox = MkChk("Move clip after upload", settings.MoveAfterUpload, lx, y);
+        g.Controls.Add(_moveBox);
+        Lbl(g, "Destination folder", lx, y);
+        _moveToBox = new DarkTextBox(settings.MoveToFolder, @"D:\archived-clips", lx, y + 16, w - 78);
+        g.Controls.Add(_moveToBox);
+        var moveBrowseBtn = MkBtn("Browse", lx + w - 72, y + 16, 72, 28, C_BTN, C_BTN_H);
+        moveBrowseBtn.Click += (_, _) => { using var d = new FolderBrowserDialog { SelectedPath = _moveToBox.Text }; if (d.ShowDialog() == DialogResult.OK) _moveToBox.Text = d.SelectedPath; };
+        g.Controls.Add(moveBrowseBtn);
+        // Update move destination box visibility based on checkbox
+        _moveBox.CheckedChanged += (_, _) => { _moveToBox.Inner.Enabled = _moveBox.Checked; moveBrowseBtn.Enabled = _moveBox.Checked; };
+        _moveToBox.Inner.Enabled = _moveBox.Checked;
+        moveBrowseBtn.Enabled = _moveBox.Checked;
+        y += 50;
 
         _scanOnLaunchBox = MkChk("Upload existing clips on launch", settings.ScanOnLaunch, lx, y);
         g.Controls.Add(_scanOnLaunchBox);
@@ -1266,6 +1280,8 @@ public class SettingsForm : Form
         _settings.WatchSubfolders = _subfoldersBox.Checked;
         _settings.ShowNotifications = _notifyBox.Checked;
         _settings.DeleteAfterUpload = _deleteBox.Checked;
+        _settings.MoveAfterUpload = _moveBox.Checked;
+        _settings.MoveToFolder = _moveToBox.Text.Trim();
         _settings.MaxRetries = (int)_retriesBox.Inner.Value;
         _settings.ScanOnLaunch = _scanOnLaunchBox.Checked;
         _settings.LocalCompress = _localCompressBox.Checked;

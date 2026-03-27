@@ -336,18 +336,7 @@ public class TrayContext : ApplicationContext
                 Logger.Warn($"Skipped duplicate (same SHA-256 already uploaded): {fileName}");
                 ShowToast("Duplicate skipped", fileName, "Already uploaded previously (same content hash)");
 
-                if (_settings.DeleteAfterUpload)
-                {
-                    try
-                    {
-                        File.Delete(filePath);
-                        Logger.Info($"Deleted duplicate local file: {fileName}");
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Warn($"Could not delete duplicate local file: {ex.Message}");
-                    }
-                }
+                HandleFileAfterUpload(filePath, _settings);
 
                 UploadHistoryManager.Add(new UploadHistoryEntry
                 {
@@ -424,19 +413,8 @@ public class TrayContext : ApplicationContext
                     _settingsForm.AddEventLog($"✓ Compression complete: {fileName}", Color.FromArgb(74, 222, 128));
                 }
 
-                // Delete original immediately after compression — no need to hold onto it during upload
-                if (_settings.DeleteAfterUpload)
-                {
-                    try
-                    {
-                        File.Delete(filePath);
-                        Logger.Info($"Deleted original after compression: {fileName}");
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Warn($"Could not delete original after compression: {ex.Message}");
-                    }
-                }
+                // Handle original after compression — move or delete based on settings
+                HandleFileAfterUpload(filePath, _settings);
             }
             else
             {
@@ -555,19 +533,11 @@ public class TrayContext : ApplicationContext
                 UploadedSizeBytes = SafeFileLength(uploadPath),
             });
 
-            // Delete original after upload if enabled and compression wasn't used
-            // (if compression was used, original was already deleted right after compression)
-            if (_settings.DeleteAfterUpload && !preCompressed)
+            // Handle original after upload if compression wasn't used
+            // (if compression was used, original was already handled right after compression)
+            if (!preCompressed)
             {
-                try
-                {
-                    File.Delete(filePath);
-                    Logger.Info($"Deleted after upload: {fileName}");
-                }
-                catch (Exception ex)
-                {
-                    Logger.Error($"Failed to delete after upload: {fileName}", ex);
-                }
+                HandleFileAfterUpload(filePath, _settings);
             }
 
             // Clean up compressed temp file
@@ -677,6 +647,61 @@ public class TrayContext : ApplicationContext
     {
         try { return File.Exists(path) ? new FileInfo(path).Length : 0; }
         catch { return 0; }
+    }
+
+    private static void HandleFileAfterUpload(string filePath, AppSettings settings)
+    {
+        if (settings.MoveAfterUpload && !string.IsNullOrWhiteSpace(settings.MoveToFolder))
+        {
+            try
+            {
+                Directory.CreateDirectory(settings.MoveToFolder);
+                var fileName = Path.GetFileName(filePath);
+                var destPath = Path.Combine(settings.MoveToFolder, fileName);
+                
+                // If file already exists at destination, add timestamp or number suffix
+                if (File.Exists(destPath))
+                {
+                    var name = Path.GetFileNameWithoutExtension(fileName);
+                    var ext = Path.GetExtension(fileName);
+                    var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+                    var newName = $"{name}_{timestamp}{ext}";
+                    destPath = Path.Combine(settings.MoveToFolder, newName);
+                }
+                
+                File.Move(filePath, destPath, overwrite: false);
+                Logger.Info($"Moved after upload: {fileName} → {destPath}");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"Could not move file to archive folder: {ex.Message}");
+                // Fall back to delete if move failed and DeleteAfterUpload is also enabled
+                if (settings.DeleteAfterUpload)
+                {
+                    try
+                    {
+                        File.Delete(filePath);
+                        Logger.Info($"Deleted (move failed, fallback): {Path.GetFileName(filePath)}");
+                    }
+                    catch (Exception delEx)
+                    {
+                        Logger.Error($"Failed to delete after move failed: {Path.GetFileName(filePath)}", delEx);
+                    }
+                }
+            }
+        }
+        else if (settings.DeleteAfterUpload)
+        {
+            try
+            {
+                File.Delete(filePath);
+                Logger.Info($"Deleted after upload: {Path.GetFileName(filePath)}");
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"Failed to delete after upload: {Path.GetFileName(filePath)}", ex);
+            }
+        }
     }
 
         private static string FormatBytes(long bytes)

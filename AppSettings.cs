@@ -19,6 +19,8 @@ public class AppSettings
     public List<string> IgnoredPatterns { get; set; } = [];
     public int MaxFileSizeMB { get; set; } = 0; // 0 = no limit
     public bool DeleteAfterUpload { get; set; } = false;
+    public bool MoveAfterUpload { get; set; } = false;
+    public string MoveToFolder { get; set; } = "";
     public int MaxRetries { get; set; } = 3;
     public bool ScanOnLaunch { get; set; } = false;
     public bool LocalCompress { get; set; } = false;
