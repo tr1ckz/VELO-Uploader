@@ -572,10 +572,6 @@ public class TrayContext : ApplicationContext
 
         _settingsForm = new SettingsForm(_settings, tabIndex);
         
-        // If opening with Status tab, update its content
-        if (tabIndex == 4)
-            _settingsForm.UpdateStats(_uploadCount, _successCount, _totalBytes);
-        
         _settingsForm.FormClosed += (_, _) =>
         {
             _settingsForm = null;
@@ -587,6 +583,11 @@ public class TrayContext : ApplicationContext
         };
 
         _settingsForm.Show();
+        
+        // Update Status tab content if opening with Status tab
+        // (do this after Show() so IsHandleCreated is true)
+        if (tabIndex == 4)
+            _settingsForm.UpdateStats(_uploadCount, _successCount, _totalBytes);
     }
 
     private void UpdateStatusWindow()
