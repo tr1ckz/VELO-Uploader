@@ -1,11 +1,31 @@
-using System.Net.Http.Headers;
+﻿using System.Net.Http.Headers;
 using System.Text.Json;
 
 namespace VeloUploader;
 
 public class UploadService
 {
-    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromHours(1) };
+    private static HttpClient _http = BuildClient(null);
+
+    /// <summary>
+    /// Rebuild the shared <see cref="HttpClient"/> using TLS settings from <paramref name="settings"/>.
+    /// Call this whenever TLS-related settings change (on startup and after each settings save).
+    /// </summary>
+    public static void Reconfigure(AppSettings settings)
+    {
+        var old = _http;
+        _http = BuildClient(settings);
+        // Dispose the old client after a delay to let any in-flight requests complete.
+        Task.Delay(TimeSpan.FromSeconds(30)).ContinueWith(_ => old.Dispose());
+    }
+
+    private static HttpClient BuildClient(AppSettings? settings)
+    {
+        var handler = settings != null
+            ? TlsCertHelper.CreateHandler(settings)
+            : new HttpClientHandler();
+        return new HttpClient(handler) { Timeout = TimeSpan.FromHours(1) };
+    }
 
     // 50MB chunks for chunked upload
     private const long CHUNK_SIZE = 50 * 1024 * 1024;
@@ -48,7 +68,7 @@ public class UploadService
 
         var url = serverUrl.TrimEnd('/') + "/api/videos";
 
-        Logger.Info($"Uploading: {fileName} ({fi.Length / 1024 / 1024}MB) → {url}");
+        Logger.Info($"Uploading: {fileName} ({fi.Length / 1024 / 1024}MB) â†’ {url}");
         Logger.Debug($"Title: {title}");
 
         for (int attempt = 1; attempt <= maxRetries; attempt++)
@@ -104,14 +124,14 @@ public class UploadService
             if (preCompressed)
                 request.Headers.Add("X-Pre-Compressed", "true");
 
-            using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseContentRead, ct);
+            using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseContentRead, ct);
             var body = await response.Content.ReadAsStringAsync(ct);
 
             if (response.IsSuccessStatusCode)
             {
                 using var doc = System.Text.Json.JsonDocument.Parse(body);
                 var slug = doc.RootElement.GetProperty("slug").GetString();
-                Logger.Info($"Upload complete: {fileName} → /v/{slug}");
+                Logger.Info($"Upload complete: {fileName} â†’ /v/{slug}");
                 return new UploadResult(true, slug, null);
             }
 
@@ -142,7 +162,7 @@ public class UploadService
     }
     /// <summary>
     /// Upload a large file in chunks via POST /api/upload/chunked
-    /// Flow: init → upload chunks → complete
+    /// Flow: init â†’ upload chunks â†’ complete
     /// </summary>
     private static async Task<UploadResult> UploadChunkedAsync(
         string serverUrl, string apiToken, string filePath, FileInfo fi,
@@ -256,7 +276,7 @@ public class UploadService
                     chunkReq.Content = new ByteArrayContent(buffer, 0, bytesRead);
                     chunkReq.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
 
-                    using var chunkResp = await Http.SendAsync(chunkReq, ct);
+                    using var chunkResp = await _http.SendAsync(chunkReq, ct);
                     if (chunkResp.IsSuccessStatusCode)
                     {
                         totalBytesUploaded += bytesRead;
@@ -291,14 +311,14 @@ public class UploadService
             using var completeReq = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/{uploadId}/complete");
             completeReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiToken);
 
-            using var completeResp = await Http.SendAsync(completeReq, ct);
+            using var completeResp = await _http.SendAsync(completeReq, ct);
             var completeText = await completeResp.Content.ReadAsStringAsync(ct);
 
             if (completeResp.IsSuccessStatusCode)
             {
                 using var doc = System.Text.Json.JsonDocument.Parse(completeText);
                 var slug = doc.RootElement.GetProperty("slug").GetString();
-                Logger.Info($"Chunked upload complete: {fileName} → /v/{slug}");
+                Logger.Info($"Chunked upload complete: {fileName} â†’ /v/{slug}");
                 UploadResumeStore.Remove(sessionKey);
                 return new UploadResult(true, slug, null);
             }
@@ -336,7 +356,7 @@ public class UploadService
             preCompressed,
         });
         initReq.Content = new StringContent(initBody, System.Text.Encoding.UTF8, "application/json");
-        using var initResp = await Http.SendAsync(initReq, ct);
+        using var initResp = await _http.SendAsync(initReq, ct);
         var initText = await initResp.Content.ReadAsStringAsync(ct);
 
         if (!initResp.IsSuccessStatusCode)
@@ -361,7 +381,7 @@ public class UploadService
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/{uploadId}");
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiToken);
-            using var response = await Http.SendAsync(request, ct);
+            using var response = await _http.SendAsync(request, ct);
             if (!response.IsSuccessStatusCode)
                 return null;
 

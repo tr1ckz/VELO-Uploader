@@ -15,6 +15,8 @@ public class TrayContext : ApplicationContext
         _settings = AppSettings.Load();
 
         Logger.Info("VELO Uploader started.");
+    UploadService.Reconfigure(_settings);
+
 
         _trayIcon = new NotifyIcon
         {

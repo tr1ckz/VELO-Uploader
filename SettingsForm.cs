@@ -164,7 +164,8 @@ public class SettingsForm : Form
 {
     private readonly AppSettings _settings;
     private readonly DarkTextBox _urlBox, _tokenBox, _watchBox, _addFolderBox, _addPatternBox;
-    private readonly CheckBox _subfoldersBox, _notifyBox, _deleteBox, _startupBox, _scanOnLaunchBox, _localCompressBox, _compressionHardFailBox, _soundBox;
+    private readonly CheckBox _subfoldersBox, _notifyBox, _deleteBox, _startupBox, _scanOnLaunchBox, _localCompressBox, _compressionHardFailBox, _soundBox, _selfSignedBox;
+    private readonly DarkTextBox _certPathBox;
     private readonly DarkNumeric _retriesBox, _maxSizeBox;
     private readonly DarkListBox _foldersList, _patternsList, _historyList;
     private readonly DarkComboBox _presetBox;
@@ -199,7 +200,7 @@ public class SettingsForm : Form
         SuspendLayout();
 
         Text = "VELO Uploader";
-        ClientSize = new Size(520, 560);
+        ClientSize = new Size(520, 620);
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
@@ -283,7 +284,7 @@ public class SettingsForm : Form
             _pages[i] = new Panel
             {
                 Location = new Point(0, 90),
-                Size = new Size(520, 470),
+                Size = new Size(520, 530),
                 BackColor = C_BG,
                 Visible = i == initialTab,
             };
@@ -315,6 +316,31 @@ public class SettingsForm : Form
         _statusLabel = new Label { Location = new Point(lx, y), Size = new Size(w, 14), ForeColor = C_T3, Font = new Font("Segoe UI", 7.5f) };
         g.Controls.Add(_statusLabel);
         y += 18;
+
+        Section(g, "WATCH FOLDER", lx, y); y += 18;
+        Section(g, "TLS / SECURITY", lx, y); y += 18;
+
+        _selfSignedBox = MkChk("Allow self-signed / untrusted server certificate", settings.AllowSelfSignedCerts, lx, y);
+        g.Controls.Add(_selfSignedBox);
+        y += 24;
+
+        _certPathBox = new DarkTextBox(settings.TrustedCertPath, "Trusted .crt file — pins server cert (optional)", lx, y, w - 258);
+        g.Controls.Add(_certPathBox);
+        var certBrowseBtn = MkBtn("Browse", lx + w - 250, y, 66, 28, C_BTN, C_BTN_H);
+        certBrowseBtn.Click += (_, _) =>
+        {
+            using var d = new OpenFileDialog
+            {
+                Filter = "Certificates|*.crt;*.pem;*.cer|All files|*.*",
+                Title = "Select trusted server certificate",
+            };
+            if (d.ShowDialog() == DialogResult.OK) _certPathBox.Text = d.FileName;
+        };
+        g.Controls.Add(certBrowseBtn);
+        var genCertBtn = MkBtn("Generate self-signed", lx + w - 176, y, 176, 28, C_BTN, C_BTN_H);
+        genCertBtn.Click += (_, _) => GenerateCert();
+        g.Controls.Add(genCertBtn);
+        y += 34;
 
         Section(g, "WATCH FOLDER", lx, y); y += 18;
 
@@ -628,13 +654,42 @@ public class SettingsForm : Form
         _settings.StopOnCompressionFailure = _compressionHardFailBox.Checked;
         _settings.PlaySounds = _soundBox.Checked;
         _settings.CompressionPreset = (_presetBox.Inner.SelectedItem?.ToString() ?? CompressionPreset.Balanced);
+        _settings.AllowSelfSignedCerts = _selfSignedBox.Checked;
+        _settings.TrustedCertPath = _certPathBox.Text.Trim();
         _settings.Save();
+        UploadService.Reconfigure(_settings);
 
         StartupManager.SetEnabled(_startupBox.Checked);
 
         Logger.Info("Settings saved.");
         Status("Saved!", false);
         Task.Delay(800).ContinueWith(_ => { if (!IsDisposed) Invoke(Close); });
+    }
+
+    void GenerateCert()
+    {
+        // Use the server URL hostname as the CN so the cert matches the host being connected to.
+        var subjectName = "velo-server";
+        if (Uri.TryCreate(_urlBox.Text.Trim(), UriKind.Absolute, out var uri) && uri.Host.Length > 0)
+            subjectName = uri.Host;
+
+        try
+        {
+            var (pfxPath, crtPath) = TlsCertHelper.GenerateSelfSignedCert(subjectName);
+            _certPathBox.Text = crtPath;
+            MessageBox.Show(
+                $"Certificate generated successfully.\n\n" +
+                $"Public cert (uploader trust):  {crtPath}\n" +
+                $"Server cert + key (VELO HTTPS): {pfxPath}\n\n" +
+                $"Copy {Path.GetFileName(pfxPath)} to your VELO server and configure it as the HTTPS certificate.",
+                "Certificate generated",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Failed to generate certificate:\n\n{ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
     }
 
     void SaveFilters()
@@ -657,7 +712,13 @@ public class SettingsForm : Form
         Status("Testing...", false);
         try
         {
-            using var h = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            var tempSettings = new AppSettings
+            {
+                AllowSelfSignedCerts = _selfSignedBox.Checked,
+                TrustedCertPath = _certPathBox.Text.Trim(),
+            };
+            using var handler = TlsCertHelper.CreateHandler(tempSettings);
+            using var h = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) };
             h.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
             var r = await h.GetAsync(url);
             Status(r.IsSuccessStatusCode ? "Connected!" : $"HTTP {(int)r.StatusCode}", !r.IsSuccessStatusCode);
