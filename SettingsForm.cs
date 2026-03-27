@@ -166,12 +166,13 @@ public class SettingsForm : Form
     private readonly DarkTextBox _urlBox, _tokenBox, _watchBox, _addFolderBox, _addPatternBox;
     private readonly CheckBox _subfoldersBox, _notifyBox, _deleteBox, _startupBox, _scanOnLaunchBox, _localCompressBox, _compressionHardFailBox, _soundBox, _selfSignedBox, _autoUpdateBox;
     private readonly DarkTextBox _certPathBox;
+    private readonly Label _certInfoLabel;
     private readonly DarkNumeric _retriesBox, _maxSizeBox;
     private readonly DarkListBox _foldersList, _patternsList, _historyList;
     private readonly DarkComboBox _presetBox;
     private readonly RichTextBox _logBox;
     private readonly Label _statusLabel;
-    private readonly Button _testBtn;
+    private readonly Button _testBtn, _testTlsBtn;
     private readonly Panel[] _pages;
     private readonly Button[] _tabBtns;
     private int _activeTab;
@@ -200,7 +201,7 @@ public class SettingsForm : Form
         SuspendLayout();
 
         Text = "VELO Uploader";
-        ClientSize = new Size(520, 620);
+        ClientSize = new Size(568, 680);
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
@@ -242,7 +243,7 @@ public class SettingsForm : Form
         header.Controls.Add(MkLabel("Auto-upload your game clips", 62, 30, new Font("Segoe UI", 8f), C_T3));
 
         // ── Custom tab bar ──
-        var tabBar = new Panel { Location = new Point(0, 54), Size = new Size(520, 36), BackColor = C_PANEL };
+        var tabBar = new Panel { Location = new Point(0, 54), Size = new Size(568, 36), BackColor = C_PANEL };
         Controls.Add(tabBar);
 
         _tabBtns = new Button[4];
@@ -284,7 +285,7 @@ public class SettingsForm : Form
             _pages[i] = new Panel
             {
                 Location = new Point(0, 90),
-                Size = new Size(520, 530),
+                Size = new Size(568, 590),
                 BackColor = C_BG,
                 Visible = i == initialTab,
             };
@@ -295,7 +296,7 @@ public class SettingsForm : Form
         //  PAGE 0: GENERAL
         // ═══════════════════════════════════════
         var g = _pages[0];
-        int y = 10, lx = 18, w = 482;
+        int y = 12, lx = 18, w = 532;
 
         Section(g, "CONNECTION", lx, y); y += 18;
 
@@ -305,17 +306,27 @@ public class SettingsForm : Form
         y += 50;
 
         Lbl(g, "API Token", lx, y);
-        _tokenBox = new DarkTextBox(settings.ApiToken, "velo_...", lx, y + 16, w - 96);
+        _tokenBox = new DarkTextBox(settings.ApiToken, "velo_...", lx, y + 16, w - 188);
         _tokenBox.UseSystemPasswordChar = true;
         g.Controls.Add(_tokenBox);
-        _testBtn = MkBtn("Test", lx + w - 88, y + 16, 88, 28, C_ACCENT, C_ACCENT_H);
+        _testBtn = MkBtn("Test API", lx + w - 180, y + 16, 84, 28, C_ACCENT, C_ACCENT_H);
         _testBtn.Click += async (_, _) => await TestConnection();
         g.Controls.Add(_testBtn);
+        _testTlsBtn = MkBtn("Test TLS", lx + w - 88, y + 16, 88, 28, C_BTN, C_BTN_H);
+        _testTlsBtn.Click += async (_, _) => await TestTlsConnection();
+        g.Controls.Add(_testTlsBtn);
         y += 50;
 
-        _statusLabel = new Label { Location = new Point(lx, y), Size = new Size(w, 14), ForeColor = C_T3, Font = new Font("Segoe UI", 7.5f) };
+        _statusLabel = new Label
+        {
+            Location = new Point(lx, y),
+            Size = new Size(w, 30),
+            ForeColor = C_T3,
+            Font = new Font("Segoe UI", 8f, FontStyle.Bold),
+            TextAlign = ContentAlignment.MiddleLeft,
+        };
         g.Controls.Add(_statusLabel);
-        y += 18;
+        y += 36;
 
         Section(g, "TLS / SECURITY", lx, y); y += 18;
 
@@ -323,9 +334,24 @@ public class SettingsForm : Form
         g.Controls.Add(_selfSignedBox);
         y += 24;
 
-        _certPathBox = new DarkTextBox(settings.TrustedCertPath, "Trusted .crt file — pins server cert (optional)", lx, y, w - 258);
+        Lbl(g, "Pinned certificate (optional)", lx, y);
+        y += 16;
+
+        _certPathBox = new DarkTextBox(settings.TrustedCertPath, "Trusted .crt/.cer/.pem file for certificate pinning", lx, y, w);
         g.Controls.Add(_certPathBox);
-        var certBrowseBtn = MkBtn("Browse", lx + w - 250, y, 66, 28, C_BTN, C_BTN_H);
+        y += 34;
+
+        _certInfoLabel = new Label
+        {
+            Location = new Point(lx, y),
+            Size = new Size(270, 28),
+            ForeColor = C_T3,
+            Font = new Font("Segoe UI", 7.5f),
+            TextAlign = ContentAlignment.MiddleLeft,
+        };
+        g.Controls.Add(_certInfoLabel);
+
+        var certBrowseBtn = MkBtn("Browse", lx + w - 262, y, 70, 28, C_BTN, C_BTN_H);
         certBrowseBtn.Click += (_, _) =>
         {
             using var d = new OpenFileDialog
@@ -333,13 +359,20 @@ public class SettingsForm : Form
                 Filter = "Certificates|*.crt;*.pem;*.cer|All files|*.*",
                 Title = "Select trusted server certificate",
             };
-            if (d.ShowDialog() == DialogResult.OK) _certPathBox.Text = d.FileName;
+            if (d.ShowDialog() == DialogResult.OK)
+            {
+                _certPathBox.Text = d.FileName;
+                UpdateTlsUi();
+            }
         };
         g.Controls.Add(certBrowseBtn);
-        var genCertBtn = MkBtn("Generate self-signed", lx + w - 176, y, 176, 28, C_BTN, C_BTN_H);
+        var genCertBtn = MkBtn("Generate cert", lx + w - 184, y, 106, 28, C_BTN, C_BTN_H);
         genCertBtn.Click += (_, _) => GenerateCert();
         g.Controls.Add(genCertBtn);
-        y += 34;
+        var tlsProbeBtn = MkBtn("Probe TLS", lx + w - 72, y, 72, 28, C_ACCENT, C_ACCENT_H);
+        tlsProbeBtn.Click += async (_, _) => await TestTlsConnection();
+        g.Controls.Add(tlsProbeBtn);
+        y += 36;
 
         Section(g, "WATCH FOLDER", lx, y); y += 18;
 
@@ -387,10 +420,14 @@ public class SettingsForm : Form
         g.Controls.Add(_retriesBox);
         y += 34;
 
-        var saveBtn = MkBtn("Save && Start Watching", lx + w - 190, y, 190, 38, C_ACCENT, C_ACCENT_H);
+        var saveBtn = MkBtn("Save && Start Watching", lx + w - 208, y, 208, 38, C_ACCENT, C_ACCENT_H);
         saveBtn.Font = new Font("Segoe UI", 10f, FontStyle.Bold);
         saveBtn.Click += (_, _) => SaveSettings();
         g.Controls.Add(saveBtn);
+
+        _selfSignedBox.CheckedChanged += (_, _) => UpdateTlsUi();
+        _certPathBox.Inner.TextChanged += (_, _) => UpdateTlsUi();
+        UpdateTlsUi();
 
         // ═══════════════════════════════════════
         //  PAGE 1: FILTERS
@@ -643,6 +680,11 @@ public class SettingsForm : Form
         if (url.Length == 0) { Status("Server URL is required", true); return; }
         if (!Uri.TryCreate(url, UriKind.Absolute, out _)) { Status("Invalid URL", true); return; }
         if (_tokenBox.Text.Trim().Length == 0) { Status("API token is required", true); return; }
+        if (!_selfSignedBox.Checked && _certPathBox.Text.Trim().Length > 0 && !File.Exists(_certPathBox.Text.Trim()))
+        {
+            Status("Pinned certificate file was not found", true);
+            return;
+        }
 
         _settings.ServerUrl = url;
         _settings.ApiToken = _tokenBox.Text.Trim();
@@ -680,6 +722,7 @@ public class SettingsForm : Form
         {
             var (pfxPath, crtPath) = TlsCertHelper.GenerateSelfSignedCert(subjectName);
             _certPathBox.Text = crtPath;
+            UpdateTlsUi();
             MessageBox.Show(
                 $"Certificate generated successfully.\n\n" +
                 $"Public cert (uploader trust):  {crtPath}\n" +
@@ -707,27 +750,131 @@ public class SettingsForm : Form
 
     async Task TestConnection()
     {
-        var url = _urlBox.Text.Trim().TrimEnd('/') + "/api/videos";
+        var baseUrl = _urlBox.Text.Trim();
+        var url = baseUrl.TrimEnd('/') + "/api/videos";
         var token = _tokenBox.Text.Trim();
         if (url.Length < 10 || token.Length == 0) { Status("Fill URL + token first", true); return; }
+        if (!ValidatePinnedCertPath()) return;
 
         _testBtn.Enabled = false;
-        Status("Testing...", false);
+        _testTlsBtn.Enabled = false;
+        Status("Testing API token against authenticated upload endpoint...", false);
         try
         {
-            var tempSettings = new AppSettings
-            {
-                AllowSelfSignedCerts = _selfSignedBox.Checked,
-                TrustedCertPath = _certPathBox.Text.Trim(),
-            };
-            using var handler = TlsCertHelper.CreateHandler(tempSettings);
+            using var handler = TlsCertHelper.CreateHandler(BuildTlsProbeSettings());
             using var h = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) };
             h.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
-            var r = await h.GetAsync(url);
-            Status(r.IsSuccessStatusCode ? "Connected!" : $"HTTP {(int)r.StatusCode}", !r.IsSuccessStatusCode);
+            using var content = new ByteArrayContent([]);
+            content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
+
+            var r = await h.PostAsync(url, content);
+            var body = await r.Content.ReadAsStringAsync();
+
+            if (r.StatusCode == System.Net.HttpStatusCode.Unauthorized || r.StatusCode == System.Net.HttpStatusCode.Forbidden)
+            {
+                Status("API token rejected by server", true);
+                return;
+            }
+
+            // This endpoint is authenticated first, then validates the upload payload.
+            // Any non-auth response proves the token was accepted.
+            if ((int)r.StatusCode >= 400 && (int)r.StatusCode < 500)
+            {
+                Status($"API token OK • Server auth passed ({(int)r.StatusCode})", false);
+                return;
+            }
+
+            Status($"API token OK • HTTP {(int)r.StatusCode}", false);
         }
-        catch (Exception ex) { Status($"Failed: {ex.Message}", true); }
-        finally { _testBtn.Enabled = true; }
+        catch (Exception ex) { Status($"API test failed: {ex.Message}", true); }
+        finally { _testBtn.Enabled = true; _testTlsBtn.Enabled = true; }
+    }
+
+    async Task TestTlsConnection()
+    {
+        var baseUrl = _urlBox.Text.Trim();
+        if (baseUrl.Length < 10) { Status("Fill Server URL first", true); return; }
+        if (!ValidatePinnedCertPath()) return;
+
+        _testBtn.Enabled = false;
+        _testTlsBtn.Enabled = false;
+        Status("Testing TLS handshake and certificate validation...", false);
+        try
+        {
+            using var handler = TlsCertHelper.CreateHandler(BuildTlsProbeSettings());
+            using var h = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) };
+            using var request = new HttpRequestMessage(HttpMethod.Get, baseUrl.TrimEnd('/') + "/");
+            using var response = await h.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+
+            var mode = _selfSignedBox.Checked
+                ? "self-signed allowed"
+                : _certPathBox.Text.Trim().Length > 0
+                    ? "pinned cert"
+                    : "system trust";
+            Status($"TLS OK • {mode} • HTTP {(int)response.StatusCode}", false);
+        }
+        catch (Exception ex)
+        {
+            Status($"TLS failed: {ex.Message}", true);
+        }
+        finally
+        {
+            _testBtn.Enabled = true;
+            _testTlsBtn.Enabled = true;
+        }
+    }
+
+    AppSettings BuildTlsProbeSettings() => new()
+    {
+        AllowSelfSignedCerts = _selfSignedBox.Checked,
+        TrustedCertPath = _certPathBox.Text.Trim(),
+    };
+
+    bool ValidatePinnedCertPath()
+    {
+        var certPath = _certPathBox.Text.Trim();
+        if (_selfSignedBox.Checked || certPath.Length == 0)
+            return true;
+
+        if (!File.Exists(certPath))
+        {
+            Status("Pinned certificate file was not found", true);
+            return false;
+        }
+
+        return true;
+    }
+
+    void UpdateTlsUi()
+    {
+        var selfSigned = _selfSignedBox.Checked;
+        _certPathBox.Enabled = !selfSigned;
+
+        var certPath = _certPathBox.Text.Trim();
+        if (selfSigned)
+        {
+            _certInfoLabel.Text = "Using relaxed TLS validation. Pinned cert is ignored.";
+            _certInfoLabel.ForeColor = C_T3;
+            return;
+        }
+
+        if (certPath.Length == 0)
+        {
+            _certInfoLabel.Text = "Using Windows system trust store.";
+            _certInfoLabel.ForeColor = C_T3;
+            return;
+        }
+
+        if (!File.Exists(certPath))
+        {
+            _certInfoLabel.Text = "Pinned certificate file not found.";
+            _certInfoLabel.ForeColor = C_ERR;
+            return;
+        }
+
+        var info = TlsCertHelper.GetCertInfo(certPath);
+        _certInfoLabel.Text = info.Length > 0 ? info : "Pinned certificate loaded.";
+        _certInfoLabel.ForeColor = info.Length > 0 ? C_T2 : C_GREEN;
     }
 
     void Status(string msg, bool err)
