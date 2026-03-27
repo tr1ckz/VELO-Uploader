@@ -370,10 +370,20 @@ public class TrayContext : ApplicationContext
         if (_settings.LocalCompress && LocalCompressor.IsAvailable())
         {
             ShowToast("New clip detected", $"Compressing: {fileName}", "Running local FFmpeg compression...");
+            if (_settingsForm != null && !_settingsForm.IsDisposed)
+            {
+                _settingsForm.UpdateTaskProgress(fileName, 0, $"Compressing locally ({_settings.CompressionPreset})...");
+                _settingsForm.AddEventLog($"⚙ Compressing: {fileName} ({_settings.CompressionPreset})", Color.FromArgb(59, 130, 246));
+            }
 
             var compressProgress = new Progress<double>(p =>
             {
-                SetTrayText($"VELO Uploader — Compressing {fileName} ({p:F0}%)");
+                var percentage = (int)p;
+                SetTrayText($"VELO Uploader — Compressing {fileName} ({percentage}%)");
+                if (_settingsForm != null && !_settingsForm.IsDisposed)
+                {
+                    _settingsForm.UpdateTaskProgress(fileName, percentage, $"Compressing locally ({_settings.CompressionPreset})...");
+                }
             });
 
             var compressed = await LocalCompressor.CompressAsync(filePath, _settings.CompressionPreset, compressProgress, ct);
@@ -383,6 +393,11 @@ public class TrayContext : ApplicationContext
                 preCompressed = true;
                 compressedTempFile = compressed;
                 Logger.Info($"Using locally compressed file for upload: {Path.GetFileName(compressed)}");
+                if (_settingsForm != null && !_settingsForm.IsDisposed)
+                {
+                    _settingsForm.UpdateTaskProgress(fileName, 100, "Compression complete - preparing upload...");
+                    _settingsForm.AddEventLog($"✓ Compression complete: {fileName}", Color.FromArgb(74, 222, 128));
+                }
 
                 // Delete original immediately after compression — no need to hold onto it during upload
                 if (_settings.DeleteAfterUpload)
@@ -406,6 +421,11 @@ public class TrayContext : ApplicationContext
                     SetTrayText("VELO Uploader — Compression failed");
                     ShowToast("Compression failed", fileName, "Upload skipped because hard-stop is enabled");
                     SoundFeedback.PlayFailure(_settings.PlaySounds);
+                    if (_settingsForm != null && !_settingsForm.IsDisposed)
+                    {
+                        _settingsForm.AddEventLog($"✗ Compression failed: {fileName}", Color.FromArgb(248, 113, 113));
+                        _settingsForm.ResetTask();
+                    }
                     UploadHistoryManager.Add(new UploadHistoryEntry
                     {
                         Timestamp = DateTime.Now,
@@ -421,6 +441,10 @@ public class TrayContext : ApplicationContext
                 }
 
                 Logger.Warn("Local compression failed, uploading original file");
+                if (_settingsForm != null && !_settingsForm.IsDisposed)
+                {
+                    _settingsForm.AddEventLog($"⚠ Compression failed, uploading original: {fileName}", Color.FromArgb(251, 191, 36));
+                }
             }
         }
         else if (_settings.LocalCompress && !LocalCompressor.IsAvailable())
@@ -431,6 +455,11 @@ public class TrayContext : ApplicationContext
                 SetTrayText("VELO Uploader — FFmpeg not found");
                 ShowToast("Compression unavailable", fileName, "FFmpeg not found; upload skipped");
                 SoundFeedback.PlayFailure(_settings.PlaySounds);
+                if (_settingsForm != null && !_settingsForm.IsDisposed)
+                {
+                    _settingsForm.AddEventLog($"✗ Compression unavailable: {fileName} (FFmpeg not found)", Color.FromArgb(248, 113, 113));
+                    _settingsForm.ResetTask();
+                }
                 UploadHistoryManager.Add(new UploadHistoryEntry
                 {
                     Timestamp = DateTime.Now,
@@ -446,6 +475,10 @@ public class TrayContext : ApplicationContext
             }
 
             Logger.Warn("Local compression enabled but FFmpeg not found — uploading original");
+            if (_settingsForm != null && !_settingsForm.IsDisposed)
+            {
+                _settingsForm.AddEventLog($"⚠ FFmpeg not found, uploading original: {fileName}", Color.FromArgb(251, 191, 36));
+            }
         }
 
         ShowToast("Uploading", $"{fileName}", preCompressed ? "Uploading pre-compressed video..." : "Streaming upload in progress...");

@@ -226,6 +226,10 @@ public class SettingsForm : Form
         Font = new Font("Segoe UI", 9f);
         DoubleBuffered = true;
 
+        const int pageTop = 102;
+        const int footerHeight = 34;
+        int pageHeight = ClientSize.Height - pageTop - footerHeight;
+
         // Load icon from embedded resource
         try
         {
@@ -301,13 +305,67 @@ public class SettingsForm : Form
         {
             _pages[i] = new Panel
             {
-                Location = new Point(0, 102),
-                Size = new Size(680, 716),
+                Location = new Point(0, pageTop),
+                Size = new Size(680, pageHeight),
                 BackColor = C_BG,
                 Visible = i == initialTab,
             };
             Controls.Add(_pages[i]);
         }
+
+        var footer = new Panel { Dock = DockStyle.Bottom, Height = footerHeight, BackColor = C_PANEL };
+        footer.Paint += (_, e) =>
+        {
+            using var pen = new Pen(C_BORDER, 1);
+            e.Graphics.DrawLine(pen, 0, 0, footer.Width, 0);
+        };
+        Controls.Add(footer);
+
+        var footerText = new Label
+        {
+            AutoSize = true,
+            Text = $"© {DateTime.Now.Year} VELO Uploader • Created by tr1ck •",
+            ForeColor = C_T3,
+            Font = new Font("Segoe UI", 8f),
+            BackColor = Color.Transparent,
+        };
+        footer.Controls.Add(footerText);
+
+        var footerLink = new LinkLabel
+        {
+            AutoSize = true,
+            Text = "github.com/tr1ckz",
+            LinkColor = C_ACCENT,
+            ActiveLinkColor = C_ACCENT_H,
+            VisitedLinkColor = C_ACCENT,
+            Font = new Font("Segoe UI", 8f, FontStyle.Bold),
+            BackColor = Color.Transparent,
+            TabStop = true,
+        };
+        footerLink.LinkClicked += (_, _) =>
+        {
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("https://github.com/tr1ckz")
+                {
+                    UseShellExecute = true,
+                });
+            }
+            catch { }
+        };
+        footer.Controls.Add(footerLink);
+
+        void LayoutFooter()
+        {
+            int spacing = 5;
+            int totalWidth = footerText.PreferredWidth + spacing + footerLink.PreferredWidth;
+            int startX = Math.Max(12, (footer.Width - totalWidth) / 2);
+            footerText.Location = new Point(startX, 9);
+            footerLink.Location = new Point(startX + footerText.PreferredWidth + spacing, 8);
+        }
+
+        footer.SizeChanged += (_, _) => LayoutFooter();
+        LayoutFooter();
 
         // ═══════════════════════════════════════
         //  PAGE 0: GENERAL
@@ -628,7 +686,7 @@ public class SettingsForm : Form
         var scroll = new Panel
         {
             Location = new Point(0, 0),
-            Size = new Size(680, 716),
+            Size = new Size(680, pageHeight),
             BackColor = C_BG,
             AutoScroll = true,
         };
