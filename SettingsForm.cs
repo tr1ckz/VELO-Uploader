@@ -324,7 +324,7 @@ public class SettingsForm : Form
         var footerText = new Label
         {
             AutoSize = true,
-            Text = $"© {DateTime.Now.Year} VELO Uploader • Created by tr1ck •",
+            Text = $"© {DateTime.Now.Year} VELO Uploader • Created by",
             ForeColor = C_T3,
             Font = new Font("Segoe UI", 8f),
             BackColor = Color.Transparent,
@@ -334,7 +334,7 @@ public class SettingsForm : Form
         var footerLink = new LinkLabel
         {
             AutoSize = true,
-            Text = "github.com/tr1ckz",
+            Text = "tr1ck",
             LinkColor = C_ACCENT,
             ActiveLinkColor = C_ACCENT_H,
             VisitedLinkColor = C_ACCENT,
@@ -357,11 +357,11 @@ public class SettingsForm : Form
 
         void LayoutFooter()
         {
-            int spacing = 5;
+            int spacing = 6;
             int totalWidth = footerText.PreferredWidth + spacing + footerLink.PreferredWidth;
             int startX = Math.Max(12, (footer.Width - totalWidth) / 2);
             footerText.Location = new Point(startX, 9);
-            footerLink.Location = new Point(startX + footerText.PreferredWidth + spacing, 8);
+            footerLink.Location = new Point(startX + footerText.PreferredWidth + spacing, 9);
         }
 
         footer.SizeChanged += (_, _) => LayoutFooter();
