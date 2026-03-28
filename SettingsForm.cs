@@ -168,6 +168,7 @@ public class SettingsForm : Form
     private readonly AppSettings _settings;
     private readonly DarkTextBox _urlBox, _tokenBox, _watchBox, _addFolderBox, _addPatternBox, _moveToBox;
     private readonly CheckBox _subfoldersBox, _notifyBox, _deleteBox, _moveBox, _startupBox, _scanOnLaunchBox, _localCompressBox, _compressionHardFailBox, _soundBox, _selfSignedBox, _autoUpdateBox;
+    private readonly CheckBox _queuePersistenceBox, _gameCompressionBox, _requireChecksumBox, _policySyncBox;
     private readonly DarkTextBox _certPathBox;
     private readonly Label _certInfoLabel;
     private readonly DarkNumeric _retriesBox, _maxSizeBox;
@@ -591,6 +592,23 @@ public class SettingsForm : Form
 
         _autoUpdateBox = MkChk("Check GitHub for app updates on launch", settings.AutoCheckForUpdates, lx, y);
         g.Controls.Add(_autoUpdateBox);
+        y += 42;
+
+        // ─────────────────────────────────────
+        // SECTION: UPLOAD BEHAVIOR
+        // ─────────────────────────────────────
+        Section(g, "UPLOAD BEHAVIOR", lx, y); y += 18;
+
+        _queuePersistenceBox = MkChk("Persist upload queue across restarts", settings.EnableQueuePersistence, lx, y);
+        g.Controls.Add(_queuePersistenceBox);
+        _requireChecksumBox = MkChk("Require checksum validation on upload", settings.RequireUploadChecksum, lx + 340, y);
+        g.Controls.Add(_requireChecksumBox);
+        y += 28;
+
+        _gameCompressionBox = MkChk("Use low-impact compression while gaming", settings.AdaptiveCompressionWhenGaming, lx, y);
+        g.Controls.Add(_gameCompressionBox);
+        _policySyncBox = MkChk("Sync upload settings from server on launch", settings.EnablePolicySync, lx + 340, y);
+        g.Controls.Add(_policySyncBox);
         y += 42;
 
         var saveBtn = MkBtn("Save && Start Watching", lx + w - 208, y, 208, 38, C_ACCENT, C_ACCENT_H);
@@ -1345,6 +1363,10 @@ public class SettingsForm : Form
         _settings.CompressionPreset = (_presetBox.Inner.SelectedItem?.ToString() ?? CompressionPreset.Balanced);
         _settings.AllowSelfSignedCerts = _selfSignedBox.Checked;
         _settings.TrustedCertPath = _certPathBox.Text.Trim();
+        _settings.EnableQueuePersistence = _queuePersistenceBox.Checked;
+        _settings.RequireUploadChecksum = _requireChecksumBox.Checked;
+        _settings.AdaptiveCompressionWhenGaming = _gameCompressionBox.Checked;
+        _settings.EnablePolicySync = _policySyncBox.Checked;
         _settings.Save();
         UploadService.Reconfigure(_settings);
 
