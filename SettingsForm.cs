@@ -223,8 +223,9 @@ public class SettingsForm : Form
 
         Text = "VELO Uploader";
         ClientSize = new Size(680, 900);
-        FormBorderStyle = FormBorderStyle.FixedSingle;
-        MaximizeBox = false;
+        MinimumSize = new Size(700, 760);
+        FormBorderStyle = FormBorderStyle.Sizable;
+        MaximizeBox = true;
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = C_BG;
         ForeColor = C_T1;
@@ -244,11 +245,11 @@ public class SettingsForm : Form
         catch { }
 
         // ── Header ──
-        var header = new Panel { Dock = DockStyle.Top, Height = 66, BackColor = C_PANEL };
+        var header = new Panel { Dock = DockStyle.Top, Height = 74, BackColor = C_PANEL };
         header.Paint += (_, e) =>
         {
             using var pen = new Pen(C_ACCENT, 2);
-            e.Graphics.DrawLine(pen, 0, 65, Width, 65);
+            e.Graphics.DrawLine(pen, 0, header.Height - 1, Width, header.Height - 1);
         };
         Controls.Add(header);
 
@@ -259,17 +260,29 @@ public class SettingsForm : Form
             if (logoStream != null)
             {
                 var img = Image.FromStream(logoStream);
-                header.Controls.Add(new PictureBox { Image = img, SizeMode = PictureBoxSizeMode.Zoom, Bounds = new Rectangle(14, 7, 40, 40), BackColor = Color.Transparent });
+                header.Controls.Add(new PictureBox { Image = img, SizeMode = PictureBoxSizeMode.Zoom, Bounds = new Rectangle(14, 12, 40, 40), BackColor = Color.Transparent });
             }
         }
         catch { }
 
-        header.Controls.Add(MkLabel("VELO Uploader", 60, 6, new Font("Segoe UI", 13f, FontStyle.Bold), C_T1));
-        header.Controls.Add(MkLabel("Auto-upload your game clips", 62, 24, new Font("Segoe UI", 10f, FontStyle.Bold), C_T3));
-        header.Controls.Add(MkLabel($"v{GitHubUpdater.GetCurrentVersion()}", Width - 84, 10, new Font("Segoe UI", 8f, FontStyle.Bold), C_ACCENT));
+        var headerTitle = MkLabel("VELO Uploader", 60, 9, new Font("Segoe UI", 14f, FontStyle.Bold), C_T1);
+        var headerSubtitle = MkLabel("Auto-upload your game clips", 62, 39, new Font("Segoe UI", 10f, FontStyle.Bold), C_T3);
+        var headerVersion = MkLabel($"v{GitHubUpdater.GetCurrentVersion()}", 0, 11, new Font("Segoe UI", 8f, FontStyle.Bold), C_ACCENT);
+        headerVersion.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        header.Controls.Add(headerTitle);
+        header.Controls.Add(headerSubtitle);
+        header.Controls.Add(headerVersion);
+
+        void LayoutHeader()
+        {
+            headerVersion.Location = new Point(Math.Max(12, header.ClientSize.Width - headerVersion.PreferredWidth - 14), 11);
+        }
+
+        header.SizeChanged += (_, _) => LayoutHeader();
+        LayoutHeader();
 
         // ── Custom tab bar ──
-        var tabBar = new Panel { Location = new Point(0, 66), Size = new Size(680, 36), BackColor = C_PANEL };
+        var tabBar = new Panel { Location = new Point(0, header.Height), Size = new Size(ClientSize.Width, 36), BackColor = C_PANEL, Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right };
         Controls.Add(tabBar);
 
         _tabBtns = new Button[5];
@@ -314,6 +327,8 @@ public class SettingsForm : Form
                 Size = new Size(680, pageHeight),
                 BackColor = C_BG,
                 Visible = i == initialTab,
+                Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
+                AutoScroll = true,
             };
             Controls.Add(_pages[i]);
         }
@@ -371,6 +386,23 @@ public class SettingsForm : Form
 
         footer.SizeChanged += (_, _) => LayoutFooter();
         LayoutFooter();
+
+        void LayoutShell()
+        {
+            tabBar.Location = new Point(0, header.Height);
+            tabBar.Width = ClientSize.Width;
+
+            int dynamicPageTop = tabBar.Bottom;
+            int dynamicPageHeight = Math.Max(120, ClientSize.Height - dynamicPageTop - footerHeight);
+            for (int i = 0; i < _pages.Length; i++)
+            {
+                _pages[i].Location = new Point(0, dynamicPageTop);
+                _pages[i].Size = new Size(ClientSize.Width, dynamicPageHeight);
+            }
+        }
+
+        SizeChanged += (_, _) => LayoutShell();
+        LayoutShell();
 
         // ═══════════════════════════════════════
         //  PAGE 0: GENERAL

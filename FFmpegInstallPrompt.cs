@@ -19,6 +19,8 @@ public class FFmpegInstallPrompt : Form
     private Label? _statusLabel;
     private Button? _installBtn;
     private Button? _skipBtn;
+    private Label? _titleLabel;
+    private Label? _messageLabel;
 
     public FFmpegInstallPrompt()
     {
@@ -31,7 +33,8 @@ public class FFmpegInstallPrompt : Form
         MaximizeBox = false;
         MinimizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
-        Size = new Size(500, 410);
+        ClientSize = new Size(500, 410);
+        MinimumSize = new Size(500, 410);
         BackColor = C_BG;
         ForeColor = C_T1;
         Font = new Font("Segoe UI", 10f);
@@ -41,34 +44,34 @@ public class FFmpegInstallPrompt : Form
         Text = "FFmpeg Installation";
 
         // Title
-        var titleLbl = new Label
+        _titleLabel = new Label
         {
             Text = "Install FFmpeg for Video Compression?",
             Location = new Point(20, 20),
-            Size = new Size(460, 30),
+            Size = new Size(460, 34),
             Font = new Font("Segoe UI", 14f, FontStyle.Bold),
             ForeColor = C_T1,
             BackColor = Color.Transparent,
         };
-        Controls.Add(titleLbl);
+        Controls.Add(_titleLabel);
 
         // Message
-        var msgLbl = new Label
+        _messageLabel = new Label
         {
             Text = "FFmpeg enables local video compression before upload, saving bandwidth and storage space.\n\nThe installation takes 1-2 minutes and includes full codec support with hardware acceleration.",
-            Location = new Point(20, 60),
-            Size = new Size(460, 110),
+            Location = new Point(20, 64),
+            Size = new Size(460, 118),
             Font = new Font("Segoe UI", 9.5f),
             ForeColor = C_T3,
             BackColor = Color.Transparent,
             AutoSize = false,
         };
-        Controls.Add(msgLbl);
+        Controls.Add(_messageLabel);
 
         // Progress bar (hidden initially)
         _progressBar = new ProgressBar
         {
-            Location = new Point(20, 185),
+            Location = new Point(20, 198),
             Size = new Size(460, 8),
             Style = ProgressBarStyle.Continuous,
             Visible = false,
@@ -79,7 +82,7 @@ public class FFmpegInstallPrompt : Form
         _statusLabel = new Label
         {
             Text = "Installing FFmpeg...",
-            Location = new Point(20, 200),
+            Location = new Point(20, 214),
             Size = new Size(460, 20),
             Font = new Font("Segoe UI", 9f),
             ForeColor = C_T3,
@@ -123,6 +126,31 @@ public class FFmpegInstallPrompt : Form
         _skipBtn.MouseEnter += (_, _) => _skipBtn.BackColor = Color.FromArgb(53, 53, 53);
         _skipBtn.MouseLeave += (_, _) => _skipBtn.BackColor = C_BTN_BG;
         Controls.Add(_skipBtn);
+
+        void LayoutDialog()
+        {
+            int margin = 20;
+            int contentWidth = Math.Max(280, ClientSize.Width - (margin * 2));
+
+            _titleLabel!.Location = new Point(margin, 20);
+            _titleLabel.Size = new Size(contentWidth, 34);
+
+            _messageLabel!.Location = new Point(margin, 64);
+            _messageLabel.Size = new Size(contentWidth, 118);
+
+            _progressBar!.Location = new Point(margin, 198);
+            _progressBar.Size = new Size(contentWidth, 8);
+
+            _statusLabel!.Location = new Point(margin, 214);
+            _statusLabel.Size = new Size(contentWidth, 20);
+
+            int btnY = Math.Max(260, ClientSize.Height - 20 - _installBtn!.Height);
+            _skipBtn!.Location = new Point(margin, btnY);
+            _installBtn.Location = new Point(ClientSize.Width - margin - _installBtn.Width, btnY);
+        }
+
+        SizeChanged += (_, _) => LayoutDialog();
+        LayoutDialog();
     }
 
     private void InstallBtn_Click(object? sender, EventArgs e)
