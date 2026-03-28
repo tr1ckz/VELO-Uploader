@@ -1,5 +1,6 @@
 namespace VeloUploader;
 
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
 
 public class TrayContext : ApplicationContext
@@ -13,13 +14,29 @@ public class TrayContext : ApplicationContext
     private readonly CancellationTokenSource _cts = new();
     private bool _updateCheckInProgress;
     private readonly ClipProcessingQueue _processingQueue = new();
+    private readonly ConcurrentQueue<string> _pendingQueue = new();
+    private readonly SemaphoreSlim _queueSignal = new(0);
+    private readonly HashSet<string> _queuedSet = new(StringComparer.OrdinalIgnoreCase);
 
     public TrayContext()
     {
         _settings = AppSettings.Load();
 
+        _ = Task.Run(() => PolicySyncService.TrySyncAsync(_settings, _cts.Token));
+
         Logger.Info("VELO Uploader started.");
         UploadService.Reconfigure(_settings);
+
+        _ = Task.Run(() => ProcessPendingQueueLoop(_cts.Token));
+
+        if (_settings.EnableQueuePersistence)
+        {
+            var persisted = PendingUploadQueueStore.Load();
+            foreach (var item in persisted)
+                EnqueueClip(item, fromPersistence: true);
+            if (persisted.Count > 0)
+                Logger.Info($"Recovered {persisted.Count} pending upload(s) from previous session.");
+        }
 
         // Check and prompt for FFmpeg installation on first launch if needed
         if (_settings.LocalCompress && !FFmpegHelper.IsFFmpegAvailable())
@@ -309,26 +326,73 @@ public class TrayContext : ApplicationContext
         _trayIcon.Text = text.Length <= maxLen ? text : text[..maxLen];
     }
 
-    private async void OnNewClip(string filePath)
+    private void OnNewClip(string filePath)
     {
-        try
+        EnqueueClip(filePath);
+    }
+
+    private void EnqueueClip(string filePath, bool fromPersistence = false)
+    {
+        if (!File.Exists(filePath)) return;
+
+        lock (_queuedSet)
         {
-            await ProcessClip(filePath, _cts.Token);
+            if (!_queuedSet.Add(filePath)) return;
         }
-        catch (OperationCanceledException)
+
+        if (_settings.EnableQueuePersistence && !fromPersistence)
+            PendingUploadQueueStore.Add(filePath);
+
+        _pendingQueue.Enqueue(filePath);
+        _queueSignal.Release();
+    }
+
+    private async Task ProcessPendingQueueLoop(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
         {
-            Logger.Info("Clip processing cancelled (app shutting down)");
-        }
-        catch (Exception ex)
-        {
-            Logger.Error($"Unexpected error processing clip: {Path.GetFileName(filePath)}", ex);
-            SetTrayText("VELO Uploader — Error (see logs)");
-            ShowToast("Error", Path.GetFileName(filePath), ex.Message);
-            LocalCompressor.KillAll();
+            try
+            {
+                await _queueSignal.WaitAsync(ct);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+
+            if (!_pendingQueue.TryDequeue(out var filePath))
+                continue;
+
+            bool success = false;
+            try
+            {
+                success = await ProcessClip(filePath, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                Logger.Info("Clip processing cancelled (app shutting down)");
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"Unexpected error processing clip: {Path.GetFileName(filePath)}", ex);
+                SetTrayText("VELO Uploader — Error (see logs)");
+                ShowToast("Error", Path.GetFileName(filePath), ex.Message);
+                LocalCompressor.KillAll();
+            }
+            finally
+            {
+                lock (_queuedSet)
+                {
+                    _queuedSet.Remove(filePath);
+                }
+
+                if (_settings.EnableQueuePersistence && success)
+                    PendingUploadQueueStore.Remove(filePath);
+            }
         }
     }
 
-    private async Task ProcessClip(string filePath, CancellationToken ct = default)
+    private async Task<bool> ProcessClip(string filePath, CancellationToken ct = default)
     {
         var fileName = Path.GetFileName(filePath);
         var uploadPath = filePath;
@@ -364,7 +428,7 @@ public class TrayContext : ApplicationContext
                     SourceSizeBytes = originalSize,
                     UploadedSizeBytes = 0,
                 });
-                return;
+                return true;
             }
         }
 
@@ -391,7 +455,7 @@ public class TrayContext : ApplicationContext
                 SourceSizeBytes = originalSize,
                 UploadedSizeBytes = 0,
             });
-            return;
+            return false;
         }
 
         // Local FFmpeg compression if enabled
@@ -418,7 +482,11 @@ public class TrayContext : ApplicationContext
                     }
                 });
 
-                var compressed = await LocalCompressor.CompressAsync(filePath, _settings.CompressionPreset, compressProgress, ct);
+                var lowImpact = _settings.AdaptiveCompressionWhenGaming && GameActivityDetector.IsLikelyGameRunning(filePath);
+                if (lowImpact)
+                    Logger.Info("Game activity detected — using low-impact compression mode.");
+
+                var compressed = await LocalCompressor.CompressAsync(filePath, _settings.CompressionPreset, lowImpact, compressProgress, ct);
                 if (compressed != null)
                 {
                     uploadPath = compressed;
@@ -458,7 +526,7 @@ public class TrayContext : ApplicationContext
                             SourceSizeBytes = originalSize,
                             UploadedSizeBytes = 0,
                         });
-                        return;
+                        return false;
                     }
 
                     Logger.Warn("Local compression failed, uploading original file");
@@ -497,7 +565,7 @@ public class TrayContext : ApplicationContext
                     SourceSizeBytes = originalSize,
                     UploadedSizeBytes = 0,
                 });
-                return;
+                return false;
             }
 
             Logger.Warn("Local compression enabled but FFmpeg not found — uploading original");
@@ -525,7 +593,7 @@ public class TrayContext : ApplicationContext
         {
             var result = await UploadService.UploadAsync(
                 _settings.ServerUrl, _settings.ApiToken, uploadPath, progress, ct,
-                maxRetries: _settings.MaxRetries, preCompressed: preCompressed);
+                maxRetries: _settings.MaxRetries, preCompressed: preCompressed, requireChecksum: _settings.RequireUploadChecksum);
 
             if (result.Success)
             {
@@ -533,14 +601,14 @@ public class TrayContext : ApplicationContext
                 _successCount++;
                 _totalBytes += new FileInfo(uploadPath).Length;
                 var url = $"{_settings.ServerUrl.TrimEnd('/')}/v/{result.Slug}";
-                ShowToast("Upload complete", fileName, "Click to copy link", url, 6000);
+                ShowToast(result.Duplicate ? "Duplicate matched" : "Upload complete", fileName, result.Duplicate ? "Matched existing upload" : "Click to copy link", url, 6000);
                 SoundFeedback.PlaySuccess(_settings.PlaySounds);
                 SetTrayText($"VELO Uploader — {_uploadCount} uploaded this session");
                 RefreshMenu();
                 UpdateStatusWindow();
                 if (_settingsForm != null && !_settingsForm.IsDisposed)
                 {
-                    _settingsForm.AddEventLog($"✓ Uploaded: {fileName}", Color.FromArgb(74, 222, 128));
+                    _settingsForm.AddEventLog($"✓ {(result.Duplicate ? "Matched duplicate" : "Uploaded")}: {fileName}" + (string.IsNullOrWhiteSpace(result.TraceId) ? "" : $" (trace {result.TraceId})"), Color.FromArgb(74, 222, 128));
                     _settingsForm.ResetTask();
                 }
                 // Quota will have changed — invalidate cache and refresh the status label
@@ -573,6 +641,7 @@ public class TrayContext : ApplicationContext
                     try { File.Delete(compressedTempFile); }
                     catch { }
                 }
+                return true;
             }
             else
             {
@@ -604,6 +673,7 @@ public class TrayContext : ApplicationContext
                     try { File.Delete(compressedTempFile); }
                     catch { }
                 }
+                return false;
             }
         }
         finally
@@ -668,6 +738,7 @@ public class TrayContext : ApplicationContext
         if (disposing)
         {
             _cts.Cancel();
+            _queueSignal.Dispose();
             LocalCompressor.KillAll();
             _watcher?.Dispose();
             _trayIcon.Dispose();

@@ -102,6 +102,7 @@ public static class LocalCompressor
     public static async Task<string?> CompressAsync(
         string inputPath,
         string preset,
+        bool lowImpactMode = false,
         IProgress<double>? progress = null,
         CancellationToken ct = default)
     {
@@ -116,9 +117,16 @@ public static class LocalCompressor
             try { File.Delete(outputPath); } catch { }
         }
 
+        var videoCodecArgs = options.VideoCodecArgs;
+        if (lowImpactMode && !IsGPU(preset))
+        {
+            // In active gameplay mode, prefer faster CPU encode profile and fewer threads.
+            videoCodecArgs = "-c:v libx264 -crf 25 -preset veryfast -threads 2";
+        }
+
         var args = string.Join(" ",
             $"-i \"{inputPath}\"",
-            options.VideoCodecArgs,
+            videoCodecArgs,
             options.ScaleArgs,
             "-pix_fmt yuv420p",
             "-movflags +faststart",
@@ -127,7 +135,7 @@ public static class LocalCompressor
             $"\"{outputPath}\""
         );
 
-        Logger.Info($"Compressing locally: {Path.GetFileName(inputPath)} ({preset}){(IsGPU(preset) ? " [GPU ACCELERATED]" : "")}");
+        Logger.Info($"Compressing locally: {Path.GetFileName(inputPath)} ({preset}){(IsGPU(preset) ? " [GPU ACCELERATED]" : "")}{(lowImpactMode ? " [LOW IMPACT]" : "")}");
         Logger.Debug($"ffmpeg {args}");
 
         var ffmpegPath = FFmpegHelper.GetFFmpegPath();

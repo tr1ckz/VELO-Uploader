@@ -1,4 +1,5 @@
 ﻿using System.Net.Http.Headers;
+using System.Security.Cryptography;
 using System.Text.Json;
 
 namespace VeloUploader;
@@ -32,12 +33,12 @@ public class UploadService
     // Files larger than this get chunked upload
     public const long CHUNK_THRESHOLD = 100L * 1024 * 1024;
 
-    public record UploadResult(bool Success, string? Slug, string? Error);
+    public record UploadResult(bool Success, string? Slug, string? Error, string? TraceId = null, bool Duplicate = false);
 
     public static async Task<UploadResult> UploadAsync(
         string serverUrl, string apiToken, string filePath,
         IProgress<double>? progress = null, CancellationToken ct = default,
-        int maxRetries = 1, bool preCompressed = false)
+        int maxRetries = 1, bool preCompressed = false, bool requireChecksum = false)
     {
         var fi = new FileInfo(filePath);
         if (!fi.Exists)
@@ -47,9 +48,17 @@ public class UploadService
         }
 
         // Use chunked upload for large files
+        var checksum = await ComputeSha256Async(filePath, ct);
+        var traceId = Guid.NewGuid().ToString("N");
+        if (requireChecksum && string.IsNullOrWhiteSpace(checksum))
+        {
+            Logger.Error($"Checksum required but unavailable for {Path.GetFileName(filePath)}");
+            return new UploadResult(false, null, "Checksum required but could not be computed", traceId);
+        }
+
         if (fi.Length > CHUNK_THRESHOLD)
         {
-            return await UploadChunkedAsync(serverUrl, apiToken, filePath, fi, progress, ct, maxRetries, preCompressed);
+            return await UploadChunkedAsync(serverUrl, apiToken, filePath, fi, progress, ct, maxRetries, preCompressed, checksum, traceId);
         }
 
         var fileName = fi.Name;
@@ -80,7 +89,7 @@ public class UploadService
                 await Task.Delay(delay, ct);
             }
 
-            var result = await TryUploadOnce(url, apiToken, filePath, fi, fileName, title, progress, ct, preCompressed);
+            var result = await TryUploadOnce(url, apiToken, filePath, fi, fileName, title, progress, ct, preCompressed, checksum, traceId);
 
             if (result.Success)
                 return result;
@@ -91,14 +100,16 @@ public class UploadService
                 return result;
         }
 
-        return new UploadResult(false, null, "Max retries exceeded");
+        return new UploadResult(false, null, "Max retries exceeded", traceId);
     }
 
     private static async Task<UploadResult> TryUploadOnce(
         string url, string apiToken, string filePath, FileInfo fi,
         string fileName, string title,
         IProgress<double>? progress, CancellationToken ct,
-        bool preCompressed = false)
+        bool preCompressed = false,
+        string? checksum = null,
+        string? traceId = null)
     {
         var mimeType = fileName.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase) ? "video/mp4"
             : fileName.EndsWith(".mkv", StringComparison.OrdinalIgnoreCase) ? "video/x-matroska"
@@ -121,6 +132,10 @@ public class UploadService
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiToken);
             request.Headers.Add("X-Upload-Filename", Uri.EscapeDataString(fileName));
             request.Headers.Add("X-Upload-Title", Uri.EscapeDataString(title));
+            if (!string.IsNullOrWhiteSpace(checksum))
+                request.Headers.Add("X-Upload-SHA256", checksum);
+            if (!string.IsNullOrWhiteSpace(traceId))
+                request.Headers.Add("X-Trace-Id", traceId);
             if (preCompressed)
                 request.Headers.Add("X-Pre-Compressed", "true");
 
@@ -130,9 +145,18 @@ public class UploadService
             if (response.IsSuccessStatusCode)
             {
                 using var doc = System.Text.Json.JsonDocument.Parse(body);
+                if (doc.RootElement.TryGetProperty("duplicate", out var dup) && dup.GetBoolean())
+                {
+                    var dupSlug = doc.RootElement.GetProperty("duplicateOf").GetProperty("slug").GetString();
+                    var resTrace = doc.RootElement.TryGetProperty("traceId", out var dupTrace) ? dupTrace.GetString() : traceId;
+                    Logger.Info($"Duplicate detected: {fileName} â†’ /v/{dupSlug}");
+                    return new UploadResult(true, dupSlug, null, resTrace, true);
+                }
+
                 var slug = doc.RootElement.GetProperty("slug").GetString();
-                Logger.Info($"Upload complete: {fileName} â†’ /v/{slug}");
-                return new UploadResult(true, slug, null);
+                var responseTrace = doc.RootElement.TryGetProperty("traceId", out var traceEl) ? traceEl.GetString() : traceId;
+                Logger.Info($"Upload complete: {fileName} â†’ /v/{slug} (trace={responseTrace})");
+                return new UploadResult(true, slug, null, responseTrace);
             }
 
             // Try to extract error message
@@ -141,23 +165,23 @@ public class UploadService
                 using var doc = System.Text.Json.JsonDocument.Parse(body);
                 var error = doc.RootElement.GetProperty("error").GetString();
                 Logger.Error($"Upload failed ({(int)response.StatusCode}): {error ?? body}");
-                return new UploadResult(false, null, error ?? $"HTTP {(int)response.StatusCode}");
+                return new UploadResult(false, null, error ?? $"HTTP {(int)response.StatusCode}", traceId);
             }
             catch
             {
                 Logger.Error($"Upload failed ({(int)response.StatusCode}): {body}");
-                return new UploadResult(false, null, $"HTTP {(int)response.StatusCode}: {body}");
+                return new UploadResult(false, null, $"HTTP {(int)response.StatusCode}: {body}", traceId);
             }
         }
         catch (OperationCanceledException)
         {
             Logger.Warn($"Upload cancelled: {fileName}");
-            return new UploadResult(false, null, "Upload cancelled");
+            return new UploadResult(false, null, "Upload cancelled", traceId);
         }
         catch (Exception ex)
         {
             Logger.Error($"Upload error: {fileName}", ex);
-            return new UploadResult(false, null, ex.Message);
+            return new UploadResult(false, null, ex.Message, traceId);
         }
     }
     /// <summary>
@@ -167,7 +191,9 @@ public class UploadService
     private static async Task<UploadResult> UploadChunkedAsync(
         string serverUrl, string apiToken, string filePath, FileInfo fi,
         IProgress<double>? progress, CancellationToken ct,
-        int maxRetries, bool preCompressed)
+        int maxRetries, bool preCompressed,
+        string? checksum,
+        string? traceId)
     {
         var fileName = fi.Name;
         var title = Path.GetFileNameWithoutExtension(fileName).Replace(".velo-compressed", "");
@@ -207,7 +233,7 @@ public class UploadService
                 }
                 else
                 {
-                    uploadId = await InitializeChunkedUploadAsync(baseUrl, apiToken, fileName, title, mimeType, fi.Length, totalChunks, preCompressed, ct);
+                    uploadId = await InitializeChunkedUploadAsync(baseUrl, apiToken, fileName, title, mimeType, fi.Length, totalChunks, preCompressed, checksum, traceId, ct);
                     if (string.IsNullOrWhiteSpace(uploadId))
                         return new UploadResult(false, null, "Chunk init failed");
                     UploadResumeStore.Save(new UploadResumeSession
@@ -224,7 +250,7 @@ public class UploadService
             }
             else
             {
-                uploadId = await InitializeChunkedUploadAsync(baseUrl, apiToken, fileName, title, mimeType, fi.Length, totalChunks, preCompressed, ct);
+                uploadId = await InitializeChunkedUploadAsync(baseUrl, apiToken, fileName, title, mimeType, fi.Length, totalChunks, preCompressed, checksum, traceId, ct);
                 if (string.IsNullOrWhiteSpace(uploadId))
                     return new UploadResult(false, null, "Chunk init failed");
                 UploadResumeStore.Save(new UploadResumeSession
@@ -317,19 +343,28 @@ public class UploadService
             if (completeResp.IsSuccessStatusCode)
             {
                 using var doc = System.Text.Json.JsonDocument.Parse(completeText);
+                if (doc.RootElement.TryGetProperty("duplicate", out var dup) && dup.GetBoolean())
+                {
+                    var dupSlug = doc.RootElement.GetProperty("duplicateOf").GetProperty("slug").GetString();
+                    var dupTrace = doc.RootElement.TryGetProperty("traceId", out var t) ? t.GetString() : traceId;
+                    Logger.Info($"Chunked duplicate detected: {fileName} â†’ /v/{dupSlug}");
+                    UploadResumeStore.Remove(sessionKey);
+                    return new UploadResult(true, dupSlug, null, dupTrace, true);
+                }
                 var slug = doc.RootElement.GetProperty("slug").GetString();
-                Logger.Info($"Chunked upload complete: {fileName} â†’ /v/{slug}");
+                var responseTrace = doc.RootElement.TryGetProperty("traceId", out var t2) ? t2.GetString() : traceId;
+                Logger.Info($"Chunked upload complete: {fileName} â†’ /v/{slug} (trace={responseTrace})");
                 UploadResumeStore.Remove(sessionKey);
-                return new UploadResult(true, slug, null);
+                return new UploadResult(true, slug, null, responseTrace);
             }
 
             Logger.Error($"Chunk complete failed ({(int)completeResp.StatusCode}): {completeText}");
-            return new UploadResult(false, null, $"Complete failed: HTTP {(int)completeResp.StatusCode}");
+            return new UploadResult(false, null, $"Complete failed: HTTP {(int)completeResp.StatusCode}", traceId);
         }
         catch (Exception ex)
         {
             Logger.Error("Chunk complete error", ex);
-            return new UploadResult(false, null, $"Complete error: {ex.Message}");
+            return new UploadResult(false, null, $"Complete error: {ex.Message}", traceId);
         }
     }
 
@@ -342,6 +377,8 @@ public class UploadService
         long totalSize,
         int totalChunks,
         bool preCompressed,
+        string? expectedSha256,
+        string? traceId,
         CancellationToken ct)
     {
         using var initReq = new HttpRequestMessage(HttpMethod.Post, baseUrl);
@@ -354,6 +391,8 @@ public class UploadService
             totalSize,
             totalChunks,
             preCompressed,
+            expectedSha256,
+            traceId,
         });
         initReq.Content = new StringContent(initBody, System.Text.Encoding.UTF8, "application/json");
         using var initResp = await _http.SendAsync(initReq, ct);
@@ -369,6 +408,22 @@ public class UploadService
         var uploadId = doc.RootElement.GetProperty("uploadId").GetString() ?? "";
         Logger.Debug($"Chunked upload initialized: {uploadId}");
         return uploadId;
+    }
+
+    private static async Task<string?> ComputeSha256Async(string filePath, CancellationToken ct)
+    {
+        try
+        {
+            await using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 1024 * 128, true);
+            using var sha = SHA256.Create();
+            var hash = await sha.ComputeHashAsync(stream, ct);
+            return Convert.ToHexString(hash).ToLowerInvariant();
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn($"Failed to compute upload checksum for {Path.GetFileName(filePath)}: {ex.Message}");
+            return null;
+        }
     }
 
     private static async Task<HashSet<int>?> GetChunkedUploadStatusAsync(
