@@ -272,20 +272,25 @@ public class TrayContext : ApplicationContext
                     
                     progressForm.SetCompleting();
                     await Task.Delay(800);
-                    progressForm.Invoke(() => progressForm.Close());
+                    if (!progressForm.IsDisposed && progressForm.IsHandleCreated)
+                        progressForm.BeginInvoke(() => progressForm.Close());
                 }
                 catch (OperationCanceledException)
                 {
-                    progressForm.Invoke(() => progressForm.Close());
+                    if (!progressForm.IsDisposed && progressForm.IsHandleCreated)
+                        progressForm.BeginInvoke(() => progressForm.Close());
                 }
                 catch (Exception ex)
                 {
                     Logger.Error("Update download failed", ex);
-                    progressForm.Invoke(() =>
+                    if (!progressForm.IsDisposed && progressForm.IsHandleCreated)
                     {
-                        MessageBox.Show($"Update failed:\n\n{ex.Message}", "VELO Uploader", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                        progressForm.Close();
-                    });
+                        progressForm.BeginInvoke(() =>
+                        {
+                            MessageBox.Show($"Update failed:\n\n{ex.Message}", "VELO Uploader", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                            progressForm.Close();
+                        });
+                    }
                 }
             }, _cts.Token);
 
@@ -460,10 +465,12 @@ public class TrayContext : ApplicationContext
 
         // Local FFmpeg compression if enabled
         if (_settings.LocalCompress && LocalCompressor.IsAvailable())        {
+            var compressionSlotHeld = false;
             try
             {
                 // Limit concurrent compressions to 1 to prevent resource exhaustion
                 await _processingQueue.WaitForCompressionSlotAsync(ct);
+                compressionSlotHeld = true;
                 
                 ShowToast("New clip detected", $"Compressing: {fileName}", "Running local FFmpeg compression...");
                 if (_settingsForm != null && !_settingsForm.IsDisposed)
@@ -538,7 +545,8 @@ public class TrayContext : ApplicationContext
             }
             finally
             {
-                _processingQueue.ReleaseCompressionSlot();
+                if (compressionSlotHeld)
+                    _processingQueue.ReleaseCompressionSlot();
             }
         }
         else if (_settings.LocalCompress && !LocalCompressor.IsAvailable())
@@ -588,9 +596,11 @@ public class TrayContext : ApplicationContext
         });
 
         // Limit concurrent uploads to 2 to prevent network/server overload
-        await _processingQueue.WaitForUploadSlotAsync(ct);
+        var uploadSlotHeld = false;
         try
         {
+            await _processingQueue.WaitForUploadSlotAsync(ct);
+            uploadSlotHeld = true;
             var result = await UploadService.UploadAsync(
                 _settings.ServerUrl, _settings.ApiToken, uploadPath, progress, ct,
                 maxRetries: _settings.MaxRetries, preCompressed: preCompressed, requireChecksum: _settings.RequireUploadChecksum);
@@ -678,7 +688,8 @@ public class TrayContext : ApplicationContext
         }
         finally
         {
-            _processingQueue.ReleaseUploadSlot();
+            if (uploadSlotHeld)
+                _processingQueue.ReleaseUploadSlot();
         }
     }
 

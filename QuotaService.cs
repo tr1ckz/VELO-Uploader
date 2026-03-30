@@ -109,8 +109,7 @@ public static class QuotaService
     /// <summary>Invalidate the cache so the next call fetches fresh data.</summary>
     public static void Invalidate()
     {
-        _lock.Wait();
         _cached = null;
-        _lock.Release();
+        _cacheExpiry = DateTime.MinValue;
     }
 }

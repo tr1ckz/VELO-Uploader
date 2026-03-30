@@ -194,7 +194,8 @@ public class FFmpegInstallPrompt : Form
 
             // Wait a bit then close
             Thread.Sleep(2000);
-            Invoke(() => Close());
+            if (!IsDisposed && IsHandleCreated)
+                BeginInvoke(() => Close());
         });
     }
 

@@ -162,6 +162,8 @@ class DarkComboBox : Panel
 
 public class SettingsForm : Form
 {
+    private const int MaxUiLogChars = 50000;
+    private const int MaxUiEventLogChars = 20000;
     private const int WM_SETTINGCHANGE = 0x001A;
     private const int WM_THEMECHANGED = 0x031A;
 
@@ -718,6 +720,8 @@ public class SettingsForm : Form
         Logger.OnLog += OnNewLog;
         FormClosed += (_, _) =>
         {
+            _statusRefreshTimer?.Stop();
+            _statusRefreshTimer?.Dispose();
             Logger.OnLog -= OnNewLog;
             UploadHistoryManager.Changed -= OnHistoryChanged;
         };
@@ -1288,6 +1292,7 @@ public class SettingsForm : Form
     {
         InvokeIfNeeded(() =>
         {
+            TrimRichTextBox(_eventLogBox, MaxUiEventLogChars);
             _eventLogBox.SelectionStart = _eventLogBox.TextLength;
             _eventLogBox.SelectionLength = 0;
             _eventLogBox.SelectionColor = color;
@@ -1314,11 +1319,12 @@ public class SettingsForm : Form
     void OnNewLog(LogEntry e)
     {
         if (IsDisposed) return;
-        try { Invoke(() => AppendLog(e)); } catch { }
+        try { InvokeIfNeeded(() => AppendLog(e)); } catch { }
     }
 
     void AppendLog(LogEntry e)
     {
+        TrimRichTextBox(_logBox, MaxUiLogChars);
         _logBox.SelectionStart = _logBox.TextLength;
         _logBox.SelectionLength = 0;
         _logBox.SelectionColor = e.Level switch
@@ -1330,6 +1336,16 @@ public class SettingsForm : Form
         };
         _logBox.AppendText(e.ToString() + "\n");
         _logBox.ScrollToCaret();
+    }
+
+    static void TrimRichTextBox(RichTextBox box, int maxChars)
+    {
+        if (box.TextLength < maxChars)
+            return;
+
+        var trimTo = Math.Max(maxChars / 4, 1024);
+        box.Select(0, trimTo);
+        box.SelectedText = string.Empty;
     }
 
     // ── Actions ──
@@ -1374,7 +1390,11 @@ public class SettingsForm : Form
 
         Logger.Info("Settings saved.");
         Status("Saved!", false);
-        Task.Delay(800).ContinueWith(_ => { if (!IsDisposed) Invoke(Close); });
+        _ = Task.Delay(800).ContinueWith(_ =>
+        {
+            if (!IsDisposed && IsHandleCreated)
+                BeginInvoke(Close);
+        }, TaskScheduler.Default);
     }
 
     void GenerateCert()
@@ -1552,7 +1572,7 @@ public class SettingsForm : Form
     void OnHistoryChanged()
     {
         if (IsDisposed) return;
-        try { Invoke(LoadHistory); } catch { }
+        try { InvokeIfNeeded(LoadHistory); } catch { }
     }
 
     void LoadHistory()
