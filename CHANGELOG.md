@@ -1,5 +1,10 @@
 # VELO Uploader - Changelog
 
+## Version 1.7.10 (2026-04-02)
+- Fix: automatically re-queue clips after transient server outages during chunk init, chunk upload, and chunk completion
+- Fix: keep the original source clip until upload success so local compression no longer makes retries unrecoverable
+- Fix: remove non-retryable failures from the persisted pending queue so only recoverable outages stay queued
+
 ## Version 1.7.0 (2026-03-27)
 
 ### Major Changes

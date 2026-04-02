@@ -1,4 +1,5 @@
-﻿using System.Net.Http.Headers;
+﻿using System.Net;
+using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text.Json;
 
@@ -33,7 +34,16 @@ public class UploadService
     // Files larger than this get chunked upload
     public const long CHUNK_THRESHOLD = 100L * 1024 * 1024;
 
-    public record UploadResult(bool Success, string? Slug, string? Error, string? TraceId = null, bool Duplicate = false);
+    public record UploadResult(
+        bool Success,
+        string? Slug,
+        string? Error,
+        string? TraceId = null,
+        bool Duplicate = false,
+        bool Retryable = false,
+        TimeSpan? RetryAfter = null);
+
+    private sealed record ChunkInitResult(string UploadId, string? Error = null, bool Retryable = false, TimeSpan? RetryAfter = null);
 
     public static async Task<UploadResult> UploadAsync(
         string serverUrl, string apiToken, string filePath,
@@ -165,18 +175,42 @@ public class UploadService
                 using var doc = System.Text.Json.JsonDocument.Parse(body);
                 var error = doc.RootElement.GetProperty("error").GetString();
                 Logger.Error($"Upload failed ({(int)response.StatusCode}): {error ?? body}");
-                return new UploadResult(false, null, error ?? $"HTTP {(int)response.StatusCode}", traceId);
+                return new UploadResult(
+                    false,
+                    null,
+                    error ?? $"HTTP {(int)response.StatusCode}",
+                    traceId,
+                    false,
+                    IsTransientStatusCode(response.StatusCode),
+                    GetRetryAfter(response));
             }
             catch
             {
                 Logger.Error($"Upload failed ({(int)response.StatusCode}): {body}");
-                return new UploadResult(false, null, $"HTTP {(int)response.StatusCode}: {body}", traceId);
+                return new UploadResult(
+                    false,
+                    null,
+                    $"HTTP {(int)response.StatusCode}: {body}",
+                    traceId,
+                    false,
+                    IsTransientStatusCode(response.StatusCode),
+                    GetRetryAfter(response));
             }
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            Logger.Warn($"Upload timed out: {fileName}");
+            return new UploadResult(false, null, "Upload timed out", traceId, false, true);
         }
         catch (OperationCanceledException)
         {
             Logger.Warn($"Upload cancelled: {fileName}");
             return new UploadResult(false, null, "Upload cancelled", traceId);
+        }
+        catch (HttpRequestException ex)
+        {
+            Logger.Error($"Upload network error: {fileName}", ex);
+            return new UploadResult(false, null, ex.Message, traceId, false, true);
         }
         catch (Exception ex)
         {
@@ -233,9 +267,10 @@ public class UploadService
                 }
                 else
                 {
-                    uploadId = await InitializeChunkedUploadAsync(baseUrl, apiToken, fileName, title, mimeType, fi.Length, totalChunks, preCompressed, checksum, traceId, ct);
-                    if (string.IsNullOrWhiteSpace(uploadId))
-                        return new UploadResult(false, null, "Chunk init failed");
+                    var initResult = await InitializeChunkedUploadAsync(baseUrl, apiToken, fileName, title, mimeType, fi.Length, totalChunks, preCompressed, checksum, traceId, ct);
+                    if (string.IsNullOrWhiteSpace(initResult.UploadId))
+                        return new UploadResult(false, null, initResult.Error ?? "Chunk init failed", traceId, false, initResult.Retryable, initResult.RetryAfter);
+                    uploadId = initResult.UploadId;
                     UploadResumeStore.Save(new UploadResumeSession
                     {
                         Key = sessionKey,
@@ -250,9 +285,10 @@ public class UploadService
             }
             else
             {
-                uploadId = await InitializeChunkedUploadAsync(baseUrl, apiToken, fileName, title, mimeType, fi.Length, totalChunks, preCompressed, checksum, traceId, ct);
-                if (string.IsNullOrWhiteSpace(uploadId))
-                    return new UploadResult(false, null, "Chunk init failed");
+                var initResult = await InitializeChunkedUploadAsync(baseUrl, apiToken, fileName, title, mimeType, fi.Length, totalChunks, preCompressed, checksum, traceId, ct);
+                if (string.IsNullOrWhiteSpace(initResult.UploadId))
+                    return new UploadResult(false, null, initResult.Error ?? "Chunk init failed", traceId, false, initResult.Retryable, initResult.RetryAfter);
+                uploadId = initResult.UploadId;
                 UploadResumeStore.Save(new UploadResumeSession
                 {
                     Key = sessionKey,
@@ -268,7 +304,8 @@ public class UploadService
         catch (Exception ex)
         {
             Logger.Error("Chunk init error", ex);
-            return new UploadResult(false, null, $"Chunk init error: {ex.Message}");
+            var retryable = ex is HttpRequestException || ex is TaskCanceledException;
+            return new UploadResult(false, null, $"Chunk init error: {ex.Message}", traceId, false, retryable);
         }
 
         // Step 2: Upload each chunk
@@ -277,6 +314,10 @@ public class UploadService
         long totalBytesUploaded = receivedChunks.Sum(index => GetChunkLength(index, fi.Length, totalChunks));
         if (totalBytesUploaded > 0)
             progress?.Report((double)totalBytesUploaded / fi.Length * 100);
+
+        HttpStatusCode? lastChunkStatus = null;
+        TimeSpan? lastChunkRetryAfter = null;
+        Exception? lastChunkException = null;
 
         for (int chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++)
         {
@@ -309,14 +350,30 @@ public class UploadService
                         receivedChunks.Add(chunkIndex);
                         progress?.Report((double)totalBytesUploaded / fi.Length * 100);
                         chunkSuccess = true;
+                        lastChunkStatus = null;
+                        lastChunkRetryAfter = null;
+                        lastChunkException = null;
                         break;
                     }
 
+                    lastChunkStatus = chunkResp.StatusCode;
+                    lastChunkRetryAfter = GetRetryAfter(chunkResp);
                     var errText = await chunkResp.Content.ReadAsStringAsync(ct);
                     Logger.Warn($"Chunk {chunkIndex} attempt {attempt} failed: HTTP {(int)chunkResp.StatusCode} - {errText}");
                 }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                {
+                    lastChunkException = new TimeoutException($"Chunk {chunkIndex} timed out");
+                    Logger.Warn($"Chunk {chunkIndex} attempt {attempt} timed out");
+                }
+                catch (HttpRequestException ex)
+                {
+                    lastChunkException = ex;
+                    Logger.Warn($"Chunk {chunkIndex} attempt {attempt} network error: {ex.Message}");
+                }
                 catch (Exception ex)
                 {
+                    lastChunkException = ex;
                     Logger.Warn($"Chunk {chunkIndex} attempt {attempt} error: {ex.Message}");
                 }
 
@@ -327,7 +384,9 @@ public class UploadService
             if (!chunkSuccess)
             {
                 Logger.Error($"Chunk {chunkIndex}/{totalChunks} failed after {maxRetries} attempts");
-                return new UploadResult(false, null, $"Failed uploading chunk {chunkIndex + 1}/{totalChunks}");
+                var retryable = lastChunkException is HttpRequestException or TimeoutException
+                    || (lastChunkStatus.HasValue && IsTransientStatusCode(lastChunkStatus.Value));
+                return new UploadResult(false, null, $"Failed uploading chunk {chunkIndex + 1}/{totalChunks}", traceId, false, retryable, lastChunkRetryAfter);
             }
         }
 
@@ -359,7 +418,17 @@ public class UploadService
             }
 
             Logger.Error($"Chunk complete failed ({(int)completeResp.StatusCode}): {completeText}");
-            return new UploadResult(false, null, $"Complete failed: HTTP {(int)completeResp.StatusCode}", traceId);
+            return new UploadResult(false, null, $"Complete failed: HTTP {(int)completeResp.StatusCode}", traceId, false, IsTransientStatusCode(completeResp.StatusCode), GetRetryAfter(completeResp));
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            Logger.Warn("Chunk complete timed out");
+            return new UploadResult(false, null, "Chunk completion timed out", traceId, false, true);
+        }
+        catch (HttpRequestException ex)
+        {
+            Logger.Error("Chunk complete network error", ex);
+            return new UploadResult(false, null, $"Complete error: {ex.Message}", traceId, false, true);
         }
         catch (Exception ex)
         {
@@ -368,7 +437,7 @@ public class UploadService
         }
     }
 
-    private static async Task<string> InitializeChunkedUploadAsync(
+    private static async Task<ChunkInitResult> InitializeChunkedUploadAsync(
         string baseUrl,
         string apiToken,
         string fileName,
@@ -401,13 +470,17 @@ public class UploadService
         if (!initResp.IsSuccessStatusCode)
         {
             Logger.Error($"Chunk init failed ({(int)initResp.StatusCode}): {initText}");
-            return "";
+            return new ChunkInitResult(
+                "",
+                $"Chunk init failed: HTTP {(int)initResp.StatusCode}",
+                IsTransientStatusCode(initResp.StatusCode),
+                GetRetryAfter(initResp));
         }
 
         using var doc = JsonDocument.Parse(initText);
         var uploadId = doc.RootElement.GetProperty("uploadId").GetString() ?? "";
         Logger.Debug($"Chunked upload initialized: {uploadId}");
-        return uploadId;
+        return new ChunkInitResult(uploadId);
     }
 
     private static async Task<string?> ComputeSha256Async(string filePath, CancellationToken ct)
@@ -462,6 +535,27 @@ public class UploadService
             return CHUNK_SIZE;
         var lastChunkSize = totalSize - (CHUNK_SIZE * (totalChunks - 1));
         return lastChunkSize > 0 ? lastChunkSize : CHUNK_SIZE;
+    }
+
+    private static bool IsTransientStatusCode(HttpStatusCode statusCode)
+    {
+        var numeric = (int)statusCode;
+        return numeric == 408 || numeric == 425 || numeric == 429 || numeric >= 500;
+    }
+
+    private static TimeSpan? GetRetryAfter(HttpResponseMessage response)
+    {
+        if (response.Headers.RetryAfter?.Delta is TimeSpan delta)
+            return delta;
+
+        if (response.Headers.RetryAfter?.Date is DateTimeOffset date)
+        {
+            var retryAfter = date - DateTimeOffset.UtcNow;
+            if (retryAfter > TimeSpan.Zero)
+                return retryAfter;
+        }
+
+        return null;
     }
 }
 

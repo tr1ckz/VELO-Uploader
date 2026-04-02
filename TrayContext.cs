@@ -17,6 +17,9 @@ public class TrayContext : ApplicationContext
     private readonly ConcurrentQueue<string> _pendingQueue = new();
     private readonly SemaphoreSlim _queueSignal = new(0);
     private readonly HashSet<string> _queuedSet = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, int> _retryAttempts = new(StringComparer.OrdinalIgnoreCase);
+
+    private sealed record ProcessClipResult(bool Success, bool Retryable = false, TimeSpan? RetryAfter = null);
 
     public TrayContext()
     {
@@ -368,10 +371,10 @@ public class TrayContext : ApplicationContext
             if (!_pendingQueue.TryDequeue(out var filePath))
                 continue;
 
-            bool success = false;
+            ProcessClipResult result = new(false);
             try
             {
-                success = await ProcessClip(filePath, ct);
+                result = await ProcessClip(filePath, ct);
             }
             catch (OperationCanceledException)
             {
@@ -391,13 +394,55 @@ public class TrayContext : ApplicationContext
                     _queuedSet.Remove(filePath);
                 }
 
-                if (_settings.EnableQueuePersistence && success)
+                if (result.Success)
+                    _retryAttempts.TryRemove(filePath, out _);
+                else if (result.Retryable)
+                    ScheduleRetry(filePath, result.RetryAfter);
+
+                if (_settings.EnableQueuePersistence && result.Success)
+                    PendingUploadQueueStore.Remove(filePath);
+                else if (_settings.EnableQueuePersistence && !result.Retryable)
                     PendingUploadQueueStore.Remove(filePath);
             }
         }
     }
 
-    private async Task<bool> ProcessClip(string filePath, CancellationToken ct = default)
+    private void ScheduleRetry(string filePath, TimeSpan? retryAfter)
+    {
+        if (!File.Exists(filePath))
+        {
+            if (_settings.EnableQueuePersistence)
+                PendingUploadQueueStore.Remove(filePath);
+            _retryAttempts.TryRemove(filePath, out _);
+            return;
+        }
+
+        var attempt = _retryAttempts.AddOrUpdate(filePath, 1, (_, current) => current + 1);
+        var delay = retryAfter ?? TimeSpan.FromSeconds(Math.Min(300, 15 * Math.Pow(2, Math.Min(attempt - 1, 4))));
+        var fileName = Path.GetFileName(filePath);
+
+        Logger.Warn($"Will retry upload for {fileName} in {delay.TotalSeconds:0}s (attempt {attempt})");
+        if (_settingsForm != null && !_settingsForm.IsDisposed)
+        {
+            _settingsForm.AddEventLog($"↻ Queued for retry: {fileName} in {delay.TotalSeconds:0}s", Color.FromArgb(251, 191, 36));
+            _settingsForm.ResetTask();
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(delay, _cts.Token);
+                if (!_cts.IsCancellationRequested)
+                    EnqueueClip(filePath, fromPersistence: true);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }, _cts.Token);
+    }
+
+    private async Task<ProcessClipResult> ProcessClip(string filePath, CancellationToken ct = default)
     {
         var fileName = Path.GetFileName(filePath);
         var uploadPath = filePath;
@@ -433,7 +478,7 @@ public class TrayContext : ApplicationContext
                     SourceSizeBytes = originalSize,
                     UploadedSizeBytes = 0,
                 });
-                return true;
+                return new ProcessClipResult(true);
             }
         }
 
@@ -460,7 +505,7 @@ public class TrayContext : ApplicationContext
                 SourceSizeBytes = originalSize,
                 UploadedSizeBytes = 0,
             });
-            return false;
+            return new ProcessClipResult(false);
         }
 
         // Local FFmpeg compression if enabled
@@ -506,8 +551,6 @@ public class TrayContext : ApplicationContext
                         _settingsForm.AddEventLog($"✓ Compression complete: {fileName}", Color.FromArgb(74, 222, 128));
                     }
 
-                    // Handle original after compression — move or delete based on settings
-                    HandleFileAfterUpload(filePath, _settings);
                 }
                 else
                 {
@@ -533,7 +576,7 @@ public class TrayContext : ApplicationContext
                             SourceSizeBytes = originalSize,
                             UploadedSizeBytes = 0,
                         });
-                        return false;
+                        return new ProcessClipResult(false);
                     }
 
                     Logger.Warn("Local compression failed, uploading original file");
@@ -573,7 +616,7 @@ public class TrayContext : ApplicationContext
                     SourceSizeBytes = originalSize,
                     UploadedSizeBytes = 0,
                 });
-                return false;
+                return new ProcessClipResult(false);
             }
 
             Logger.Warn("Local compression enabled but FFmpeg not found — uploading original");
@@ -651,7 +694,8 @@ public class TrayContext : ApplicationContext
                     try { File.Delete(compressedTempFile); }
                     catch { }
                 }
-                return true;
+                HandleFileAfterUpload(filePath, _settings);
+                return new ProcessClipResult(true);
             }
             else
             {
@@ -683,7 +727,7 @@ public class TrayContext : ApplicationContext
                     try { File.Delete(compressedTempFile); }
                     catch { }
                 }
-                return false;
+                return new ProcessClipResult(false, result.Retryable, result.RetryAfter);
             }
         }
         finally
