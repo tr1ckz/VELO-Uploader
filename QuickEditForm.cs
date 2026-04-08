@@ -16,8 +16,6 @@ public sealed class QuickEditForm : Form
     private readonly EditorPreviewBox _sourcePreview;
     private readonly PictureBox _outputPreview;
     private readonly TrimTimelineView _trimTimelineView;
-    private readonly Label _timelineZoomLabel;
-    private readonly TrackBar _timelineZoomBar;
     private readonly TrackBar _timelineBar;
     private readonly Button _playPauseButton;
     private readonly Button _jumpBackButton;
@@ -67,6 +65,7 @@ public sealed class QuickEditForm : Form
     private readonly Dictionary<string, List<Image>> _trimThumbCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Image> _waveformCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, List<double>> _clipMarkers = new(StringComparer.OrdinalIgnoreCase);
+    private double _timelineZoom = 1;
 
     private static readonly string[] SupportedExtensions = [".mp4", ".mkv", ".mov", ".avi", ".webm"];
 
@@ -86,7 +85,7 @@ public sealed class QuickEditForm : Form
 
         Text = "VELO Video Editor";
         ClientSize = new Size(1400, 860);
-        MinimumSize = new Size(1260, 780);
+        MinimumSize = new Size(1180, 720);
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.Sizable;
         BackColor = Color.FromArgb(12, 12, 15);
@@ -234,7 +233,7 @@ public sealed class QuickEditForm : Form
 
         var trimSectionLabel = BuildSectionLabel("Cut / trim timeline", 14, 302);
         centerPanel.Controls.Add(trimSectionLabel);
-        var trimHint = BuildSmallLabel("This is the actual edit bar: drag the IN and OUT handles directly on the clip to trim the selected range.", 14, 324, 720);
+        var trimHint = BuildSmallLabel("Drag the IN and OUT handles on the clip to trim it, and use the mouse wheel over either timeline to zoom in or out.", 14, 324, 720);
         centerPanel.Controls.Add(trimHint);
 
         _trimTimelineView = new TrimTimelineView
@@ -245,22 +244,8 @@ public sealed class QuickEditForm : Form
         };
         _trimTimelineView.SeekRequested += seconds => SeekToTime(seconds, refreshPreview: true);
         _trimTimelineView.RangeChanged += (start, end) => ApplyTrimRangeFromTimeline(start, end);
+        _trimTimelineView.ZoomDeltaRequested += AdjustTimelineZoom;
         centerPanel.Controls.Add(_trimTimelineView);
-
-        _timelineZoomLabel = BuildSmallLabel("Zoom: 1.0x", 14, 446, 90);
-        centerPanel.Controls.Add(_timelineZoomLabel);
-
-        _timelineZoomBar = new TrackBar
-        {
-            Location = new Point(104, 444),
-            Size = new Size(150, 28),
-            Minimum = 10,
-            Maximum = 60,
-            Value = 10,
-            TickStyle = TickStyle.None,
-        };
-        _timelineZoomBar.Scroll += (_, _) => UpdateTimelineZoom();
-        centerPanel.Controls.Add(_timelineZoomBar);
 
         _timelineBar = new TrackBar
         {
@@ -289,7 +274,7 @@ public sealed class QuickEditForm : Form
 
         var sequenceSectionLabel = BuildSectionLabel("Sequence timeline", 14, 512);
         centerPanel.Controls.Add(sequenceSectionLabel);
-        var timelineHint = BuildSmallLabel("Clip blocks can be dragged left/right to reorder, trimmed from either edge, and dropped onto V1 or V2 like a real sequence.", 14, 534, 720);
+        var timelineHint = BuildSmallLabel("Drag blocks left/right to reorder, trim either edge, drop them on V1 or V2, and use the mouse wheel to zoom the timeline.", 14, 534, 720);
         centerPanel.Controls.Add(timelineHint);
 
         _sequenceTimelineView = new SequenceTimelineView
@@ -301,6 +286,7 @@ public sealed class QuickEditForm : Form
         _sequenceTimelineView.SegmentClicked += async index => await LoadSequenceSegmentAsync(index);
         _sequenceTimelineView.SegmentTrimChanged += (index, start, end) => ApplySequenceTrimFromTimeline(index, start, end);
         _sequenceTimelineView.SegmentMoved += (fromIndex, toIndex, track) => MoveSequenceSegmentTo(fromIndex, toIndex, track);
+        _sequenceTimelineView.ZoomDeltaRequested += AdjustTimelineZoom;
         _sequenceTimelineView.SetWaveformProvider(file => _waveformCache.TryGetValue(file, out var waveform) ? waveform : null);
         centerPanel.Controls.Add(_sequenceTimelineView);
 
@@ -360,11 +346,11 @@ public sealed class QuickEditForm : Form
         rightPanel.Controls.Add(BuildButton("Mark IN at playhead", 14, y, 124, (_, _) => SetTrimBoundary(true)));
         rightPanel.Controls.Add(BuildButton("Mark OUT at playhead", 150, y, 124, (_, _) => SetTrimBoundary(false)));
         y += 38;
-        _trimButton = BuildActionButton("Render selected range", 14, y, 260, async (_, _) => await RunTrimAsync());
+        _trimButton = BuildActionButton("Save clip from IN/OUT range", 14, y, 260, async (_, _) => await RunTrimAsync());
         rightPanel.Controls.Add(_trimButton);
         y += 36;
 
-        _markerHintLabel = BuildSmallLabel("Workflow: drag the IN/OUT handles, then add a clip block, add a marker, or use Ctrl+B / Delete for faster editing.", 14, y, 260);
+        _markerHintLabel = BuildSmallLabel("Single clip: Save clip from IN/OUT range. Full edit: Save full timeline as video.", 14, y, 260);
         rightPanel.Controls.Add(_markerHintLabel);
         y += 34;
 
@@ -445,7 +431,7 @@ public sealed class QuickEditForm : Form
         rightPanel.Controls.Add(BuildButton("Use full frame", 14, y, 124, (_, _) => ResetCropToFullFrame()));
         rightPanel.Controls.Add(BuildButton("Preview crop", 150, y, 124, async (_, _) => await RefreshPreviewAsync(GetCurrentPreviewTime())));
         y += 38;
-        _cropButton = BuildActionButton("Render cropped clip", 14, y, 260, async (_, _) => await RunCropAsync());
+        _cropButton = BuildActionButton("Save cropped clip", 14, y, 260, async (_, _) => await RunCropAsync());
         rightPanel.Controls.Add(_cropButton);
         y += 50;
 
@@ -483,7 +469,7 @@ public sealed class QuickEditForm : Form
         rightPanel.Controls.Add(_sequenceSummaryLabel);
         y += 36;
 
-        _exportSequenceButton = BuildActionButton("Export timeline", 14, y, 260, async (_, _) => await ExportSequenceAsync());
+        _exportSequenceButton = BuildActionButton("Save full timeline as video", 14, y, 260, async (_, _) => await ExportSequenceAsync());
         rightPanel.Controls.Add(_exportSequenceButton);
         y += 40;
 
@@ -496,7 +482,7 @@ public sealed class QuickEditForm : Form
 
         _statusLabel = new Label
         {
-            Text = "Ready.",
+            Text = "Ready — save one clip with IN/OUT, or save the full timeline below.",
             AutoSize = false,
             Size = new Size(1240, 36),
             Location = new Point(20, 726),
@@ -510,10 +496,12 @@ public sealed class QuickEditForm : Form
             const int outerMargin = 20;
             const int top = 92;
             const int gap = 14;
-            var panelHeight = Math.Max(620, ClientSize.Height - top - 88);
+            var panelHeight = Math.Max(600, ClientSize.Height - top - 88);
+            var leftWidth = Math.Clamp((int)Math.Round(ClientSize.Width * 0.19), 246, 280);
+            var rightWidth = Math.Clamp((int)Math.Round(ClientSize.Width * 0.21), 284, 320);
 
-            leftPanel.Bounds = new Rectangle(outerMargin, top, 270, panelHeight);
-            rightPanel.Bounds = new Rectangle(ClientSize.Width - outerMargin - 292, top, 292, panelHeight);
+            leftPanel.Bounds = new Rectangle(outerMargin, top, leftWidth, panelHeight);
+            rightPanel.Bounds = new Rectangle(ClientSize.Width - outerMargin - rightWidth, top, rightWidth, panelHeight);
             centerPanel.Bounds = new Rectangle(leftPanel.Right + gap, top, Math.Max(600, rightPanel.Left - gap - (leftPanel.Right + gap)), panelHeight);
 
             _mediaThumbStrip.Size = new Size(leftPanel.ClientSize.Width - 24, 92);
@@ -521,36 +509,54 @@ public sealed class QuickEditForm : Form
 
             const int margin = 16;
             const int monitorGap = 12;
-            var sourceWidth = Math.Clamp(centerPanel.ClientSize.Width / 5, 210, 248);
-            var programX = margin + sourceWidth + monitorGap;
-            var programWidth = Math.Max(340, centerPanel.ClientSize.Width - programX - margin);
-            var monitorHeight = Math.Clamp((int)(centerPanel.ClientSize.Height * 0.34), 220, 320);
+            var availableWidth = Math.Max(320, centerPanel.ClientSize.Width - (margin * 2));
+            var stackMonitors = availableWidth < 760;
+            var sourceWidth = stackMonitors
+                ? availableWidth
+                : Math.Clamp((int)Math.Round(availableWidth * 0.33), 220, 320);
+            var programX = stackMonitors ? margin : margin + sourceWidth + monitorGap;
+            var programWidth = stackMonitors
+                ? availableWidth
+                : Math.Max(320, availableWidth - sourceWidth - monitorGap);
+            var sourceHeight = stackMonitors
+                ? Math.Clamp((int)Math.Round(Math.Min(centerPanel.ClientSize.Height * 0.19, availableWidth / 2.1)), 170, 220)
+                : Math.Clamp((int)Math.Round(Math.Min(centerPanel.ClientSize.Height * 0.32, sourceWidth / 1.45)), 210, 280);
+            var programHeight = stackMonitors
+                ? Math.Clamp(sourceHeight + 22, 200, 260)
+                : Math.Clamp((int)Math.Round(Math.Min(centerPanel.ClientSize.Height * 0.34, programWidth / 1.65)), 220, 300);
 
             sourceMonitorLabel.Location = new Point(margin, 14);
-            programMonitorLabel.Location = new Point(programX, 14);
             _videoInfoLabel.Location = new Point(margin, 36);
             _videoInfoLabel.Size = new Size(centerPanel.ClientSize.Width - (margin * 2), 30);
 
-            _sourcePreview.Bounds = new Rectangle(margin, 68, sourceWidth, monitorHeight);
-            _playerHost.Bounds = new Rectangle(programX, 68, programWidth, monitorHeight);
+            _sourcePreview.Bounds = new Rectangle(margin, 68, sourceWidth, sourceHeight);
+
+            if (stackMonitors)
+            {
+                programMonitorLabel.Location = new Point(margin, _sourcePreview.Bottom + 12);
+                _playerHost.Bounds = new Rectangle(margin, programMonitorLabel.Bottom + 10, programWidth, programHeight);
+            }
+            else
+            {
+                programMonitorLabel.Location = new Point(programX, 14);
+                _playerHost.Bounds = new Rectangle(programX, 68, programWidth, programHeight);
+            }
 
             _previewTimeLabel.Location = new Point(margin, _playerHost.Bottom + 10);
             _previewTimeLabel.Size = new Size(Math.Max(220, sourceWidth + 40), 24);
-            _playerStatusLabel.Location = new Point(programX, _playerHost.Bottom + 10);
-            _playerStatusLabel.Size = new Size(programWidth, 24);
+            _playerStatusLabel.Location = new Point(stackMonitors ? margin + 232 : programX, _playerHost.Bottom + 10);
+            _playerStatusLabel.Size = new Size(stackMonitors ? Math.Max(180, availableWidth - 232) : programWidth, 24);
 
             var trimHeaderY = _playerHost.Bottom + 38;
             trimSectionLabel.Location = new Point(margin, trimHeaderY);
             trimHint.Location = new Point(margin, trimHeaderY + 20);
             trimHint.Size = new Size(centerPanel.ClientSize.Width - (margin * 2), 30);
 
-            _trimTimelineView.Bounds = new Rectangle(margin, trimHint.Bottom + 6, centerPanel.ClientSize.Width - (margin * 2), 92);
-            _timelineZoomLabel.Location = new Point(margin, _trimTimelineView.Bottom + 8);
-            _timelineZoomBar.Bounds = new Rectangle(_timelineZoomLabel.Right + 4, _trimTimelineView.Bottom + 4, 150, 28);
-            _timelineBar.Bounds = new Rectangle(margin, _trimTimelineView.Bottom + 34, Math.Max(260, centerPanel.ClientSize.Width - 128), 28);
-            _refreshPreviewButton.Location = new Point(centerPanel.ClientSize.Width - margin - _refreshPreviewButton.Width, _trimTimelineView.Bottom + 32);
+            _trimTimelineView.Bounds = new Rectangle(margin, trimHint.Bottom + 6, centerPanel.ClientSize.Width - (margin * 2), Math.Clamp((int)Math.Round(centerPanel.ClientSize.Height * 0.14), 92, 116));
+            _refreshPreviewButton.Location = new Point(centerPanel.ClientSize.Width - margin - _refreshPreviewButton.Width, _trimTimelineView.Bottom + 10);
+            _timelineBar.Bounds = new Rectangle(margin, _trimTimelineView.Bottom + 12, Math.Max(240, _refreshPreviewButton.Left - margin - 8), 28);
 
-            var transportY = _timelineBar.Bottom + 12;
+            var transportY = _timelineBar.Bottom + 10;
             _playPauseButton.Location = new Point(margin, transportY);
             _jumpBackButton.Location = new Point(_playPauseButton.Right + 10, transportY);
             _jumpForwardButton.Location = new Point(_jumpBackButton.Right + 10, transportY);
@@ -559,7 +565,7 @@ public sealed class QuickEditForm : Form
             sequenceSectionLabel.Location = new Point(margin, sequenceHeaderY);
             timelineHint.Location = new Point(margin, sequenceHeaderY + 20);
             timelineHint.Size = new Size(centerPanel.ClientSize.Width - (margin * 2), 30);
-            _sequenceTimelineView.Bounds = new Rectangle(margin, timelineHint.Bottom + 6, centerPanel.ClientSize.Width - (margin * 2), Math.Max(170, centerPanel.ClientSize.Height - timelineHint.Bottom - 20));
+            _sequenceTimelineView.Bounds = new Rectangle(margin, timelineHint.Bottom + 6, centerPanel.ClientSize.Width - (margin * 2), Math.Max(178, centerPanel.ClientSize.Height - timelineHint.Bottom - 20));
 
             _statusLabel.Location = new Point(20, ClientSize.Height - 48);
             _statusLabel.Size = new Size(ClientSize.Width - 40, 24);
@@ -1538,16 +1544,14 @@ public sealed class QuickEditForm : Form
 
     private void UpdateTimelineZoom()
     {
-        var zoom = _timelineZoomBar.Value / 10d;
-        _timelineZoomLabel.Text = $"Zoom: {zoom:F1}x";
-        _trimTimelineView.SetZoom(zoom);
-        _sequenceTimelineView.SetZoom(zoom);
+        _timelineZoom = Math.Clamp(_timelineZoom, 1, 6);
+        _trimTimelineView.SetZoom(_timelineZoom);
+        _sequenceTimelineView.SetZoom(_timelineZoom);
     }
 
     private void AdjustTimelineZoom(double delta)
     {
-        var target = Math.Clamp(_timelineZoomBar.Value + (int)Math.Round(delta * 10), _timelineZoomBar.Minimum, _timelineZoomBar.Maximum);
-        _timelineZoomBar.Value = target;
+        _timelineZoom = Math.Clamp(_timelineZoom + delta, 1, 6);
         UpdateTimelineZoom();
     }
 
@@ -2251,6 +2255,7 @@ public sealed class QuickEditForm : Form
 
         public event Action<double>? SeekRequested;
         public event Action<double, double>? RangeChanged;
+        public event Action<double>? ZoomDeltaRequested;
 
         public TrimTimelineView()
         {
@@ -2258,6 +2263,8 @@ public sealed class QuickEditForm : Form
             BackColor = Color.FromArgb(10, 10, 12);
             ForeColor = Color.FromArgb(240, 240, 245);
             Cursor = Cursors.Hand;
+            TabStop = true;
+            MouseEnter += (_, _) => Focus();
         }
 
         public void SetTimeline(double duration, double start, double end, double playhead, string? clipLabel = null)
@@ -2306,6 +2313,7 @@ public sealed class QuickEditForm : Form
         protected override void OnMouseDown(MouseEventArgs e)
         {
             base.OnMouseDown(e);
+            Focus();
             if (_duration <= 0)
                 return;
 
@@ -2352,17 +2360,23 @@ public sealed class QuickEditForm : Form
             UpdateCursor(e.Location);
         }
 
+        protected override void OnMouseWheel(MouseEventArgs e)
+        {
+            base.OnMouseWheel(e);
+            ZoomDeltaRequested?.Invoke(e.Delta > 0 ? 0.25 : -0.25);
+        }
+
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
             e.Graphics.Clear(BackColor);
             e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
 
-            using var borderPen = new Pen(Color.FromArgb(40, 40, 50));
+            using var borderPen = new Pen(Color.FromArgb(52, 52, 66));
             using var textBrush = new SolidBrush(Color.FromArgb(145, 145, 160));
-            using var railBrush = new SolidBrush(Color.FromArgb(24, 24, 30));
-            using var clipBrush = new SolidBrush(Color.FromArgb(96, 37, 99, 235));
-            using var rangeBrush = new SolidBrush(Color.FromArgb(156, 124, 58, 237));
+            using var railBrush = new SolidBrush(Color.FromArgb(26, 26, 34));
+            using var clipBrush = new SolidBrush(Color.FromArgb(188, 37, 99, 235));
+            using var rangeBrush = new SolidBrush(Color.FromArgb(228, 124, 58, 237));
             using var playheadPen = new Pen(Color.FromArgb(248, 113, 113), 2);
             using var handleBrush = new SolidBrush(Color.FromArgb(245, 245, 250));
 
@@ -2500,7 +2514,11 @@ public sealed class QuickEditForm : Form
                     : Cursors.Hand;
         }
 
-        private Rectangle GetRailRect() => new(14, 28, Math.Max(120, Width - 28), 34);
+        private Rectangle GetRailRect()
+        {
+            var railHeight = Math.Clamp(Height - 58, 36, 54);
+            return new Rectangle(14, 28, Math.Max(120, Width - 28), railHeight);
+        }
 
         private (double Start, double Duration) GetVisibleRange()
         {
@@ -2568,6 +2586,7 @@ public sealed class QuickEditForm : Form
         public event Action<int>? SegmentClicked;
         public event Action<int, double, double>? SegmentTrimChanged;
         public event Action<int, int, int>? SegmentMoved;
+        public event Action<double>? ZoomDeltaRequested;
 
         public SequenceTimelineView()
         {
@@ -2575,6 +2594,8 @@ public sealed class QuickEditForm : Form
             BackColor = Color.FromArgb(10, 10, 12);
             ForeColor = Color.FromArgb(240, 240, 245);
             Cursor = Cursors.Hand;
+            TabStop = true;
+            MouseEnter += (_, _) => Focus();
         }
 
         public void SetSegments(IEnumerable<TimelineSegment> segments, int selectedIndex)
@@ -2612,6 +2633,7 @@ public sealed class QuickEditForm : Form
         protected override void OnMouseDown(MouseEventArgs e)
         {
             base.OnMouseDown(e);
+            Focus();
             var hit = _hitTargets.FirstOrDefault(target => target.Rect.Contains(e.Location));
             if (hit.Rect == Rectangle.Empty)
                 return;
@@ -2685,6 +2707,12 @@ public sealed class QuickEditForm : Form
             Invalidate();
         }
 
+        protected override void OnMouseWheel(MouseEventArgs e)
+        {
+            base.OnMouseWheel(e);
+            ZoomDeltaRequested?.Invoke(e.Delta > 0 ? 0.25 : -0.25);
+        }
+
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
@@ -2693,8 +2721,8 @@ public sealed class QuickEditForm : Form
             e.Graphics.Clear(BackColor);
             e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
 
-            using var borderPen = new Pen(Color.FromArgb(40, 40, 50));
-            using var railBrush = new SolidBrush(Color.FromArgb(18, 18, 24));
+            using var borderPen = new Pen(Color.FromArgb(52, 52, 66));
+            using var railBrush = new SolidBrush(Color.FromArgb(20, 20, 28));
             e.Graphics.DrawRectangle(borderPen, 0, 0, Width - 1, Height - 1);
 
             if (_segments.Count == 0)
@@ -2714,10 +2742,15 @@ public sealed class QuickEditForm : Form
             var timelineWidth = Math.Max(120, Width - timelineLeft - 14);
             var (visibleStart, visibleDuration) = GetVisibleRange(totalDuration);
             var rulerTop = 12;
-            var v1 = new Rectangle(timelineLeft, 34, timelineWidth, 34);
-            var v2 = new Rectangle(timelineLeft, 74, timelineWidth, 34);
-            var a1 = new Rectangle(timelineLeft, 114, timelineWidth, 18);
-            var a2 = new Rectangle(timelineLeft, 138, timelineWidth, 18);
+            var laneTop = 34;
+            var laneGap = Math.Max(6, Height / 24);
+            var laneAreaHeight = Math.Max(96, Height - laneTop - 16);
+            var videoLaneHeight = Math.Clamp((int)Math.Round(laneAreaHeight * 0.28), 30, 46);
+            var audioLaneHeight = Math.Clamp((laneAreaHeight - (videoLaneHeight * 2) - (laneGap * 3)) / 2, 14, 24);
+            var v1 = new Rectangle(timelineLeft, laneTop, timelineWidth, videoLaneHeight);
+            var v2 = new Rectangle(timelineLeft, v1.Bottom + laneGap, timelineWidth, videoLaneHeight);
+            var a1 = new Rectangle(timelineLeft, v2.Bottom + laneGap, timelineWidth, audioLaneHeight);
+            var a2 = new Rectangle(timelineLeft, a1.Bottom + laneGap, timelineWidth, audioLaneHeight);
 
             TextRenderer.DrawText(e.Graphics, "V1", Font, new Point(18, v1.Top + 8), Color.FromArgb(180, 180, 195));
             TextRenderer.DrawText(e.Graphics, "V2", Font, new Point(18, v2.Top + 8), Color.FromArgb(180, 180, 195));
@@ -2764,9 +2797,9 @@ public sealed class QuickEditForm : Form
                 var rect = new Rectangle(Math.Max(videoLane.Left, startX), videoLane.Top + 4, Math.Min(blockWidth, videoLane.Right - Math.Max(videoLane.Left, startX) - 1), videoLane.Height - 8);
                 var audioBlock = new Rectangle(rect.Left, audioLane.Top + 2, rect.Width, audioLane.Height - 4);
 
-                var fill = index == _selectedIndex ? Color.FromArgb(124, 58, 237) : (segment.SafeTrack == 2 ? Color.FromArgb(8, 145, 178) : Color.FromArgb(37, 99, 235));
+                var fill = index == _selectedIndex ? Color.FromArgb(145, 88, 255) : (segment.SafeTrack == 2 ? Color.FromArgb(20, 184, 220) : Color.FromArgb(59, 130, 246));
                 using var blockBrush = new SolidBrush(fill);
-                using var audioBrush = new SolidBrush(Color.FromArgb(Math.Max(0, fill.R - 20), Math.Max(0, fill.G - 20), Math.Max(0, fill.B - 20)));
+                using var audioBrush = new SolidBrush(Color.FromArgb(Math.Max(0, fill.R - 24), Math.Max(0, fill.G - 24), Math.Max(0, fill.B - 24)));
                 using var activePen = new Pen(index == _selectedIndex ? Color.FromArgb(221, 214, 254) : Color.FromArgb(120, 120, 150), index == _selectedIndex ? 2 : 1);
                 using var handleBrush = new SolidBrush(Color.FromArgb(245, 245, 250));
 
@@ -2848,7 +2881,11 @@ public sealed class QuickEditForm : Form
             return Math.Clamp((durationBefore - visibleStart) / visibleDuration, 0, 1);
         }
 
-        private int GetTrackForY(int y) => y < 74 ? 1 : 2;
+        private int GetTrackForY(int y)
+        {
+            var midpoint = Math.Max(60, Height / 2);
+            return y <= midpoint ? 1 : 2;
+        }
     }
 
     private sealed class EditorPreviewBox : PictureBox
