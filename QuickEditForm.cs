@@ -29,10 +29,15 @@ public sealed class QuickEditForm : Form
     private readonly NumericUpDown _cropHBox;
     private readonly TextBox _outputNameBox;
     private readonly TextBox _outputFolderBox;
+    private readonly ListBox _sequenceList;
+    private readonly Label _sequenceSummaryLabel;
+    private readonly Label _sequenceHintLabel;
     private readonly Label _statusLabel;
     private readonly Button _trimButton;
     private readonly Button _cropButton;
     private readonly Button _mergeButton;
+    private readonly Button _addCutButton;
+    private readonly Button _exportSequenceButton;
     private readonly Button _refreshPreviewButton;
     private readonly CheckBox _enableCropBox;
     private readonly System.Windows.Forms.Timer _previewDebounceTimer;
@@ -46,10 +51,16 @@ public sealed class QuickEditForm : Form
     private bool _updatingCropFields;
     private double _requestedPreviewTime;
     private CancellationTokenSource? _previewCts;
+    private readonly List<TimelineSegment> _sequenceSegments = [];
 
     private static readonly string[] SupportedExtensions = [".mp4", ".mkv", ".mov", ".avi", ".webm"];
 
     private sealed record VideoDetails(double Duration, int Width, int Height);
+    private sealed record TimelineSegment(string SourceFile, double StartSec, double EndSec)
+    {
+        public double Duration => Math.Max(0, EndSec - StartSec);
+        public override string ToString() => $"{Path.GetFileName(SourceFile)}  •  {FormatTime(StartSec)} → {FormatTime(EndSec)}  ({FormatTime(Duration)})";
+    }
 
     public QuickEditForm(string defaultOutputFolder)
     {
@@ -233,6 +244,7 @@ public sealed class QuickEditForm : Form
             BackColor = Color.FromArgb(18, 18, 22),
             BorderStyle = BorderStyle.FixedSingle,
             Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Right,
+            AutoScroll = true,
         };
         Controls.Add(rightPanel);
 
@@ -267,6 +279,10 @@ public sealed class QuickEditForm : Form
         y += 38;
         _trimButton = BuildActionButton("Render trimmed clip", 14, y, 288, async (_, _) => await RunTrimAsync());
         rightPanel.Controls.Add(_trimButton);
+        y += 38;
+
+        _addCutButton = BuildButton("Add current cut to timeline", 14, y, 288, (_, _) => AddCurrentCutToSequence());
+        rightPanel.Controls.Add(_addCutButton);
         y += 50;
 
         rightPanel.Controls.Add(BuildSectionLabel("Crop", 14, y));
@@ -315,9 +331,41 @@ public sealed class QuickEditForm : Form
         rightPanel.Controls.Add(_cropButton);
         y += 50;
 
-        rightPanel.Controls.Add(BuildSectionLabel("Merge", 14, y));
+        rightPanel.Controls.Add(BuildSectionLabel("Timeline / sequence", 14, y));
         y += 22;
-        rightPanel.Controls.Add(BuildSmallLabel("Select multiple clips in the left bin, then render them in that order.", 14, y, 290));
+        _sequenceHintLabel = BuildSmallLabel("Queue cuts here, reorder them, then export one merged result.", 14, y, 290);
+        rightPanel.Controls.Add(_sequenceHintLabel);
+        y += 34;
+
+        _sequenceList = new ListBox
+        {
+            Location = new Point(14, y),
+            Size = new Size(288, 120),
+            BackColor = Color.FromArgb(14, 14, 18),
+            ForeColor = Color.FromArgb(240, 240, 245),
+            BorderStyle = BorderStyle.FixedSingle,
+            HorizontalScrollbar = true,
+        };
+        rightPanel.Controls.Add(_sequenceList);
+        y += 128;
+
+        rightPanel.Controls.Add(BuildButton("Remove cut", 14, y, 90, (_, _) => RemoveSelectedSequenceSegment()));
+        rightPanel.Controls.Add(BuildButton("Up", 112, y, 48, (_, _) => MoveSelectedSequenceSegment(-1)));
+        rightPanel.Controls.Add(BuildButton("Down", 168, y, 56, (_, _) => MoveSelectedSequenceSegment(1)));
+        rightPanel.Controls.Add(BuildButton("Clear", 232, y, 70, (_, _) => ClearSequence()));
+        y += 38;
+
+        _sequenceSummaryLabel = BuildSmallLabel("Timeline empty — add a cut to start building your export.", 14, y, 288);
+        rightPanel.Controls.Add(_sequenceSummaryLabel);
+        y += 36;
+
+        _exportSequenceButton = BuildActionButton("Export timeline sequence", 14, y, 288, async (_, _) => await ExportSequenceAsync());
+        rightPanel.Controls.Add(_exportSequenceButton);
+        y += 40;
+
+        rightPanel.Controls.Add(BuildSectionLabel("Quick merge", 14, y));
+        y += 22;
+        rightPanel.Controls.Add(BuildSmallLabel("Or merge the currently-selected clips directly in their listed order.", 14, y, 290));
         y += 40;
         _mergeButton = BuildActionButton("Render merged clip", 14, y, 288, async (_, _) => await RunMergeAsync());
         rightPanel.Controls.Add(_mergeButton);
@@ -343,6 +391,7 @@ public sealed class QuickEditForm : Form
         _playerTimer = new System.Windows.Forms.Timer { Interval = 180 };
         _playerTimer.Tick += (_, _) => UpdatePlayerPositionFromPlayback();
 
+        UpdateSequenceUi();
         LoadExistingClipsFromFolder(outputFolder);
     }
 
@@ -959,6 +1008,136 @@ public sealed class QuickEditForm : Form
         _sourcePreview.SetCropRect(new Rectangle(0, 0, _videoSize.Width, _videoSize.Height));
     }
 
+    private void AddCurrentCutToSequence()
+    {
+        if (!TryGetSingleSelectedFile(out var input, out var error))
+        {
+            MessageBox.Show(this, error, "VELO Video Editor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var start = (double)_startBox.Value;
+        var end = (double)_endBox.Value;
+        if (end <= start)
+        {
+            MessageBox.Show(this, "End time must be greater than start time before adding a cut.", "VELO Video Editor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        _sequenceSegments.Add(new TimelineSegment(input, start, end));
+        UpdateSequenceUi(selectedIndex: _sequenceSegments.Count - 1);
+        _statusLabel.Text = $"Added cut from {Path.GetFileName(input)} to the export timeline.";
+    }
+
+    private void RemoveSelectedSequenceSegment()
+    {
+        if (_sequenceList.SelectedIndex < 0 || _sequenceList.SelectedIndex >= _sequenceSegments.Count)
+            return;
+
+        var index = _sequenceList.SelectedIndex;
+        _sequenceSegments.RemoveAt(index);
+        UpdateSequenceUi(selectedIndex: Math.Min(index, _sequenceSegments.Count - 1));
+    }
+
+    private void MoveSelectedSequenceSegment(int direction)
+    {
+        var index = _sequenceList.SelectedIndex;
+        if (index < 0 || index >= _sequenceSegments.Count)
+            return;
+
+        var newIndex = index + direction;
+        if (newIndex < 0 || newIndex >= _sequenceSegments.Count)
+            return;
+
+        var segment = _sequenceSegments[index];
+        _sequenceSegments.RemoveAt(index);
+        _sequenceSegments.Insert(newIndex, segment);
+        UpdateSequenceUi(selectedIndex: newIndex);
+    }
+
+    private void ClearSequence()
+    {
+        _sequenceSegments.Clear();
+        UpdateSequenceUi();
+    }
+
+    private void UpdateSequenceUi(int selectedIndex = -1)
+    {
+        _sequenceList.BeginUpdate();
+        _sequenceList.Items.Clear();
+        foreach (var segment in _sequenceSegments)
+            _sequenceList.Items.Add(segment);
+        _sequenceList.EndUpdate();
+
+        if (_sequenceSegments.Count > 0)
+        {
+            var totalDuration = _sequenceSegments.Sum(segment => segment.Duration);
+            _sequenceSummaryLabel.Text = $"{_sequenceSegments.Count} cut(s) queued • {FormatTime(totalDuration)} total";
+            if (selectedIndex >= 0 && selectedIndex < _sequenceList.Items.Count)
+                _sequenceList.SelectedIndex = selectedIndex;
+        }
+        else
+        {
+            _sequenceSummaryLabel.Text = "Timeline empty — add a cut to start building your export.";
+        }
+
+        _exportSequenceButton.Enabled = _sequenceSegments.Count > 0;
+    }
+
+    private async Task ExportSequenceAsync()
+    {
+        if (_sequenceSegments.Count == 0)
+        {
+            MessageBox.Show(this, "Add at least one cut to the timeline before exporting.", "VELO Video Editor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var outputPath = BuildOutputPath(_sequenceSegments[0].SourceFile, "timeline", forceMp4: true);
+        var ffmpegPath = FFmpegHelper.GetFFmpegPath() ?? "ffmpeg";
+        var tempDir = Path.Combine(Path.GetTempPath(), $"velo-sequence-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        var tempFiles = new List<string>();
+
+        SetEditorBusy(true, "Exporting timeline sequence…");
+
+        try
+        {
+            for (var index = 0; index < _sequenceSegments.Count; index++)
+            {
+                var segment = _sequenceSegments[index];
+                var tempFile = Path.Combine(tempDir, $"segment-{index:D2}.mp4");
+                tempFiles.Add(tempFile);
+
+                var extractArgs = $"-ss {segment.StartSec.ToString(CultureInfo.InvariantCulture)} -i {Quote(segment.SourceFile)} -t {segment.Duration.ToString(CultureInfo.InvariantCulture)} -c copy -avoid_negative_ts make_zero -y {Quote(tempFile)}";
+                await RunFfmpegProcessAsync(ffmpegPath, extractArgs);
+            }
+
+            var listFile = Path.Combine(tempDir, "timeline.txt");
+            var listText = string.Join(Environment.NewLine, tempFiles.Select(file => $"file '{file.Replace("'", "'\\''")}'"));
+            await File.WriteAllTextAsync(listFile, listText + Environment.NewLine);
+
+            var concatArgs = $"-f concat -safe 0 -i {Quote(listFile)} -c copy -movflags +faststart -y {Quote(outputPath)}";
+            await RunFfmpegProcessAsync(ffmpegPath, concatArgs);
+
+            Logger.Info($"Video editor timeline export created: {outputPath}");
+            if (!_filesList.Items.Contains(outputPath))
+                _filesList.Items.Insert(0, outputPath);
+            _statusLabel.Text = $"Timeline exported: {Path.GetFileName(outputPath)}";
+            MessageBox.Show(this, $"Timeline export complete.\n\nSaved to:\n{outputPath}", "VELO Video Editor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Video editor timeline export failed", ex);
+            _statusLabel.Text = $"Timeline export failed: {ex.Message}";
+            MessageBox.Show(this, ex.Message, "VELO Video Editor", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { }
+            SetEditorBusy(false, _statusLabel.Text);
+        }
+    }
+
     private void PickOutputFolder()
     {
         using var dialog = new FolderBrowserDialog
@@ -1070,23 +1249,7 @@ public sealed class QuickEditForm : Form
 
         try
         {
-            var psi = new ProcessStartInfo(ffmpegPath, args)
-            {
-                UseShellExecute = false,
-                RedirectStandardError = true,
-                RedirectStandardOutput = true,
-                CreateNoWindow = true,
-            };
-
-            using var process = Process.Start(psi);
-            if (process == null)
-                throw new InvalidOperationException("FFmpeg could not be started.");
-
-            var stderr = await process.StandardError.ReadToEndAsync();
-            await process.WaitForExitAsync();
-
-            if (process.ExitCode != 0)
-                throw new InvalidOperationException(string.IsNullOrWhiteSpace(stderr) ? "FFmpeg failed." : stderr[^Math.Min(stderr.Length, 800)..]);
+            await RunFfmpegProcessAsync(ffmpegPath, args);
 
             Logger.Info($"Video editor output created: {outputPath}");
             if (!_filesList.Items.Contains(outputPath))
@@ -1106,12 +1269,35 @@ public sealed class QuickEditForm : Form
         }
     }
 
+    private static async Task RunFfmpegProcessAsync(string ffmpegPath, string args)
+    {
+        var psi = new ProcessStartInfo(ffmpegPath, args)
+        {
+            UseShellExecute = false,
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+            CreateNoWindow = true,
+        };
+
+        using var process = Process.Start(psi);
+        if (process == null)
+            throw new InvalidOperationException("FFmpeg could not be started.");
+
+        var stderr = await process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync();
+
+        if (process.ExitCode != 0)
+            throw new InvalidOperationException(string.IsNullOrWhiteSpace(stderr) ? "FFmpeg failed." : stderr[^Math.Min(stderr.Length, 800)..]);
+    }
+
     private void SetEditorBusy(bool busy, string status)
     {
         var canControlPlayback = !busy && _mediaElement.Source != null;
         _trimButton.Enabled = !busy;
         _cropButton.Enabled = !busy;
         _mergeButton.Enabled = !busy;
+        _addCutButton.Enabled = !busy;
+        _exportSequenceButton.Enabled = !busy && _sequenceSegments.Count > 0;
         _refreshPreviewButton.Enabled = !busy;
         _playPauseButton.Enabled = canControlPlayback;
         _jumpBackButton.Enabled = canControlPlayback;

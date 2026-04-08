@@ -299,7 +299,7 @@ public class SettingsForm : Form
         Controls.Add(tabBar);
 
         _tabBtns = new Button[5];
-        string[] tabNames = ["General", "Filters", "Logs", "History", "Video Processor"];
+        string[] tabNames = ["General", "Rules", "Logs", "Activity", "Queue + Edit"];
         for (int i = 0; i < 5; i++)
         {
             int idx = i;
@@ -422,6 +422,34 @@ public class SettingsForm : Form
         // ═══════════════════════════════════════
         var g = _pages[0];
         int y = 14, lx = 22, w = 636;
+
+        // ─────────────────────────────────────
+        // SECTION: QUICK ACTIONS
+        // ─────────────────────────────────────
+        Section(g, "QUICK ACTIONS", lx, y); y += 18;
+
+        g.Controls.Add(MkLabel("Everyday stuff lives here: queue control, editor, and quick checks.", lx, y, new Font("Segoe UI", 7.8f), C_T3));
+        y += 22;
+
+        var openEditorBtn = MkBtn("Open Video Editor", lx, y, 128, 30, C_ACCENT, C_ACCENT_H);
+        openEditorBtn.Click += (_, _) => _openQuickEditor?.Invoke();
+        openEditorBtn.Enabled = _openQuickEditor != null;
+        g.Controls.Add(openEditorBtn);
+
+        var openQueueBtn = MkBtn("Queue + Edit", lx + 138, y, 110, 30, C_BTN, C_BTN_H);
+        openQueueBtn.Click += (_, _) => ShowTab(4);
+        g.Controls.Add(openQueueBtn);
+
+        var processNowBtn = MkBtn("Process Queue", lx + 258, y, 110, 30, C_BTN, C_BTN_H);
+        processNowBtn.Click += (_, _) => _setQueueProcessing?.Invoke(true, true);
+        processNowBtn.Enabled = _setQueueProcessing != null;
+        g.Controls.Add(processNowBtn);
+
+        var pauseQueueBtn = MkBtn("Queue Only", lx + 378, y, 96, 30, C_BTN, C_BTN_H);
+        pauseQueueBtn.Click += (_, _) => _setQueueProcessing?.Invoke(false, false);
+        pauseQueueBtn.Enabled = _setQueueProcessing != null;
+        g.Controls.Add(pauseQueueBtn);
+        y += 46;
 
         // ─────────────────────────────────────
         // SECTION: CONNECTION
@@ -787,12 +815,12 @@ public class SettingsForm : Form
         UploadHistoryManager.Changed += OnHistoryChanged;
 
         // ═══════════════════════════════════════
-        //  PAGE 4: VIDEO PROCESSOR
+        //  PAGE 4: QUEUE + EDITOR
         // ═══════════════════════════════════════
         var s = _pages[4];
         int sy = 14;
 
-        MkSectionLabel(s, "QUEUE & PROCESSOR", lx, sy); sy += 22;
+        MkSectionLabel(s, "QUEUE + EDITOR WORKSPACE", lx, sy); sy += 22;
 
         _queueModeLabel = MkLabel("Queue mode: Live upload", lx, sy, new Font("Segoe UI", 8.5f, FontStyle.Bold), C_GREEN);
         s.Controls.Add(_queueModeLabel);
@@ -811,7 +839,7 @@ public class SettingsForm : Form
         _queueProcessNowBtn.Click += (_, _) => _setQueueProcessing?.Invoke(true, true);
         s.Controls.Add(_queueProcessNowBtn);
 
-        _quickEditorBtn = MkBtn("Open Video Editor", lx + 340, sy, 140, 30, C_BTN, C_BTN_H);
+        _quickEditorBtn = MkBtn("Open Video Editor", lx + 340, sy, 140, 30, C_ACCENT, C_ACCENT_H);
         _quickEditorBtn.Enabled = _openQuickEditor != null;
         _quickEditorBtn.Click += (_, _) => _openQuickEditor?.Invoke();
         s.Controls.Add(_quickEditorBtn);
