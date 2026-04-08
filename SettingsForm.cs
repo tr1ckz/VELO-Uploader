@@ -170,7 +170,7 @@ public class SettingsForm : Form
     private readonly AppSettings _settings;
     private readonly DarkTextBox _urlBox, _tokenBox, _watchBox, _addFolderBox, _addPatternBox, _moveToBox;
     private readonly CheckBox _subfoldersBox, _notifyBox, _deleteBox, _moveBox, _startupBox, _scanOnLaunchBox, _localCompressBox, _compressionHardFailBox, _soundBox, _selfSignedBox, _autoUpdateBox;
-    private readonly CheckBox _queuePersistenceBox, _gameCompressionBox, _requireChecksumBox, _policySyncBox;
+    private readonly CheckBox _queuePersistenceBox, _autoProcessQueueBox, _gameCompressionBox, _requireChecksumBox, _policySyncBox;
     private readonly DarkTextBox _certPathBox;
     private readonly Label _certInfoLabel;
     private readonly DarkNumeric _retriesBox, _maxSizeBox;
@@ -200,6 +200,14 @@ public class SettingsForm : Form
     private Label _serverStatusLabel;
     private Panel _currentTaskPanel;
     private System.Windows.Forms.Timer _statusRefreshTimer;
+    private Label _queueModeLabel;
+    private Label _queueSummaryLabel;
+    private ListBox _pendingQueueList;
+    private Button _queueToggleBtn;
+    private Button _queueProcessNowBtn;
+    private Button _quickEditorBtn;
+    private readonly Action<bool, bool>? _setQueueProcessing;
+    private readonly Action? _openQuickEditor;
 
     // Palette
     static readonly Color C_BG = Color.FromArgb(12, 12, 15);
@@ -218,10 +226,12 @@ public class SettingsForm : Form
     static readonly Color C_ORANGE = Color.FromArgb(251, 146, 60);
     static readonly Color C_ERR = Color.FromArgb(248, 113, 113);
 
-    public SettingsForm(AppSettings settings, int initialTab = 0)
+    public SettingsForm(AppSettings settings, int initialTab = 0, Action<bool, bool>? setQueueProcessing = null, Action? openQuickEditor = null)
     {
         _settings = settings;
         _activeTab = initialTab;
+        _setQueueProcessing = setQueueProcessing;
+        _openQuickEditor = openQuickEditor;
         SuspendLayout();
 
         Text = "VELO Uploader";
@@ -289,7 +299,7 @@ public class SettingsForm : Form
         Controls.Add(tabBar);
 
         _tabBtns = new Button[5];
-        string[] tabNames = ["General", "Filters", "Logs", "History", "Status"];
+        string[] tabNames = ["General", "Filters", "Logs", "History", "Video Processor"];
         for (int i = 0; i < 5; i++)
         {
             int idx = i;
@@ -607,7 +617,9 @@ public class SettingsForm : Form
         g.Controls.Add(_requireChecksumBox);
         y += 28;
 
-        _gameCompressionBox = MkChk("Use low-impact compression while gaming", settings.AdaptiveCompressionWhenGaming, lx, y);
+        _autoProcessQueueBox = MkChk("Start uploads immediately when new clips arrive", settings.AutoProcessQueue, lx, y);
+        g.Controls.Add(_autoProcessQueueBox);
+        _gameCompressionBox = MkChk("Use low-impact compression while gaming", settings.AdaptiveCompressionWhenGaming, lx + 340, y);
         g.Controls.Add(_gameCompressionBox);
         _policySyncBox = MkChk("Sync upload settings from server on launch", settings.EnablePolicySync, lx + 340, y);
         g.Controls.Add(_policySyncBox);
@@ -775,10 +787,48 @@ public class SettingsForm : Form
         UploadHistoryManager.Changed += OnHistoryChanged;
 
         // ═══════════════════════════════════════
-        //  PAGE 4: STATUS
+        //  PAGE 4: VIDEO PROCESSOR
         // ═══════════════════════════════════════
         var s = _pages[4];
         int sy = 14;
+
+        MkSectionLabel(s, "QUEUE & PROCESSOR", lx, sy); sy += 22;
+
+        _queueModeLabel = MkLabel("Queue mode: Live upload", lx, sy, new Font("Segoe UI", 8.5f, FontStyle.Bold), C_GREEN);
+        s.Controls.Add(_queueModeLabel);
+
+        _queueSummaryLabel = MkLabel("Pending local videos: 0", lx + 240, sy, new Font("Segoe UI", 8.5f), C_T2);
+        s.Controls.Add(_queueSummaryLabel);
+        sy += 24;
+
+        _queueToggleBtn = MkBtn("Pause Uploads (Queue Only)", lx, sy, 170, 30, C_ACCENT, C_ACCENT_H);
+        _queueToggleBtn.Enabled = _setQueueProcessing != null;
+        _queueToggleBtn.Click += (_, _) => _setQueueProcessing?.Invoke(_queueToggleBtn.Text.Contains("Resume", StringComparison.OrdinalIgnoreCase), true);
+        s.Controls.Add(_queueToggleBtn);
+
+        _queueProcessNowBtn = MkBtn("Process Queued Now", lx + 180, sy, 150, 30, C_BTN, C_BTN_H);
+        _queueProcessNowBtn.Enabled = _setQueueProcessing != null;
+        _queueProcessNowBtn.Click += (_, _) => _setQueueProcessing?.Invoke(true, true);
+        s.Controls.Add(_queueProcessNowBtn);
+
+        _quickEditorBtn = MkBtn("Open Quick Editor", lx + 340, sy, 140, 30, C_BTN, C_BTN_H);
+        _quickEditorBtn.Enabled = _openQuickEditor != null;
+        _quickEditorBtn.Click += (_, _) => _openQuickEditor?.Invoke();
+        s.Controls.Add(_quickEditorBtn);
+        sy += 40;
+
+        _pendingQueueList = new ListBox
+        {
+            Location = new Point(lx, sy),
+            Size = new Size(w, 110),
+            BackColor = C_PANEL,
+            ForeColor = C_T1,
+            BorderStyle = BorderStyle.FixedSingle,
+            HorizontalScrollbar = true,
+        };
+        _pendingQueueList.Items.Add("No pending local videos.");
+        s.Controls.Add(_pendingQueueList);
+        sy += 122;
 
         // Current Task Section
         MkSectionLabel(s, "CURRENT TASK", lx, sy); sy += 22;
@@ -941,7 +991,24 @@ public class SettingsForm : Form
                                 {
                                     progressForm.BeginInvoke(() =>
                                     {
-                                        MessageBox.Show($"Update failed: {ex.Message}", "VELO Uploader", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                                        var openPage = MessageBox.Show(
+                                            $"Auto-update failed: {ex.Message}\n\nOpen the GitHub release page instead?",
+                                            "VELO Uploader",
+                                            MessageBoxButtons.YesNo,
+                                            MessageBoxIcon.Error);
+                                        if (openPage == DialogResult.Yes)
+                                        {
+                                            try
+                                            {
+                                                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(release.ReleaseUrl)
+                                                {
+                                                    UseShellExecute = true,
+                                                });
+                                            }
+                                            catch
+                                            {
+                                            }
+                                        }
                                         progressForm.DialogResult = DialogResult.Cancel;
                                     });
                                 }
@@ -1032,6 +1099,8 @@ public class SettingsForm : Form
     }
 
     // ── Tab switching ──
+
+    public void ShowTab(int idx) => SwitchTab(idx);
 
     void SwitchTab(int idx)
     {
@@ -1288,6 +1357,41 @@ public class SettingsForm : Form
         });
     }
 
+    public void UpdateQueueStatus(bool autoProcessing, IReadOnlyCollection<string> pendingFiles)
+    {
+        InvokeIfNeeded(() =>
+        {
+            var files = (pendingFiles ?? Array.Empty<string>())
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            _queueModeLabel.Text = autoProcessing
+                ? "Queue mode: Live upload"
+                : "Queue mode: Queue only (uploads paused)";
+            _queueModeLabel.ForeColor = autoProcessing ? C_GREEN : C_ORANGE;
+            _queueSummaryLabel.Text = $"Pending local videos: {files.Count}";
+            _queueToggleBtn.Text = autoProcessing ? "Pause Uploads (Queue Only)" : "Resume Upload Queue";
+            _queueProcessNowBtn.Enabled = (_setQueueProcessing != null) && files.Count > 0;
+
+            _pendingQueueList.BeginUpdate();
+            _pendingQueueList.Items.Clear();
+            if (files.Count == 0)
+            {
+                _pendingQueueList.Items.Add("No pending local videos.");
+            }
+            else
+            {
+                foreach (var file in files)
+                {
+                    _pendingQueueList.Items.Add($"{Path.GetFileName(file)}   —   {file}");
+                }
+            }
+            _pendingQueueList.EndUpdate();
+        });
+    }
+
     public void AddEventLog(string message, Color color)
     {
         InvokeIfNeeded(() =>
@@ -1380,6 +1484,7 @@ public class SettingsForm : Form
         _settings.AllowSelfSignedCerts = _selfSignedBox.Checked;
         _settings.TrustedCertPath = _certPathBox.Text.Trim();
         _settings.EnableQueuePersistence = _queuePersistenceBox.Checked;
+        _settings.AutoProcessQueue = _autoProcessQueueBox.Checked;
         _settings.RequireUploadChecksum = _requireChecksumBox.Checked;
         _settings.AdaptiveCompressionWhenGaming = _gameCompressionBox.Checked;
         _settings.EnablePolicySync = _policySyncBox.Checked;

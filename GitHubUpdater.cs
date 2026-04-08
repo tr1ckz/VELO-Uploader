@@ -13,6 +13,16 @@ public static class GitHubUpdater
 
     public record UpdateRelease(Version Version, string TagName, string AssetName, string DownloadUrl, string ReleaseUrl);
 
+    private static int ScoreAssetName(string name)
+    {
+        var lower = name.ToLowerInvariant();
+        if (lower.EndsWith("-win-x64.zip")) return 0;
+        if (lower.Contains("win-x64") && lower.EndsWith(".zip")) return 1;
+        if (lower.EndsWith(".zip")) return 2;
+        if (lower.EndsWith(".exe")) return 3;
+        return 10;
+    }
+
     public static Version GetCurrentVersion()
     {
         var version = Assembly.GetExecutingAssembly().GetName().Version;
@@ -33,7 +43,7 @@ public static class GitHubUpdater
         catch (HttpRequestException ex)
         {
             Logger.Error($"Update check failed: Network error - {ex.Message}");
-            return null;
+            throw new InvalidOperationException($"Could not contact GitHub to check for updates: {ex.Message}", ex);
         }
 
         if (!response.IsSuccessStatusCode)
@@ -41,12 +51,11 @@ public static class GitHubUpdater
             if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
             {
                 Logger.Warn("Update check: No GitHub releases found. Visit https://github.com/tr1ckz/VELO-Uploader/releases to create releases from tags.");
+                throw new InvalidOperationException("No published GitHub release was found yet.");
             }
-            else
-            {
-                Logger.Warn($"Update check failed: GitHub API returned {(int)response.StatusCode}");
-            }
-            return null;
+
+            Logger.Warn($"Update check failed: GitHub API returned {(int)response.StatusCode}");
+            throw new InvalidOperationException($"GitHub returned {(int)response.StatusCode} while checking for updates.");
         }
 
         using (response)
@@ -66,24 +75,24 @@ public static class GitHubUpdater
             if (latestVersion <= GetCurrentVersion())
                 return null;
 
-            string? assetName = null;
-            string? downloadUrl = null;
+            var asset = root.GetProperty("assets")
+                .EnumerateArray()
+                .Select(item => new
+                {
+                    Name = item.GetProperty("name").GetString() ?? string.Empty,
+                    Url = item.GetProperty("browser_download_url").GetString() ?? string.Empty,
+                })
+                .Where(item => !string.IsNullOrWhiteSpace(item.Url))
+                .OrderBy(item => ScoreAssetName(item.Name))
+                .FirstOrDefault(item => ScoreAssetName(item.Name) < 10);
 
-            foreach (var asset in root.GetProperty("assets").EnumerateArray())
+            if (asset == null)
             {
-                var name = asset.GetProperty("name").GetString() ?? "";
-                if (!name.EndsWith("-win-x64.zip", StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                assetName = name;
-                downloadUrl = asset.GetProperty("browser_download_url").GetString();
-                break;
+                throw new InvalidOperationException(
+                    $"A newer version ({tagName}) exists, but its Windows package is not attached yet. Try again in a minute or open {releaseUrl}.");
             }
 
-            if (string.IsNullOrWhiteSpace(assetName) || string.IsNullOrWhiteSpace(downloadUrl))
-                return null;
-
-            return new UpdateRelease(latestVersion, tagName, assetName, downloadUrl, releaseUrl);
+            return new UpdateRelease(latestVersion, tagName, asset.Name, asset.Url, releaseUrl);
         }
     }
 
@@ -134,14 +143,18 @@ public static class GitHubUpdater
 
         var currentExe = Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "VeloUploader.exe");
         var exeName = Path.GetFileName(currentExe);
-        var extractedExe = Path.Combine(extractPath, exeName);
-        if (!File.Exists(extractedExe))
+        var extractedExe = Directory
+            .EnumerateFiles(extractPath, exeName, SearchOption.AllDirectories)
+            .FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(extractedExe) || !File.Exists(extractedExe))
             throw new InvalidOperationException($"Downloaded update is missing {exeName}.");
+
+        var extractedRoot = Path.GetDirectoryName(extractedExe) ?? extractPath;
 
         EnsureWritableInstallDirectory(AppContext.BaseDirectory);
 
         var scriptPath = Path.Combine(tempRoot, "apply-update.ps1");
-        var scriptContent = BuildUpdateScript(extractPath, AppContext.BaseDirectory, currentExe, Environment.ProcessId);
+        var scriptContent = BuildUpdateScript(extractedRoot, AppContext.BaseDirectory, currentExe, Environment.ProcessId);
         File.WriteAllText(scriptPath, scriptContent, Encoding.UTF8);
         
         Logger.Info($"Update script created at: {scriptPath}");

@@ -20,6 +20,7 @@ public class TrayContext : ApplicationContext
     private readonly ConcurrentDictionary<string, int> _retryAttempts = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<Task> _queueWorkers = [];
     private bool _queueProcessingEnabled;
+    private string? _activeQueueFile;
     private const int QueueWorkerCount = 3;
 
     private sealed record ProcessClipResult(bool Success, bool Retryable = false, TimeSpan? RetryAfter = null);
@@ -175,6 +176,10 @@ public class TrayContext : ApplicationContext
         var quickEditorItem = new ToolStripMenuItem("Quick Editor...");
         quickEditorItem.Click += (_, _) => ShowQuickEditor();
         menu.Items.Add(quickEditorItem);
+
+        var videoProcessorItem = new ToolStripMenuItem("Video Processor...");
+        videoProcessorItem.Click += (_, _) => ShowSettingsOnTab(4);
+        menu.Items.Add(videoProcessorItem);
 
         var settingsItem = new ToolStripMenuItem("Settings...");
         settingsItem.Click += (_, _) => ShowSettings();
@@ -423,14 +428,28 @@ public class TrayContext : ApplicationContext
                 _settingsForm.AddEventLog($"≡ Queued locally: {fileName}", Color.FromArgb(147, 197, 253));
             SetTrayText($"VELO Uploader — {_pendingQueue.Count} queued locally");
             RefreshMenu();
-            UpdateStatusWindow();
         }
+
+        UpdateStatusWindow();
     }
 
     private async Task ProcessPendingQueueLoop(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
         {
+            if (!_queueProcessingEnabled)
+            {
+                try
+                {
+                    await Task.Delay(250, ct);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                continue;
+            }
+
             try
             {
                 await _queueSignal.WaitAsync(ct);
@@ -440,8 +459,17 @@ public class TrayContext : ApplicationContext
                 break;
             }
 
+            if (!_queueProcessingEnabled)
+            {
+                _queueSignal.Release();
+                continue;
+            }
+
             if (!_pendingQueue.TryDequeue(out var filePath))
                 continue;
+
+            _activeQueueFile = filePath;
+            UpdateStatusWindow();
 
             ProcessClipResult result = new(false);
             try
@@ -466,6 +494,9 @@ public class TrayContext : ApplicationContext
                     _queuedSet.Remove(filePath);
                 }
 
+                if (string.Equals(_activeQueueFile, filePath, StringComparison.OrdinalIgnoreCase))
+                    _activeQueueFile = null;
+
                 if (result.Success)
                     _retryAttempts.TryRemove(filePath, out _);
                 else if (result.Retryable)
@@ -475,6 +506,8 @@ public class TrayContext : ApplicationContext
                     PendingUploadQueueStore.Remove(filePath);
                 else if (_settings.EnableQueuePersistence && !result.Retryable)
                     PendingUploadQueueStore.Remove(filePath);
+
+                UpdateStatusWindow();
             }
         }
     }
@@ -849,18 +882,18 @@ public class TrayContext : ApplicationContext
     {
         if (_settingsForm != null && !_settingsForm.IsDisposed)
         {
+            _settingsForm.ShowTab(tabIndex);
             _settingsForm.BringToFront();
-            // If switching to Status tab, update its content
-            if (tabIndex == 4)
-                _settingsForm.UpdateStats(_uploadCount, _successCount, _totalBytes);
+            UpdateStatusWindow();
             return;
         }
 
-        _settingsForm = new SettingsForm(_settings, tabIndex);
+        _settingsForm = new SettingsForm(_settings, tabIndex, SetQueueProcessingEnabled, ShowQuickEditor);
         
         _settingsForm.FormClosed += (_, _) =>
         {
             _settingsForm = null;
+            _queueProcessingEnabled = _settings.AutoProcessQueue;
             // Restart watcher with potentially new settings
             if (IsConfigured() && _watcher?.IsWatching != true)
                 StartWatching();
@@ -869,11 +902,7 @@ public class TrayContext : ApplicationContext
         };
 
         _settingsForm.Show();
-        
-        // Update Status tab content if opening with Status tab
-        // (do this after Show() so IsHandleCreated is true)
-        if (tabIndex == 4)
-            _settingsForm.UpdateStats(_uploadCount, _successCount, _totalBytes);
+        UpdateStatusWindow();
     }
 
     private void UpdateStatusWindow()
@@ -882,7 +911,42 @@ public class TrayContext : ApplicationContext
         {
             _settingsForm.UpdateStats(_uploadCount, _successCount, _totalBytes);
             _settingsForm.UpdateSystemStatus(_watcher?.IsWatching == true);
+            _settingsForm.UpdateQueueStatus(_queueProcessingEnabled, GetPendingQueueSnapshot());
         }
+    }
+
+    private List<string> GetPendingQueueSnapshot()
+    {
+        var pending = new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(_activeQueueFile))
+            pending.Add(_activeQueueFile);
+
+        foreach (var file in _pendingQueue.ToArray())
+        {
+            if (!pending.Contains(file, StringComparer.OrdinalIgnoreCase))
+                pending.Add(file);
+        }
+
+        lock (_queuedSet)
+        {
+            foreach (var file in _queuedSet)
+            {
+                if (!pending.Contains(file, StringComparer.OrdinalIgnoreCase))
+                    pending.Add(file);
+            }
+        }
+
+        if (_settings.EnableQueuePersistence)
+        {
+            foreach (var file in PendingUploadQueueStore.Load())
+            {
+                if (!pending.Contains(file, StringComparer.OrdinalIgnoreCase))
+                    pending.Add(file);
+            }
+        }
+
+        return pending;
     }
 
     protected override void Dispose(bool disposing)
