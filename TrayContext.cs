@@ -18,19 +18,24 @@ public class TrayContext : ApplicationContext
     private readonly SemaphoreSlim _queueSignal = new(0);
     private readonly HashSet<string> _queuedSet = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, int> _retryAttempts = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<Task> _queueWorkers = [];
+    private bool _queueProcessingEnabled;
+    private const int QueueWorkerCount = 3;
 
     private sealed record ProcessClipResult(bool Success, bool Retryable = false, TimeSpan? RetryAfter = null);
 
     public TrayContext()
     {
         _settings = AppSettings.Load();
+        _queueProcessingEnabled = _settings.AutoProcessQueue;
 
         _ = Task.Run(() => PolicySyncService.TrySyncAsync(_settings, _cts.Token));
 
         Logger.Info("VELO Uploader started.");
         UploadService.Reconfigure(_settings);
 
-        _ = Task.Run(() => ProcessPendingQueueLoop(_cts.Token));
+        for (var workerIndex = 0; workerIndex < QueueWorkerCount; workerIndex++)
+            _queueWorkers.Add(Task.Run(() => ProcessPendingQueueLoop(_cts.Token)));
 
         if (_settings.EnableQueuePersistence)
         {
@@ -40,6 +45,8 @@ public class TrayContext : ApplicationContext
             if (persisted.Count > 0)
                 Logger.Info($"Recovered {persisted.Count} pending upload(s) from previous session.");
         }
+
+        Logger.Info($"Queue workers active: {QueueWorkerCount}");
 
         // Check and prompt for FFmpeg installation on first launch if needed
         if (_settings.LocalCompress && !FFmpegHelper.IsFFmpegAvailable())
@@ -136,6 +143,12 @@ public class TrayContext : ApplicationContext
             menu.Items.Add(countItem);
         }
 
+        if (_pendingQueue.Count > 0)
+        {
+            var queueItem = new ToolStripMenuItem($"  {_pendingQueue.Count} queued locally") { Enabled = false };
+            menu.Items.Add(queueItem);
+        }
+
         menu.Items.Add(new ToolStripSeparator());
 
         var toggleItem = new ToolStripMenuItem(_watcher?.IsWatching == true ? "Pause" : "Resume");
@@ -147,6 +160,21 @@ public class TrayContext : ApplicationContext
                 StartWatching();
         };
         menu.Items.Add(toggleItem);
+
+        var queueModeItem = new ToolStripMenuItem(_queueProcessingEnabled ? "Queue Only Mode (Pause Uploads)" : "Resume Upload Queue");
+        queueModeItem.Click += (_, _) => SetQueueProcessingEnabled(!_queueProcessingEnabled);
+        menu.Items.Add(queueModeItem);
+
+        var processNowItem = new ToolStripMenuItem("Process Queued Files Now")
+        {
+            Enabled = _pendingQueue.Count > 0,
+        };
+        processNowItem.Click += (_, _) => SetQueueProcessingEnabled(true, flushExistingQueue: true);
+        menu.Items.Add(processNowItem);
+
+        var quickEditorItem = new ToolStripMenuItem("Quick Editor...");
+        quickEditorItem.Click += (_, _) => ShowQuickEditor();
+        menu.Items.Add(quickEditorItem);
 
         var settingsItem = new ToolStripMenuItem("Settings...");
         settingsItem.Click += (_, _) => ShowSettings();
@@ -218,6 +246,36 @@ public class TrayContext : ApplicationContext
         _watcher?.Stop();
         SetTrayText("VELO Uploader — Paused");
         Logger.Info("Watching paused by user.");
+        RefreshMenu();
+        UpdateStatusWindow();
+    }
+
+    private void SetQueueProcessingEnabled(bool enabled, bool flushExistingQueue = true)
+    {
+        _queueProcessingEnabled = enabled;
+        _settings.AutoProcessQueue = enabled;
+        _settings.Save();
+
+        if (enabled)
+        {
+            var queuedCount = _pendingQueue.Count;
+            if (flushExistingQueue)
+            {
+                for (var i = 0; i < queuedCount; i++)
+                    _queueSignal.Release();
+            }
+
+            Logger.Info($"Upload processing resumed ({queuedCount} queued item(s)).");
+            ShowToast("Upload queue resumed", queuedCount > 0 ? $"{queuedCount} queued clip(s) will start now." : "Uploads are live again.");
+            SetTrayText(_watcher?.IsWatching == true ? $"VELO Uploader — Watching {_settings.WatchFolder}" : "VELO Uploader — Ready");
+        }
+        else
+        {
+            Logger.Info("Queue-only mode enabled — new clips will stay queued locally until resumed.");
+            ShowToast("Queue-only mode enabled", "New clips will be queued locally.", "Resume the queue when you want uploads to start.");
+            SetTrayText("VELO Uploader — Queue-only mode");
+        }
+
         RefreshMenu();
         UpdateStatusWindow();
     }
@@ -352,7 +410,21 @@ public class TrayContext : ApplicationContext
             PendingUploadQueueStore.Add(filePath);
 
         _pendingQueue.Enqueue(filePath);
-        _queueSignal.Release();
+
+        if (_queueProcessingEnabled)
+        {
+            _queueSignal.Release();
+        }
+        else
+        {
+            var fileName = Path.GetFileName(filePath);
+            Logger.Info($"Queued locally (processing paused): {fileName}");
+            if (_settingsForm != null && !_settingsForm.IsDisposed)
+                _settingsForm.AddEventLog($"≡ Queued locally: {fileName}", Color.FromArgb(147, 197, 253));
+            SetTrayText($"VELO Uploader — {_pendingQueue.Count} queued locally");
+            RefreshMenu();
+            UpdateStatusWindow();
+        }
     }
 
     private async Task ProcessPendingQueueLoop(CancellationToken ct)
@@ -745,8 +817,33 @@ public class TrayContext : ApplicationContext
     }
 
     private SettingsForm? _settingsForm;
+    private QuickEditForm? _quickEditForm;
 
     private void ShowSettings() => ShowSettingsOnTab(0);
+
+    private void ShowQuickEditor()
+    {
+        if (!FFmpegHelper.IsFFmpegAvailable())
+        {
+            CheckFFmpegInstallation();
+            if (!FFmpegHelper.IsFFmpegAvailable())
+            {
+                MessageBox.Show(FFmpegHelper.GetFFmpegNotFoundMessage(), "VELO Uploader", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+        }
+
+        if (_quickEditForm != null && !_quickEditForm.IsDisposed)
+        {
+            _quickEditForm.BringToFront();
+            _quickEditForm.Focus();
+            return;
+        }
+
+        _quickEditForm = new QuickEditForm(_settings.WatchFolder);
+        _quickEditForm.FormClosed += (_, _) => _quickEditForm = null;
+        _quickEditForm.Show();
+    }
 
     private void ShowSettingsOnTab(int tabIndex)
     {

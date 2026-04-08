@@ -8,7 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>VeloUploader</AssemblyName>
     <RootNamespace>VeloUploader</RootNamespace>
-    <Version>1.7.10</Version>
+    <Version>1.7.11</Version>
     <Description>VELO auto-upload client for NVIDIA Instant Replay clips</Description>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>

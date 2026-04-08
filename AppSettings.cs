@@ -28,6 +28,7 @@ public class AppSettings
     public bool PlaySounds { get; set; } = true;
     public bool AutoCheckForUpdates { get; set; } = true;
     public bool EnableQueuePersistence { get; set; } = true;
+    public bool AutoProcessQueue { get; set; } = true;
     public bool AdaptiveCompressionWhenGaming { get; set; } = true;
     public bool RequireUploadChecksum { get; set; } = false;
     public bool EnablePolicySync { get; set; } = true;
