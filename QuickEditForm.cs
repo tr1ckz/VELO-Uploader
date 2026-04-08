@@ -20,6 +20,9 @@ public sealed class QuickEditForm : Form
     private readonly Button _playPauseButton;
     private readonly Button _jumpBackButton;
     private readonly Button _jumpForwardButton;
+    private readonly Button _selectToolButton;
+    private readonly Button _razorToolButton;
+    private readonly Label _timelineModeLabel;
     private readonly Label _previewTimeLabel;
     private readonly Label _videoInfoLabel;
     private readonly Label _playerStatusLabel;
@@ -59,6 +62,7 @@ public sealed class QuickEditForm : Form
     private bool _updatingCropFields;
     private bool _updatingTrimRange;
     private double _requestedPreviewTime;
+    private TimelineEditMode _timelineEditMode = TimelineEditMode.Select;
     private CancellationTokenSource? _previewCts;
     private readonly List<TimelineSegment> _sequenceSegments = [];
     private readonly Dictionary<string, Image> _mediaThumbCache = new(StringComparer.OrdinalIgnoreCase);
@@ -75,6 +79,12 @@ public sealed class QuickEditForm : Form
         public int SafeTrack => Math.Clamp(Track, 1, 2);
         public double Duration => Math.Max(0, EndSec - StartSec);
         public override string ToString() => $"[V{SafeTrack}] {Path.GetFileName(SourceFile)}  •  {FormatTime(StartSec)} → {FormatTime(EndSec)}  ({FormatTime(Duration)})";
+    }
+
+    private enum TimelineEditMode
+    {
+        Select,
+        Razor,
     }
 
     public QuickEditForm(string defaultOutputFolder)
@@ -104,7 +114,7 @@ public sealed class QuickEditForm : Form
 
         var title = new Label
         {
-            Text = "Premiere-style video editor",
+            Text = "Premiere-style timeline editor",
             AutoSize = true,
             Location = new Point(20, 14),
             Font = new Font("Segoe UI Semibold", 14f),
@@ -114,7 +124,7 @@ public sealed class QuickEditForm : Form
 
         var hint = new Label
         {
-            Text = "Import clips into the project bin, scrub a source frame, preview the program monitor, and assemble cuts on a proper timeline workspace.",
+            Text = "Import footage, mark an IN / OUT range, insert it into the timeline, and switch between Select and Razor tools like a real editor.",
             AutoSize = false,
             Size = new Size(1320, 40),
             Location = new Point(20, 42),
@@ -231,7 +241,7 @@ public sealed class QuickEditForm : Form
         _playerStatusLabel = BuildSmallLabel("Load a clip to start playback.", 390, 274, 354);
         centerPanel.Controls.Add(_playerStatusLabel);
 
-        var trimSectionLabel = BuildSectionLabel("Cut / trim timeline", 14, 302);
+        var trimSectionLabel = BuildSectionLabel("Source trim / insert", 14, 302);
         centerPanel.Controls.Add(trimSectionLabel);
         var trimHint = BuildSmallLabel("Drag the IN and OUT handles on the clip to trim it, and use the mouse wheel over either timeline to zoom in or out.", 14, 324, 720);
         centerPanel.Controls.Add(trimHint);
@@ -272,9 +282,18 @@ public sealed class QuickEditForm : Form
         _jumpForwardButton = BuildButton("5s »", 164, 468, 58, (_, _) => SkipSeconds(5));
         centerPanel.Controls.Add(_jumpForwardButton);
 
+        _selectToolButton = BuildButton("Select (V)", 238, 468, 88, (_, _) => SetTimelineEditMode(TimelineEditMode.Select));
+        centerPanel.Controls.Add(_selectToolButton);
+
+        _razorToolButton = BuildButton("Razor (C)", 334, 468, 88, (_, _) => SetTimelineEditMode(TimelineEditMode.Razor));
+        centerPanel.Controls.Add(_razorToolButton);
+
+        _timelineModeLabel = BuildSmallLabel("Selection tool active — press C for Razor or Ctrl+K to cut at the playhead.", 430, 466, 314);
+        centerPanel.Controls.Add(_timelineModeLabel);
+
         var sequenceSectionLabel = BuildSectionLabel("Sequence timeline", 14, 512);
         centerPanel.Controls.Add(sequenceSectionLabel);
-        var timelineHint = BuildSmallLabel("Drag blocks left/right to reorder, trim either edge, drop them on V1 or V2, and use the mouse wheel to zoom the timeline.", 14, 534, 720);
+        var timelineHint = BuildSmallLabel("Use Select to move or trim clips, switch to Razor to click-cut them instantly, and scroll the mouse wheel to zoom the timeline.", 14, 534, 720);
         centerPanel.Controls.Add(timelineHint);
 
         _sequenceTimelineView = new SequenceTimelineView
@@ -286,6 +305,7 @@ public sealed class QuickEditForm : Form
         _sequenceTimelineView.SegmentClicked += async index => await LoadSequenceSegmentAsync(index);
         _sequenceTimelineView.SegmentTrimChanged += (index, start, end) => ApplySequenceTrimFromTimeline(index, start, end);
         _sequenceTimelineView.SegmentMoved += (fromIndex, toIndex, track) => MoveSequenceSegmentTo(fromIndex, toIndex, track);
+        _sequenceTimelineView.SegmentSplitRequested += (index, splitTime) => SplitSelectedSegmentAtPlayhead(index, splitTime);
         _sequenceTimelineView.ZoomDeltaRequested += AdjustTimelineZoom;
         _sequenceTimelineView.SetWaveformProvider(file => _waveformCache.TryGetValue(file, out var waveform) ? waveform : null);
         centerPanel.Controls.Add(_sequenceTimelineView);
@@ -354,9 +374,9 @@ public sealed class QuickEditForm : Form
         rightPanel.Controls.Add(_markerHintLabel);
         y += 34;
 
-        _addCutButton = BuildButton("Add selected range as clip block", 14, y, 170, (_, _) => AddCurrentCutToSequence());
+        _addCutButton = BuildButton("Insert range into timeline", 14, y, 170, (_, _) => AddCurrentCutToSequence());
         rightPanel.Controls.Add(_addCutButton);
-        _splitPlayheadButton = BuildButton("Split at playhead", 192, y, 82, (_, _) => SplitSelectedSegmentAtPlayhead());
+        _splitPlayheadButton = BuildButton("Cut at playhead", 192, y, 82, (_, _) => SplitSelectedSegmentAtPlayhead());
         rightPanel.Controls.Add(_splitPlayheadButton);
         y += 36;
 
@@ -437,7 +457,7 @@ public sealed class QuickEditForm : Form
 
         rightPanel.Controls.Add(BuildSectionLabel("Timeline / sequence", 14, y));
         y += 22;
-        _sequenceHintLabel = BuildSmallLabel("Queue clips here, then drag them left/right or onto V1/V2. Double-click any block to load it back into the monitors.", 14, y, 260);
+        _sequenceHintLabel = BuildSmallLabel("Insert cuts here, then move them with Select or slice them with Razor. Double-click any cut to reload it in the monitors.", 14, y, 260);
         rightPanel.Controls.Add(_sequenceHintLabel);
         y += 34;
 
@@ -465,7 +485,7 @@ public sealed class QuickEditForm : Form
         rightPanel.Controls.Add(BuildButton("Clear", 202, y, 72, (_, _) => ClearSequence()));
         y += 38;
 
-        _sequenceSummaryLabel = BuildSmallLabel("Timeline empty — add a cut to start building your export.", 14, y, 260);
+        _sequenceSummaryLabel = BuildSmallLabel("Timeline empty — insert a range to start cutting.", 14, y, 260);
         rightPanel.Controls.Add(_sequenceSummaryLabel);
         y += 36;
 
@@ -561,7 +581,24 @@ public sealed class QuickEditForm : Form
             _jumpBackButton.Location = new Point(_playPauseButton.Right + 10, transportY);
             _jumpForwardButton.Location = new Point(_jumpBackButton.Right + 10, transportY);
 
-            var sequenceHeaderY = _playPauseButton.Bottom + 22;
+            var compactToolRow = centerPanel.ClientSize.Width < 760;
+            if (compactToolRow)
+            {
+                _selectToolButton.Location = new Point(margin, _playPauseButton.Bottom + 8);
+                _razorToolButton.Location = new Point(_selectToolButton.Right + 8, _selectToolButton.Top);
+                _timelineModeLabel.Location = new Point(_razorToolButton.Right + 10, _selectToolButton.Top - 2);
+                _timelineModeLabel.Size = new Size(Math.Max(140, centerPanel.ClientSize.Width - _timelineModeLabel.Left - margin), 34);
+            }
+            else
+            {
+                _selectToolButton.Location = new Point(_jumpForwardButton.Right + 18, transportY);
+                _razorToolButton.Location = new Point(_selectToolButton.Right + 8, transportY);
+                _timelineModeLabel.Location = new Point(_razorToolButton.Right + 12, transportY - 2);
+                _timelineModeLabel.Size = new Size(Math.Max(160, centerPanel.ClientSize.Width - _timelineModeLabel.Left - margin), 34);
+            }
+
+            var toolRowBottom = Math.Max(_playPauseButton.Bottom, Math.Max(_selectToolButton.Bottom, _timelineModeLabel.Bottom));
+            var sequenceHeaderY = toolRowBottom + 22;
             sequenceSectionLabel.Location = new Point(margin, sequenceHeaderY);
             timelineHint.Location = new Point(margin, sequenceHeaderY + 20);
             timelineHint.Size = new Size(centerPanel.ClientSize.Width - (margin * 2), 30);
@@ -576,6 +613,7 @@ public sealed class QuickEditForm : Form
         KeyDown += OnEditorKeyDown;
         LayoutWorkspace();
         UpdateTimelineZoom();
+        SetTimelineEditMode(TimelineEditMode.Select);
 
         _previewDebounceTimer = new System.Windows.Forms.Timer { Interval = 280 };
         _previewDebounceTimer.Tick += async (_, _) =>
@@ -695,6 +733,12 @@ public sealed class QuickEditForm : Form
         button.BackColor = Color.FromArgb(124, 58, 237);
         button.FlatAppearance.BorderColor = Color.FromArgb(154, 92, 255);
         return button;
+    }
+
+    private static void StyleToolButton(Button button, bool active)
+    {
+        button.BackColor = active ? Color.FromArgb(124, 58, 237) : Color.FromArgb(38, 38, 46);
+        button.FlatAppearance.BorderColor = active ? Color.FromArgb(154, 92, 255) : Color.FromArgb(70, 70, 82);
     }
 
     private void OnFilesListDragEnter(object? sender, DragEventArgs e)
@@ -1555,6 +1599,19 @@ public sealed class QuickEditForm : Form
         UpdateTimelineZoom();
     }
 
+    private void SetTimelineEditMode(TimelineEditMode mode)
+    {
+        _timelineEditMode = mode;
+        var razorActive = mode == TimelineEditMode.Razor;
+        _sequenceTimelineView.SetRazorMode(razorActive);
+        StyleToolButton(_selectToolButton, !razorActive);
+        StyleToolButton(_razorToolButton, razorActive);
+        _timelineModeLabel.Text = razorActive
+            ? "Razor tool active — click any timeline clip to cut it instantly."
+            : "Selection tool active — drag clips, trim edges, or press C for Razor.";
+        _statusLabel.Text = _timelineModeLabel.Text;
+    }
+
     private async Task RefreshTrimTimelineFramesAsync()
     {
         if (string.IsNullOrWhiteSpace(_selectedFile) || !File.Exists(_selectedFile) || _videoDuration <= 0)
@@ -1714,20 +1771,26 @@ public sealed class QuickEditForm : Form
         SeekToTime(markers[index], refreshPreview: true);
     }
 
-    private void SplitSelectedSegmentAtPlayhead()
+    private void SplitSelectedSegmentAtPlayhead(int? requestedIndex = null, double? requestedTime = null)
     {
-        var playhead = GetCurrentPreviewTime();
-        var selectedIndex = _sequenceList.SelectedIndex;
+        var selectedIndex = requestedIndex ?? _sequenceList.SelectedIndex;
+        var playhead = requestedTime ?? GetCurrentPreviewTime();
         if (selectedIndex < 0 || selectedIndex >= _sequenceSegments.Count)
         {
-            MessageBox.Show(this, "Select a clip block in the lower sequence first, then use Split at playhead.", "VELO Video Editor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, "Select a timeline cut first, then use Cut at playhead or the Razor tool.", "VELO Video Editor", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 
         var segment = _sequenceSegments[selectedIndex];
-        if (!string.Equals(segment.SourceFile, _selectedFile, StringComparison.OrdinalIgnoreCase) || playhead <= segment.StartSec + 0.05 || playhead >= segment.EndSec - 0.05)
+        if (requestedTime is null && !string.Equals(segment.SourceFile, _selectedFile, StringComparison.OrdinalIgnoreCase))
         {
-            MessageBox.Show(this, "Move the playhead inside the selected clip block before splitting it.", "VELO Video Editor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, "Load that timeline cut into the monitor first, or switch to Razor and click the clip directly.", "VELO Video Editor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        if (playhead <= segment.StartSec + 0.05 || playhead >= segment.EndSec - 0.05)
+        {
+            MessageBox.Show(this, "Place the cut inside the clip, not on its very edge.", "VELO Video Editor", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 
@@ -1736,7 +1799,7 @@ public sealed class QuickEditForm : Form
         _sequenceSegments[selectedIndex] = left;
         _sequenceSegments.Insert(selectedIndex + 1, right);
         UpdateSequenceUi(selectedIndex + 1);
-        _statusLabel.Text = $"Split clip block at {FormatTime(playhead)}.";
+        _statusLabel.Text = $"Cut timeline segment {selectedIndex + 1} at {FormatTime(playhead)}.";
     }
 
     private void ApplySequenceTrimFromTimeline(int index, double start, double end)
@@ -1782,13 +1845,16 @@ public sealed class QuickEditForm : Form
             return;
         }
 
-        var targetTrack = _sequenceList.SelectedIndex >= 0 && _sequenceList.SelectedIndex < _sequenceSegments.Count
-            ? _sequenceSegments[_sequenceList.SelectedIndex].SafeTrack
+        var insertIndex = _sequenceList.SelectedIndex >= 0 && _sequenceList.SelectedIndex < _sequenceSegments.Count
+            ? _sequenceList.SelectedIndex + 1
+            : _sequenceSegments.Count;
+        var targetTrack = insertIndex > 0 && insertIndex - 1 < _sequenceSegments.Count
+            ? _sequenceSegments[insertIndex - 1].SafeTrack
             : ((_sequenceSegments.Count % 2) + 1);
 
-        _sequenceSegments.Add(new TimelineSegment(input, start, end, targetTrack));
-        UpdateSequenceUi(selectedIndex: _sequenceSegments.Count - 1);
-        _statusLabel.Text = $"Added clip block from {Path.GetFileName(input)} to V{targetTrack}.";
+        _sequenceSegments.Insert(insertIndex, new TimelineSegment(input, start, end, targetTrack));
+        UpdateSequenceUi(selectedIndex: insertIndex);
+        _statusLabel.Text = $"Inserted cut {insertIndex + 1} on V{targetTrack} from {Path.GetFileName(input)}.";
     }
 
     private void RemoveSelectedSequenceSegment()
@@ -1838,7 +1904,7 @@ public sealed class QuickEditForm : Form
 
         _sequenceSegments.Insert(insertIndex, segment);
         UpdateSequenceUi(insertIndex);
-        _statusLabel.Text = $"Moved clip block to V{clampedTrack}.";
+        _statusLabel.Text = $"Moved timeline cut to V{clampedTrack}.";
     }
 
     private async Task LoadSequenceSegmentAsync(int index)
@@ -1884,14 +1950,16 @@ public sealed class QuickEditForm : Form
                 ? selectedIndex
                 : Math.Min(_sequenceList.SelectedIndex, _sequenceSegments.Count - 1);
             var totalDuration = _sequenceSegments.Sum(segment => segment.Duration);
-            _sequenceSummaryLabel.Text = $"{_sequenceSegments.Count} clip block(s) queued • {FormatTime(totalDuration)} total";
+            var v1Count = _sequenceSegments.Count(segment => segment.SafeTrack == 1);
+            var v2Count = _sequenceSegments.Count(segment => segment.SafeTrack == 2);
+            _sequenceSummaryLabel.Text = $"{_sequenceSegments.Count} cut(s) • V1 {v1Count} / V2 {v2Count} • {FormatTime(totalDuration)} total";
             _sequenceTimelineView.SetSegments(_sequenceSegments, safeIndex);
             if (safeIndex >= 0 && safeIndex < _sequenceList.Items.Count)
                 _sequenceList.SelectedIndex = safeIndex;
         }
         else
         {
-            _sequenceSummaryLabel.Text = "Timeline empty — add a cut to start building your export.";
+            _sequenceSummaryLabel.Text = "Timeline empty — insert a range to start cutting.";
             _sequenceTimelineView.SetSegments(Array.Empty<TimelineSegment>(), -1);
         }
 
@@ -2066,7 +2134,7 @@ public sealed class QuickEditForm : Form
             return;
         }
 
-        if (e.Control && e.KeyCode == Keys.B)
+        if (e.Control && (e.KeyCode == Keys.B || e.KeyCode == Keys.K))
         {
             SplitSelectedSegmentAtPlayhead();
             e.SuppressKeyPress = true;
@@ -2083,6 +2151,20 @@ public sealed class QuickEditForm : Form
         if (e.Control && (e.KeyCode == Keys.OemMinus || e.KeyCode == Keys.Subtract))
         {
             AdjustTimelineZoom(-0.5);
+            e.SuppressKeyPress = true;
+            return;
+        }
+
+        if (e.KeyCode == Keys.C && !e.Control && !e.Alt)
+        {
+            SetTimelineEditMode(TimelineEditMode.Razor);
+            e.SuppressKeyPress = true;
+            return;
+        }
+
+        if (e.KeyCode == Keys.V && !e.Control && !e.Alt)
+        {
+            SetTimelineEditMode(TimelineEditMode.Select);
             e.SuppressKeyPress = true;
             return;
         }
@@ -2580,12 +2662,14 @@ public sealed class QuickEditForm : Form
         private TimelineSegment? _dragOriginSegment;
         private int _previewInsertIndex = -1;
         private int _previewTrack = 1;
+        private bool _razorMode;
 
         private Func<string, Image?>? _waveformProvider;
 
         public event Action<int>? SegmentClicked;
         public event Action<int, double, double>? SegmentTrimChanged;
         public event Action<int, int, int>? SegmentMoved;
+        public event Action<int, double>? SegmentSplitRequested;
         public event Action<double>? ZoomDeltaRequested;
 
         public SequenceTimelineView()
@@ -2630,6 +2714,13 @@ public sealed class QuickEditForm : Form
             Invalidate();
         }
 
+        public void SetRazorMode(bool enabled)
+        {
+            _razorMode = enabled;
+            Cursor = enabled ? Cursors.Cross : Cursors.Hand;
+            Invalidate();
+        }
+
         protected override void OnMouseDown(MouseEventArgs e)
         {
             base.OnMouseDown(e);
@@ -2641,6 +2732,15 @@ public sealed class QuickEditForm : Form
             _selectedIndex = hit.Index;
             Invalidate();
             SegmentClicked?.Invoke(hit.Index);
+
+            if (_razorMode)
+            {
+                var segment = _segments[hit.Index];
+                var ratio = Math.Clamp((e.X - hit.Rect.Left) / (double)Math.Max(1, hit.Rect.Width), 0, 1);
+                var splitSeconds = segment.StartSec + (segment.Duration * ratio);
+                SegmentSplitRequested?.Invoke(hit.Index, splitSeconds);
+                return;
+            }
 
             const int handleWidth = 8;
             var leftHandle = new Rectangle(hit.Rect.Left - 4, hit.Rect.Top, handleWidth, hit.Rect.Height);
@@ -2773,6 +2873,14 @@ public sealed class QuickEditForm : Form
                 e.Graphics.DrawLine(gridPen, x, rulerTop + 10, x, a2.Bottom);
                 var stamp = FormatTime(visibleStart + (visibleDuration * mark / 8d));
                 TextRenderer.DrawText(e.Graphics, stamp, new Font("Segoe UI", 7f), new Point(Math.Max(0, x - 16), rulerTop), Color.FromArgb(120, 120, 135));
+            }
+
+            if (_razorMode)
+            {
+                var badgeRect = new Rectangle(Math.Max(timelineLeft, Width - 196), 8, 182, 18);
+                using var badgeBrush = new SolidBrush(Color.FromArgb(170, 124, 58, 237));
+                e.Graphics.FillRectangle(badgeBrush, badgeRect);
+                TextRenderer.DrawText(e.Graphics, "RAZOR MODE • click to cut", new Font("Segoe UI", 7f, FontStyle.Bold), badgeRect, Color.White, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
             }
 
             var cursorSeconds = 0d;
