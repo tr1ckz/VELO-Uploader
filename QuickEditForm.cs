@@ -338,19 +338,24 @@ public sealed class QuickEditForm : Form
         BorderStyle = BorderStyle.FixedSingle,
     };
 
-    private static NumericUpDown BuildNumeric(decimal value, decimal min, decimal max, int x, int y, int width) => new()
+    private static NumericUpDown BuildNumeric(decimal value, decimal min, decimal max, int x, int y, int width)
     {
-        Value = value,
-        Minimum = min,
-        Maximum = max,
-        DecimalPlaces = 2,
-        Increment = 0.25M,
-        Location = new Point(x, y),
-        Size = new Size(width, 26),
-        BackColor = Color.FromArgb(14, 14, 18),
-        ForeColor = Color.FromArgb(240, 240, 245),
-        BorderStyle = BorderStyle.FixedSingle,
-    };
+        var numeric = new NumericUpDown
+        {
+            Minimum = min,
+            Maximum = max,
+            DecimalPlaces = 2,
+            Increment = 0.25M,
+            Location = new Point(x, y),
+            Size = new Size(width, 26),
+            BackColor = Color.FromArgb(14, 14, 18),
+            ForeColor = Color.FromArgb(240, 240, 245),
+            BorderStyle = BorderStyle.FixedSingle,
+        };
+
+        numeric.Value = Math.Clamp(value, min, max);
+        return numeric;
+    }
 
     private static Button BuildButton(string text, int x, int y, int width, EventHandler onClick)
     {
