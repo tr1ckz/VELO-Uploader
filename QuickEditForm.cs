@@ -39,6 +39,7 @@ public sealed class QuickEditForm : Form
     private readonly ListBox _markerList;
     private readonly Label _markerHintLabel;
     private readonly Button _addMarkerButton;
+    private readonly Button _splitPlayheadButton;
     private readonly Label _statusLabel;
     private readonly Button _trimButton;
     private readonly Button _cropButton;
@@ -61,6 +62,7 @@ public sealed class QuickEditForm : Form
     private CancellationTokenSource? _previewCts;
     private readonly List<TimelineSegment> _sequenceSegments = [];
     private readonly Dictionary<string, Image> _mediaThumbCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, List<Image>> _trimThumbCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, List<double>> _clipMarkers = new(StringComparer.OrdinalIgnoreCase);
 
     private static readonly string[] SupportedExtensions = [".mp4", ".mkv", ".mov", ".avi", ".webm"];
@@ -232,7 +234,7 @@ public sealed class QuickEditForm : Form
         _trimTimelineView = new TrimTimelineView
         {
             Location = new Point(14, 356),
-            Size = new Size(730, 74),
+            Size = new Size(730, 86),
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
         };
         _trimTimelineView.SeekRequested += seconds => SeekToTime(seconds, refreshPreview: true);
@@ -276,6 +278,7 @@ public sealed class QuickEditForm : Form
             Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
         };
         _sequenceTimelineView.SegmentClicked += async index => await LoadSequenceSegmentAsync(index);
+        _sequenceTimelineView.SegmentTrimChanged += (index, start, end) => ApplySequenceTrimFromTimeline(index, start, end);
         centerPanel.Controls.Add(_sequenceTimelineView);
 
         var rightPanel = new Panel
@@ -342,8 +345,10 @@ public sealed class QuickEditForm : Form
         rightPanel.Controls.Add(_markerHintLabel);
         y += 34;
 
-        _addCutButton = BuildButton("Add selected range as clip block", 14, y, 260, (_, _) => AddCurrentCutToSequence());
+        _addCutButton = BuildButton("Add selected range as clip block", 14, y, 170, (_, _) => AddCurrentCutToSequence());
         rightPanel.Controls.Add(_addCutButton);
+        _splitPlayheadButton = BuildButton("Split at playhead", 192, y, 82, (_, _) => SplitSelectedSegmentAtPlayhead());
+        rightPanel.Controls.Add(_splitPlayheadButton);
         y += 36;
 
         _addMarkerButton = BuildButton("Add marker at playhead", 14, y, 180, (_, _) => AddMarkerAtPlayhead());
@@ -436,7 +441,11 @@ public sealed class QuickEditForm : Form
             BorderStyle = BorderStyle.FixedSingle,
             HorizontalScrollbar = true,
         };
-        _sequenceList.SelectedIndexChanged += (_, _) => _sequenceTimelineView.SetSelectedIndex(_sequenceList.SelectedIndex);
+        _sequenceList.SelectedIndexChanged += (_, _) =>
+        {
+            _sequenceTimelineView.SetSelectedIndex(_sequenceList.SelectedIndex);
+            _splitPlayheadButton.Enabled = _sequenceList.SelectedIndex >= 0;
+        };
         _sequenceList.DoubleClick += async (_, _) => await LoadSequenceSegmentAsync(_sequenceList.SelectedIndex);
         rightPanel.Controls.Add(_sequenceList);
         y += 128;
@@ -511,7 +520,7 @@ public sealed class QuickEditForm : Form
             trimHint.Location = new Point(margin, trimHeaderY + 20);
             trimHint.Size = new Size(centerPanel.ClientSize.Width - (margin * 2), 30);
 
-            _trimTimelineView.Bounds = new Rectangle(margin, trimHint.Bottom + 4, centerPanel.ClientSize.Width - (margin * 2), 74);
+            _trimTimelineView.Bounds = new Rectangle(margin, trimHint.Bottom + 4, centerPanel.ClientSize.Width - (margin * 2), 86);
             _timelineBar.Bounds = new Rectangle(margin, _trimTimelineView.Bottom + 8, Math.Max(220, centerPanel.ClientSize.Width - 126), 32);
             _refreshPreviewButton.Location = new Point(centerPanel.ClientSize.Width - margin - _refreshPreviewButton.Width, _trimTimelineView.Bottom + 6);
 
@@ -564,6 +573,10 @@ public sealed class QuickEditForm : Form
             foreach (var image in _mediaThumbCache.Values)
                 image.Dispose();
             _mediaThumbCache.Clear();
+            foreach (var images in _trimThumbCache.Values)
+                foreach (var image in images)
+                    image.Dispose();
+            _trimThumbCache.Clear();
         }
 
         base.Dispose(disposing);
@@ -988,6 +1001,7 @@ public sealed class QuickEditForm : Form
                 ? "Multiple clips selected — you can merge them, but preview/edit works on one clip at a time."
                 : "Select one clip to preview and edit.";
             _trimTimelineView.SetTimeline(0, 0, 0, 0, _filesList.SelectedItems.Count > 1 ? "Multi-select" : "No clip selected");
+            _trimTimelineView.SetThumbnails(Array.Empty<Image>());
             UpdateMarkerUi();
             _ = RefreshMediaBinThumbnailsAsync();
             _sourcePreview.ClearPreview();
@@ -1003,6 +1017,7 @@ public sealed class QuickEditForm : Form
             _mediaElement.Source = null;
             _videoInfoLabel.Text = "The selected file could not be found.";
             _trimTimelineView.SetTimeline(0, 0, 0, 0, "Missing clip");
+            _trimTimelineView.SetThumbnails(Array.Empty<Image>());
             UpdateMarkerUi();
             _ = RefreshMediaBinThumbnailsAsync();
             _sourcePreview.ClearPreview();
@@ -1038,6 +1053,7 @@ public sealed class QuickEditForm : Form
             UpdateTrimTimelineUi();
             UpdateMarkerUi();
             _ = RefreshMediaBinThumbnailsAsync();
+            await RefreshTrimTimelineFramesAsync();
             ResetCropToFullFrame();
             await RefreshPreviewAsync(0);
         }
@@ -1449,8 +1465,53 @@ public sealed class QuickEditForm : Form
             _markerList.Items.Add($"Marker {index + 1} • {FormatTime(markers[index])}");
         _markerList.EndUpdate();
 
-        _addMarkerButton.Enabled = !string.IsNullOrWhiteSpace(_selectedFile);
+        var hasClip = !string.IsNullOrWhiteSpace(_selectedFile);
+        _addMarkerButton.Enabled = hasClip;
+        _splitPlayheadButton.Enabled = _sequenceList.SelectedIndex >= 0;
         _trimTimelineView.SetMarkers(markers);
+    }
+
+    private async Task RefreshTrimTimelineFramesAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_selectedFile) || !File.Exists(_selectedFile) || _videoDuration <= 0)
+        {
+            _trimTimelineView.SetThumbnails(Array.Empty<Image>());
+            return;
+        }
+
+        if (_trimThumbCache.TryGetValue(_selectedFile, out var cachedThumbs) && cachedThumbs.Count > 0)
+        {
+            _trimTimelineView.SetThumbnails(cachedThumbs);
+            return;
+        }
+
+        var thumbs = new List<Image>();
+        var samples = 6;
+        for (var i = 0; i < samples; i++)
+        {
+            try
+            {
+                var time = _videoDuration <= 0.25 ? 0 : (_videoDuration * i) / Math.Max(1, samples - 1);
+                using var frame = await ExtractPreviewImageAsync(_selectedFile, time, CancellationToken.None);
+                thumbs.Add(new Bitmap(frame, new Size(112, 34)));
+            }
+            catch
+            {
+                break;
+            }
+        }
+
+        if (thumbs.Count == 0)
+        {
+            var fallback = new Bitmap(112, 34);
+            using var g = Graphics.FromImage(fallback);
+            g.Clear(Color.FromArgb(24, 24, 30));
+            TextRenderer.DrawText(g, "CLIP", new Font("Segoe UI", 8f, FontStyle.Bold), new Rectangle(0, 8, 112, 18), Color.FromArgb(210, 210, 220), TextFormatFlags.HorizontalCenter);
+            thumbs.Add(fallback);
+        }
+
+        _trimThumbCache[_selectedFile] = thumbs;
+        _trimTimelineView.SetThumbnails(thumbs);
     }
 
     private void AddMarkerAtPlayhead()
@@ -1497,6 +1558,58 @@ public sealed class QuickEditForm : Form
             return;
 
         SeekToTime(markers[index], refreshPreview: true);
+    }
+
+    private void SplitSelectedSegmentAtPlayhead()
+    {
+        var playhead = GetCurrentPreviewTime();
+        var selectedIndex = _sequenceList.SelectedIndex;
+        if (selectedIndex < 0 || selectedIndex >= _sequenceSegments.Count)
+        {
+            MessageBox.Show(this, "Select a clip block in the lower sequence first, then use Split at playhead.", "VELO Video Editor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var segment = _sequenceSegments[selectedIndex];
+        if (!string.Equals(segment.SourceFile, _selectedFile, StringComparison.OrdinalIgnoreCase) || playhead <= segment.StartSec + 0.05 || playhead >= segment.EndSec - 0.05)
+        {
+            MessageBox.Show(this, "Move the playhead inside the selected clip block before splitting it.", "VELO Video Editor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var left = segment with { EndSec = playhead };
+        var right = segment with { StartSec = playhead };
+        _sequenceSegments[selectedIndex] = left;
+        _sequenceSegments.Insert(selectedIndex + 1, right);
+        UpdateSequenceUi(selectedIndex + 1);
+        _statusLabel.Text = $"Split clip block at {FormatTime(playhead)}.";
+    }
+
+    private void ApplySequenceTrimFromTimeline(int index, double start, double end)
+    {
+        if (index < 0 || index >= _sequenceSegments.Count)
+            return;
+
+        var segment = _sequenceSegments[index];
+        var safeStart = Math.Max(0, Math.Min(start, end - 0.05));
+        var safeEnd = Math.Max(safeStart + 0.05, end);
+        _sequenceSegments[index] = segment with { StartSec = safeStart, EndSec = safeEnd };
+        UpdateSequenceUi(index);
+
+        if (index == _sequenceList.SelectedIndex && string.Equals(_selectedFile, segment.SourceFile, StringComparison.OrdinalIgnoreCase))
+        {
+            _updatingTrimRange = true;
+            try
+            {
+                _startBox.Value = Math.Clamp((decimal)safeStart, _startBox.Minimum, _startBox.Maximum);
+                _endBox.Value = Math.Clamp((decimal)safeEnd, _endBox.Minimum, _endBox.Maximum);
+            }
+            finally
+            {
+                _updatingTrimRange = false;
+            }
+            UpdateTrimTimelineUi();
+        }
     }
 
     private void AddCurrentCutToSequence()
@@ -1895,6 +2008,7 @@ public sealed class QuickEditForm : Form
         private double _playhead;
         private string _clipLabel = "No clip selected";
         private readonly List<double> _markers = [];
+        private readonly List<Image> _thumbnails = [];
         private DragMode _dragMode;
         private double _dragOffsetSeconds;
 
@@ -1930,6 +2044,13 @@ public sealed class QuickEditForm : Form
         {
             _markers.Clear();
             _markers.AddRange(markers.OrderBy(value => value));
+            Invalidate();
+        }
+
+        public void SetThumbnails(IEnumerable<Image> thumbnails)
+        {
+            _thumbnails.Clear();
+            _thumbnails.AddRange(thumbnails);
             Invalidate();
         }
 
@@ -2010,13 +2131,26 @@ public sealed class QuickEditForm : Form
             e.Graphics.FillRectangle(railBrush, rail);
             e.Graphics.DrawRectangle(borderPen, rail);
 
-            for (var i = 0; i < 12; i++)
+            if (_thumbnails.Count > 0)
             {
-                var blockWidth = Math.Max(10, rail.Width / 12 - 3);
-                var blockX = rail.Left + i * rail.Width / 12;
-                var blockRect = new Rectangle(blockX + 1, rail.Top + 4, blockWidth, rail.Height - 8);
-                using var filmBrush = new SolidBrush(i % 2 == 0 ? Color.FromArgb(32, 32, 40) : Color.FromArgb(25, 25, 32));
-                e.Graphics.FillRectangle(filmBrush, blockRect);
+                var thumbWidth = Math.Max(24, rail.Width / _thumbnails.Count);
+                for (var i = 0; i < _thumbnails.Count; i++)
+                {
+                    var thumbRect = new Rectangle(rail.Left + (i * thumbWidth), rail.Top + 2, Math.Min(thumbWidth - 1, rail.Right - (rail.Left + (i * thumbWidth))), rail.Height - 4);
+                    if (thumbRect.Width > 2)
+                        e.Graphics.DrawImage(_thumbnails[i], thumbRect);
+                }
+            }
+            else
+            {
+                for (var i = 0; i < 12; i++)
+                {
+                    var blockWidth = Math.Max(10, rail.Width / 12 - 3);
+                    var blockX = rail.Left + i * rail.Width / 12;
+                    var blockRect = new Rectangle(blockX + 1, rail.Top + 4, blockWidth, rail.Height - 8);
+                    using var filmBrush = new SolidBrush(i % 2 == 0 ? Color.FromArgb(32, 32, 40) : Color.FromArgb(25, 25, 32));
+                    e.Graphics.FillRectangle(filmBrush, blockRect);
+                }
             }
 
             var selectedRect = Rectangle.FromLTRB(SecondsToX(_rangeStart, rail), rail.Top + 2, SecondsToX(_rangeEnd, rail), rail.Bottom - 2);
@@ -2099,7 +2233,7 @@ public sealed class QuickEditForm : Form
                     : Cursors.Hand;
         }
 
-        private Rectangle GetRailRect() => new(14, 30, Math.Max(120, Width - 28), 24);
+        private Rectangle GetRailRect() => new(14, 28, Math.Max(120, Width - 28), 34);
 
         private int SecondsToX(double seconds, Rectangle rail)
         {
@@ -2118,12 +2252,25 @@ public sealed class QuickEditForm : Form
 
     private sealed class SequenceTimelineView : Control
     {
+        private enum SegmentDragMode
+        {
+            None,
+            ResizeLeft,
+            ResizeRight,
+        }
+
         private readonly List<TimelineSegment> _segments = [];
         private readonly List<(Rectangle Rect, int Index)> _hitTargets = [];
         private int _selectedIndex = -1;
         private double _playheadSeconds;
+        private SegmentDragMode _dragMode;
+        private int _dragIndex = -1;
+        private TimelineSegment? _dragOriginSegment;
+        private Rectangle _dragTimelineRect;
+        private double _dragTotalDuration;
 
         public event Action<int>? SegmentClicked;
+        public event Action<int, double, double>? SegmentTrimChanged;
 
         public SequenceTimelineView()
         {
@@ -2157,12 +2304,57 @@ public sealed class QuickEditForm : Form
         {
             base.OnMouseDown(e);
             var hit = _hitTargets.FirstOrDefault(target => target.Rect.Contains(e.Location));
-            if (hit.Rect != Rectangle.Empty)
+            if (hit.Rect == Rectangle.Empty)
+                return;
+
+            _selectedIndex = hit.Index;
+            Invalidate();
+            SegmentClicked?.Invoke(hit.Index);
+
+            if (hit.Index >= 0 && hit.Index < _segments.Count)
             {
-                _selectedIndex = hit.Index;
-                Invalidate();
-                SegmentClicked?.Invoke(hit.Index);
+                const int handleWidth = 8;
+                var leftHandle = new Rectangle(hit.Rect.Left - 4, hit.Rect.Top, handleWidth, hit.Rect.Height);
+                var rightHandle = new Rectangle(hit.Rect.Right - 4, hit.Rect.Top, handleWidth, hit.Rect.Height);
+                if (leftHandle.Contains(e.Location) || rightHandle.Contains(e.Location))
+                {
+                    _dragMode = leftHandle.Contains(e.Location) ? SegmentDragMode.ResizeLeft : SegmentDragMode.ResizeRight;
+                    _dragIndex = hit.Index;
+                    _dragOriginSegment = _segments[hit.Index];
+                    _dragTimelineRect = new Rectangle(56, 38, Math.Max(120, Width - 70), 58);
+                    _dragTotalDuration = Math.Max(0.1, _segments.Sum(segment => segment.Duration));
+                }
             }
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            if (_dragMode == SegmentDragMode.None || _dragOriginSegment == null || _dragIndex < 0 || _dragIndex >= _segments.Count)
+                return;
+
+            var absoluteSeconds = ((e.X - _dragTimelineRect.Left) / (double)Math.Max(1, _dragTimelineRect.Width)) * _dragTotalDuration;
+            var priorDuration = _segments.Take(_dragIndex).Sum(segment => segment.Duration);
+            var localPosition = absoluteSeconds - priorDuration;
+
+            if (_dragMode == SegmentDragMode.ResizeLeft)
+            {
+                var newStart = Math.Clamp(_dragOriginSegment.StartSec + localPosition, 0, _dragOriginSegment.EndSec - 0.10);
+                SegmentTrimChanged?.Invoke(_dragIndex, newStart, _dragOriginSegment.EndSec);
+            }
+            else if (_dragMode == SegmentDragMode.ResizeRight)
+            {
+                var newEnd = Math.Max(_dragOriginSegment.StartSec + 0.10, _dragOriginSegment.StartSec + localPosition);
+                SegmentTrimChanged?.Invoke(_dragIndex, _dragOriginSegment.StartSec, newEnd);
+            }
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            base.OnMouseUp(e);
+            _dragMode = SegmentDragMode.None;
+            _dragIndex = -1;
+            _dragOriginSegment = null;
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -2229,11 +2421,18 @@ public sealed class QuickEditForm : Form
                 using var blockBrush = new SolidBrush(fill);
                 using var audioBrush = new SolidBrush(Color.FromArgb(Math.Max(0, fill.R - 20), Math.Max(0, fill.G - 20), Math.Max(0, fill.B - 20)));
                 using var activePen = new Pen(index == _selectedIndex ? Color.FromArgb(221, 214, 254) : Color.FromArgb(120, 120, 150), index == _selectedIndex ? 2 : 1);
+                using var handleBrush = new SolidBrush(Color.FromArgb(245, 245, 250));
 
                 e.Graphics.FillRectangle(blockBrush, rect);
                 e.Graphics.FillRectangle(audioBrush, audioBlock);
                 e.Graphics.DrawRectangle(activePen, rect);
                 e.Graphics.DrawRectangle(activePen, audioBlock);
+
+                if (index == _selectedIndex)
+                {
+                    e.Graphics.FillRectangle(handleBrush, new Rectangle(rect.Left - 3, rect.Top + 4, 6, rect.Height - 8));
+                    e.Graphics.FillRectangle(handleBrush, new Rectangle(rect.Right - 3, rect.Top + 4, 6, rect.Height - 8));
+                }
 
                 var label = $"{index + 1}. {Path.GetFileNameWithoutExtension(segment.SourceFile)}";
                 TextRenderer.DrawText(e.Graphics, label, Font, rect, Color.White, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine);
