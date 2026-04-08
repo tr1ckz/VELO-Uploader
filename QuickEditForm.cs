@@ -27,6 +27,7 @@ public sealed class QuickEditForm : Form
     private readonly NumericUpDown _cropYBox;
     private readonly NumericUpDown _cropWBox;
     private readonly NumericUpDown _cropHBox;
+    private readonly Label _cropInfoLabel;
     private readonly TextBox _outputNameBox;
     private readonly TextBox _outputFolderBox;
     private readonly ListBox _sequenceList;
@@ -317,7 +318,18 @@ public sealed class QuickEditForm : Form
             _ = RefreshPreviewAsync(GetCurrentPreviewTime());
         };
         rightPanel.Controls.Add(_enableCropBox);
-        y += 28;
+        y += 26;
+
+        _cropInfoLabel = BuildSmallLabel("Crop: full frame", 14, y, 260);
+        rightPanel.Controls.Add(_cropInfoLabel);
+        y += 34;
+
+        rightPanel.Controls.Add(BuildButton("16:9", 14, y, 46, (_, _) => ApplyAspectCrop(16, 9)));
+        rightPanel.Controls.Add(BuildButton("9:16", 66, y, 46, (_, _) => ApplyAspectCrop(9, 16)));
+        rightPanel.Controls.Add(BuildButton("1:1", 118, y, 46, (_, _) => ApplyAspectCrop(1, 1)));
+        rightPanel.Controls.Add(BuildButton("4:5", 170, y, 46, (_, _) => ApplyAspectCrop(4, 5)));
+        rightPanel.Controls.Add(BuildButton("Center", 222, y, 52, (_, _) => CenterCropSelection()));
+        y += 38;
 
         rightPanel.Controls.Add(BuildLabel("X", 14, y));
         rightPanel.Controls.Add(BuildLabel("Y", 80, y));
@@ -985,6 +997,7 @@ public sealed class QuickEditForm : Form
             _updatingCropFields = false;
         }
 
+        UpdateCropInfoLabel(cropRect);
         _ = RefreshPreviewAsync(GetCurrentPreviewTime());
     }
 
@@ -993,7 +1006,9 @@ public sealed class QuickEditForm : Form
         if (_updatingCropFields)
             return;
 
-        _sourcePreview.SetCropRect(GetCropRectangle());
+        var cropRect = GetCropRectangle();
+        _sourcePreview.SetCropRect(cropRect);
+        UpdateCropInfoLabel(cropRect);
         _ = RefreshPreviewAsync(GetCurrentPreviewTime());
     }
 
@@ -1006,6 +1021,100 @@ public sealed class QuickEditForm : Form
         var width = Math.Clamp((int)Math.Round(_cropWBox.Value), 1, maxWidth - x);
         var height = Math.Clamp((int)Math.Round(_cropHBox.Value), 1, maxHeight - y);
         return new Rectangle(x, y, width, height);
+    }
+
+    private void ApplyAspectCrop(int aspectWidth, int aspectHeight)
+    {
+        if (_videoSize.Width <= 0 || _videoSize.Height <= 0)
+            return;
+
+        var targetRatio = aspectWidth / (double)Math.Max(1, aspectHeight);
+        var width = _videoSize.Width;
+        var height = (int)Math.Round(width / targetRatio);
+
+        if (height > _videoSize.Height)
+        {
+            height = _videoSize.Height;
+            width = (int)Math.Round(height * targetRatio);
+        }
+
+        var x = Math.Max(0, (_videoSize.Width - width) / 2);
+        var y = Math.Max(0, (_videoSize.Height - height) / 2);
+
+        _updatingCropFields = true;
+        try
+        {
+            _cropXBox.Value = x;
+            _cropYBox.Value = y;
+            _cropWBox.Value = Math.Max(1, width);
+            _cropHBox.Value = Math.Max(1, height);
+        }
+        finally
+        {
+            _updatingCropFields = false;
+        }
+
+        var rect = new Rectangle(x, y, Math.Max(1, width), Math.Max(1, height));
+        _sourcePreview.SetCropRect(rect);
+        UpdateCropInfoLabel(rect);
+        _statusLabel.Text = $"Applied {aspectWidth}:{aspectHeight} crop guide.";
+        _ = RefreshPreviewAsync(GetCurrentPreviewTime());
+    }
+
+    private void CenterCropSelection()
+    {
+        if (_videoSize.Width <= 0 || _videoSize.Height <= 0)
+            return;
+
+        var crop = GetCropRectangle();
+        var centered = new Rectangle(
+            Math.Max(0, (_videoSize.Width - crop.Width) / 2),
+            Math.Max(0, (_videoSize.Height - crop.Height) / 2),
+            crop.Width,
+            crop.Height);
+
+        _updatingCropFields = true;
+        try
+        {
+            _cropXBox.Value = centered.X;
+            _cropYBox.Value = centered.Y;
+            _cropWBox.Value = centered.Width;
+            _cropHBox.Value = centered.Height;
+        }
+        finally
+        {
+            _updatingCropFields = false;
+        }
+
+        _sourcePreview.SetCropRect(centered);
+        UpdateCropInfoLabel(centered);
+        _statusLabel.Text = "Centered the crop selection.";
+        _ = RefreshPreviewAsync(GetCurrentPreviewTime());
+    }
+
+    private void UpdateCropInfoLabel(Rectangle cropRect)
+    {
+        if (_videoSize.Width <= 0 || _videoSize.Height <= 0 || cropRect.Width <= 0 || cropRect.Height <= 0)
+        {
+            _cropInfoLabel.Text = "Crop: full frame";
+            return;
+        }
+
+        var coverage = (cropRect.Width * cropRect.Height * 100d) / Math.Max(1d, _videoSize.Width * _videoSize.Height);
+        _cropInfoLabel.Text = $"Crop: {cropRect.Width}×{cropRect.Height} • {DescribeAspect(cropRect.Width, cropRect.Height)} • {coverage:F0}% frame";
+    }
+
+    private static string DescribeAspect(int width, int height)
+    {
+        if (height <= 0)
+            return "freeform";
+
+        var ratio = width / (double)height;
+        if (Math.Abs(ratio - (16d / 9d)) < 0.03) return "16:9";
+        if (Math.Abs(ratio - (9d / 16d)) < 0.03) return "9:16";
+        if (Math.Abs(ratio - 1d) < 0.03) return "1:1";
+        if (Math.Abs(ratio - (4d / 5d)) < 0.03) return "4:5";
+        return $"{ratio:F2}:1";
     }
 
     private void ResetCropToFullFrame()
@@ -1026,7 +1135,9 @@ public sealed class QuickEditForm : Form
             _updatingCropFields = false;
         }
 
-        _sourcePreview.SetCropRect(new Rectangle(0, 0, _videoSize.Width, _videoSize.Height));
+        var fullRect = new Rectangle(0, 0, _videoSize.Width, _videoSize.Height);
+        _sourcePreview.SetCropRect(fullRect);
+        UpdateCropInfoLabel(fullRect);
     }
 
     private void AddCurrentCutToSequence()
@@ -1550,8 +1661,21 @@ public sealed class QuickEditForm : Form
 
     private sealed class EditorPreviewBox : PictureBox
     {
+        private enum CropDragMode
+        {
+            None,
+            Draw,
+            Move,
+            ResizeTopLeft,
+            ResizeTopRight,
+            ResizeBottomLeft,
+            ResizeBottomRight,
+        }
+
         private bool _dragging;
         private Point _dragStart;
+        private Rectangle _dragOriginCropRect;
+        private CropDragMode _dragMode;
 
         [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
         public Size VideoSize { get; set; } = Size.Empty;
@@ -1569,6 +1693,7 @@ public sealed class QuickEditForm : Form
             BackColor = Color.FromArgb(10, 10, 12);
             BorderStyle = BorderStyle.FixedSingle;
             SizeMode = PictureBoxSizeMode.Zoom;
+            Cursor = Cursors.Cross;
         }
 
         public void SetPreviewImage(Image image)
@@ -1615,15 +1740,24 @@ public sealed class QuickEditForm : Form
 
             _dragging = true;
             _dragStart = e.Location;
+            _dragOriginCropRect = CropRect;
+            _dragMode = GetDragMode(e.Location, imgRect);
+
+            if (_dragMode == CropDragMode.None)
+                _dragMode = CropDragMode.Draw;
         }
 
         protected override void OnMouseMove(MouseEventArgs e)
         {
             base.OnMouseMove(e);
-            if (!_dragging)
-                return;
 
-            var rect = BuildCropRectFromPoints(_dragStart, e.Location);
+            if (!_dragging)
+            {
+                UpdateCursor(e.Location);
+                return;
+            }
+
+            var rect = BuildDragRect(e.Location);
             if (rect.Width > 1 && rect.Height > 1)
             {
                 CropRect = rect;
@@ -1638,12 +1772,15 @@ public sealed class QuickEditForm : Form
                 return;
 
             _dragging = false;
-            var rect = BuildCropRectFromPoints(_dragStart, e.Location);
+            var rect = BuildDragRect(e.Location);
             if (rect.Width > 1 && rect.Height > 1)
             {
                 CropRect = rect;
                 CropChanged?.Invoke(CropRect);
             }
+
+            _dragMode = CropDragMode.None;
+            UpdateCursor(e.Location);
             Invalidate();
         }
 
@@ -1655,20 +1792,127 @@ public sealed class QuickEditForm : Form
 
             var imgRect = GetImageBounds();
             var overlayRect = ToDisplayRect(CropRect, imgRect);
-            using var shade = new SolidBrush(Color.FromArgb(110, 0, 0, 0));
+            using var shade = new SolidBrush(Color.FromArgb(120, 0, 0, 0));
             using var pen = new Pen(Color.FromArgb(124, 58, 237), 2);
+            using var gridPen = new Pen(Color.FromArgb(210, 221, 214, 254), 1)
+            {
+                DashStyle = System.Drawing.Drawing2D.DashStyle.Dash,
+            };
+            using var handleBrush = new SolidBrush(Color.FromArgb(245, 245, 250));
+            using var handleBorder = new Pen(Color.FromArgb(60, 60, 70), 1);
+            using var labelBrush = new SolidBrush(Color.FromArgb(180, 12, 12, 15));
 
             pe.Graphics.FillRectangle(shade, new Rectangle(imgRect.Left, imgRect.Top, imgRect.Width, Math.Max(0, overlayRect.Top - imgRect.Top)));
             pe.Graphics.FillRectangle(shade, new Rectangle(imgRect.Left, overlayRect.Bottom, imgRect.Width, Math.Max(0, imgRect.Bottom - overlayRect.Bottom)));
             pe.Graphics.FillRectangle(shade, new Rectangle(imgRect.Left, overlayRect.Top, Math.Max(0, overlayRect.Left - imgRect.Left), overlayRect.Height));
             pe.Graphics.FillRectangle(shade, new Rectangle(overlayRect.Right, overlayRect.Top, Math.Max(0, imgRect.Right - overlayRect.Right), overlayRect.Height));
             pe.Graphics.DrawRectangle(pen, overlayRect);
+
+            var thirdWidth = overlayRect.Width / 3f;
+            var thirdHeight = overlayRect.Height / 3f;
+            pe.Graphics.DrawLine(gridPen, overlayRect.Left + thirdWidth, overlayRect.Top, overlayRect.Left + thirdWidth, overlayRect.Bottom);
+            pe.Graphics.DrawLine(gridPen, overlayRect.Left + (thirdWidth * 2), overlayRect.Top, overlayRect.Left + (thirdWidth * 2), overlayRect.Bottom);
+            pe.Graphics.DrawLine(gridPen, overlayRect.Left, overlayRect.Top + thirdHeight, overlayRect.Right, overlayRect.Top + thirdHeight);
+            pe.Graphics.DrawLine(gridPen, overlayRect.Left, overlayRect.Top + (thirdHeight * 2), overlayRect.Right, overlayRect.Top + (thirdHeight * 2));
+
+            var labelRect = new Rectangle(overlayRect.Left + 8, Math.Max(imgRect.Top + 6, overlayRect.Top + 8), 120, 20);
+            pe.Graphics.FillRectangle(labelBrush, labelRect);
+            TextRenderer.DrawText(pe.Graphics, $"{CropRect.Width}×{CropRect.Height}", Font, labelRect, Color.White, TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+
+            foreach (var handle in GetHandleRects(overlayRect))
+            {
+                pe.Graphics.FillRectangle(handleBrush, handle);
+                pe.Graphics.DrawRectangle(handleBorder, handle);
+            }
+        }
+
+        private Rectangle BuildDragRect(Point currentPoint)
+        {
+            return _dragMode switch
+            {
+                CropDragMode.Move => MoveCrop(currentPoint),
+                CropDragMode.ResizeTopLeft => ResizeCrop(currentPoint, resizeLeft: true, resizeTop: true, resizeRight: false, resizeBottom: false),
+                CropDragMode.ResizeTopRight => ResizeCrop(currentPoint, resizeLeft: false, resizeTop: true, resizeRight: true, resizeBottom: false),
+                CropDragMode.ResizeBottomLeft => ResizeCrop(currentPoint, resizeLeft: true, resizeTop: false, resizeRight: false, resizeBottom: true),
+                CropDragMode.ResizeBottomRight => ResizeCrop(currentPoint, resizeLeft: false, resizeTop: false, resizeRight: true, resizeBottom: true),
+                _ => BuildCropRectFromPoints(_dragStart, currentPoint),
+            };
+        }
+
+        private Rectangle MoveCrop(Point currentPoint)
+        {
+            var start = ClientToVideoPoint(_dragStart, clampToImage: true) ?? new Point(_dragOriginCropRect.Left, _dragOriginCropRect.Top);
+            var current = ClientToVideoPoint(currentPoint, clampToImage: true) ?? start;
+            var dx = current.X - start.X;
+            var dy = current.Y - start.Y;
+
+            var left = Math.Clamp(_dragOriginCropRect.Left + dx, 0, Math.Max(0, VideoSize.Width - _dragOriginCropRect.Width));
+            var top = Math.Clamp(_dragOriginCropRect.Top + dy, 0, Math.Max(0, VideoSize.Height - _dragOriginCropRect.Height));
+            return new Rectangle(left, top, _dragOriginCropRect.Width, _dragOriginCropRect.Height);
+        }
+
+        private Rectangle ResizeCrop(Point currentPoint, bool resizeLeft, bool resizeTop, bool resizeRight, bool resizeBottom)
+        {
+            var anchor = ClientToVideoPoint(currentPoint, clampToImage: true) ?? new Point(_dragOriginCropRect.Right, _dragOriginCropRect.Bottom);
+            var left = resizeLeft ? anchor.X : _dragOriginCropRect.Left;
+            var top = resizeTop ? anchor.Y : _dragOriginCropRect.Top;
+            var right = resizeRight ? anchor.X : _dragOriginCropRect.Right;
+            var bottom = resizeBottom ? anchor.Y : _dragOriginCropRect.Bottom;
+            return NormalizeToVideo(Rectangle.FromLTRB(Math.Min(left, right), Math.Min(top, bottom), Math.Max(left, right), Math.Max(top, bottom)));
+        }
+
+        private void UpdateCursor(Point location)
+        {
+            if (!ShowCropOverlay || Image == null)
+            {
+                Cursor = Cursors.Default;
+                return;
+            }
+
+            var imgRect = GetImageBounds();
+            if (!imgRect.Contains(location))
+            {
+                Cursor = Cursors.Default;
+                return;
+            }
+
+            Cursor = GetDragMode(location, imgRect) switch
+            {
+                CropDragMode.Move => Cursors.SizeAll,
+                CropDragMode.ResizeTopLeft or CropDragMode.ResizeBottomRight => Cursors.SizeNWSE,
+                CropDragMode.ResizeTopRight or CropDragMode.ResizeBottomLeft => Cursors.SizeNESW,
+                _ => Cursors.Cross,
+            };
+        }
+
+        private CropDragMode GetDragMode(Point location, Rectangle imageRect)
+        {
+            if (CropRect.Width <= 0 || CropRect.Height <= 0)
+                return CropDragMode.Draw;
+
+            var overlayRect = ToDisplayRect(CropRect, imageRect);
+            var handles = GetHandleRects(overlayRect).ToArray();
+            if (handles[0].Contains(location)) return CropDragMode.ResizeTopLeft;
+            if (handles[1].Contains(location)) return CropDragMode.ResizeTopRight;
+            if (handles[2].Contains(location)) return CropDragMode.ResizeBottomLeft;
+            if (handles[3].Contains(location)) return CropDragMode.ResizeBottomRight;
+            if (overlayRect.Contains(location)) return CropDragMode.Move;
+            return CropDragMode.Draw;
+        }
+
+        private IEnumerable<Rectangle> GetHandleRects(Rectangle overlayRect)
+        {
+            const int size = 8;
+            yield return new Rectangle(overlayRect.Left - (size / 2), overlayRect.Top - (size / 2), size, size);
+            yield return new Rectangle(overlayRect.Right - (size / 2), overlayRect.Top - (size / 2), size, size);
+            yield return new Rectangle(overlayRect.Left - (size / 2), overlayRect.Bottom - (size / 2), size, size);
+            yield return new Rectangle(overlayRect.Right - (size / 2), overlayRect.Bottom - (size / 2), size, size);
         }
 
         private Rectangle BuildCropRectFromPoints(Point start, Point end)
         {
-            var first = ClientToVideoPoint(start);
-            var second = ClientToVideoPoint(end);
+            var first = ClientToVideoPoint(start, clampToImage: true);
+            var second = ClientToVideoPoint(end, clampToImage: true);
             if (first == null || second == null)
                 return CropRect;
 
@@ -1691,14 +1935,19 @@ public sealed class QuickEditForm : Form
             return Rectangle.FromLTRB(left, top, right, bottom);
         }
 
-        private Point? ClientToVideoPoint(Point point)
+        private Point? ClientToVideoPoint(Point point, bool clampToImage)
         {
             var rect = GetImageBounds();
-            if (!rect.Contains(point) || VideoSize.Width <= 0 || VideoSize.Height <= 0)
+            if (VideoSize.Width <= 0 || VideoSize.Height <= 0)
                 return null;
 
-            var x = (point.X - rect.Left) * VideoSize.Width / Math.Max(1, rect.Width);
-            var y = (point.Y - rect.Top) * VideoSize.Height / Math.Max(1, rect.Height);
+            var px = clampToImage ? Math.Clamp(point.X, rect.Left, rect.Right) : point.X;
+            var py = clampToImage ? Math.Clamp(point.Y, rect.Top, rect.Bottom) : point.Y;
+            if (!clampToImage && !rect.Contains(point))
+                return null;
+
+            var x = (px - rect.Left) * VideoSize.Width / Math.Max(1, rect.Width);
+            var y = (py - rect.Top) * VideoSize.Height / Math.Max(1, rect.Height);
             return new Point(Math.Clamp(x, 0, VideoSize.Width - 1), Math.Clamp(y, 0, VideoSize.Height - 1));
         }
 
