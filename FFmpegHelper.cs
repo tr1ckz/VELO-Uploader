@@ -37,6 +37,39 @@ public static class FFmpegHelper
         return null;
     }
 
+    public static string? GetFFprobePath()
+    {
+        try
+        {
+            var ffmpegPath = GetFFmpegPath();
+            if (!string.IsNullOrWhiteSpace(ffmpegPath))
+            {
+                var sibling = Path.Combine(Path.GetDirectoryName(ffmpegPath) ?? string.Empty, "ffprobe.exe");
+                if (File.Exists(sibling))
+                    return sibling;
+            }
+
+            var psi = new System.Diagnostics.ProcessStartInfo("where", "ffprobe")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            using var proc = System.Diagnostics.Process.Start(psi);
+            if (proc != null)
+            {
+                var output = proc.StandardOutput.ReadToEnd().Trim();
+                proc.WaitForExit(3000);
+                if (!string.IsNullOrEmpty(output) && File.Exists(output))
+                    return output;
+            }
+        }
+        catch { }
+
+        return null;
+    }
+
     /// <summary>
     /// Check if FFmpeg is available in system PATH.
     /// </summary>

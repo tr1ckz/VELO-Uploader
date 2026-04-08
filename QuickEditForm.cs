@@ -7,13 +7,37 @@ using System.Text;
 public sealed class QuickEditForm : Form
 {
     private readonly ListBox _filesList;
+    private readonly EditorPreviewBox _sourcePreview;
+    private readonly PictureBox _outputPreview;
+    private readonly TrackBar _timelineBar;
+    private readonly Label _previewTimeLabel;
+    private readonly Label _videoInfoLabel;
     private readonly NumericUpDown _startBox;
     private readonly NumericUpDown _endBox;
+    private readonly NumericUpDown _cropXBox;
+    private readonly NumericUpDown _cropYBox;
+    private readonly NumericUpDown _cropWBox;
+    private readonly NumericUpDown _cropHBox;
     private readonly TextBox _outputNameBox;
     private readonly TextBox _outputFolderBox;
     private readonly Label _statusLabel;
     private readonly Button _trimButton;
+    private readonly Button _cropButton;
     private readonly Button _mergeButton;
+    private readonly Button _refreshPreviewButton;
+    private readonly CheckBox _enableCropBox;
+    private readonly System.Windows.Forms.Timer _previewDebounceTimer;
+
+    private string? _selectedFile;
+    private double _videoDuration;
+    private Size _videoSize = Size.Empty;
+    private bool _updatingCropFields;
+    private double _requestedPreviewTime;
+    private CancellationTokenSource? _previewCts;
+
+    private static readonly string[] SupportedExtensions = [".mp4", ".mkv", ".mov", ".avi", ".webm"];
+
+    private sealed record VideoDetails(double Duration, int Width, int Height);
 
     public QuickEditForm(string defaultOutputFolder)
     {
@@ -21,9 +45,9 @@ public sealed class QuickEditForm : Form
             ? defaultOutputFolder
             : Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
 
-        Text = "VELO Quick Editor";
-        ClientSize = new Size(760, 520);
-        MinimumSize = new Size(760, 520);
+        Text = "VELO Video Editor";
+        ClientSize = new Size(1280, 780);
+        MinimumSize = new Size(1180, 720);
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.Sizable;
         BackColor = Color.FromArgb(12, 12, 15);
@@ -41,94 +65,252 @@ public sealed class QuickEditForm : Form
 
         var title = new Label
         {
-            Text = "Quick local trim / merge",
+            Text = "Video editor",
             AutoSize = true,
-            Location = new Point(20, 16),
-            Font = new Font("Segoe UI Semibold", 12f),
+            Location = new Point(20, 14),
+            Font = new Font("Segoe UI Semibold", 14f),
             ForeColor = Color.White,
         };
         Controls.Add(title);
 
         var hint = new Label
         {
-            Text = "Create a new video locally and drop it straight into your watch folder so the uploader can queue it.",
+            Text = "Preview a real frame, scrub the timeline, drag a crop box visually, then render trim / crop / merge outputs directly into your watch folder.",
             AutoSize = false,
-            Size = new Size(700, 36),
+            Size = new Size(1180, 40),
             Location = new Point(20, 42),
             ForeColor = Color.FromArgb(155, 155, 165),
         };
         Controls.Add(hint);
 
-        _filesList = new ListBox
+        var leftPanel = new Panel
         {
             Location = new Point(20, 92),
-            Size = new Size(420, 280),
+            Size = new Size(320, 620),
+            BackColor = Color.FromArgb(18, 18, 22),
+            BorderStyle = BorderStyle.FixedSingle,
+            Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left,
+        };
+        Controls.Add(leftPanel);
+
+        leftPanel.Controls.Add(BuildSectionLabel("Clip bin", 12, 12));
+        leftPanel.Controls.Add(BuildSmallLabel("These can be pending uploads or any local clips you want to edit.", 12, 34, 290));
+
+        _filesList = new ListBox
+        {
+            Location = new Point(12, 62),
+            Size = new Size(294, 450),
             HorizontalScrollbar = true,
             SelectionMode = SelectionMode.MultiExtended,
-            BackColor = Color.FromArgb(18, 18, 22),
+            BackColor = Color.FromArgb(14, 14, 18),
             ForeColor = Color.FromArgb(240, 240, 245),
             BorderStyle = BorderStyle.FixedSingle,
+            Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
         };
-        Controls.Add(_filesList);
+        _filesList.SelectedIndexChanged += async (_, _) => await HandleSelectionChangedAsync();
+        leftPanel.Controls.Add(_filesList);
 
-        var addButton = BuildButton("Add clips...", 20, 384, 110, (_, _) => AddFiles());
-        Controls.Add(addButton);
-        Controls.Add(BuildButton("Remove", 140, 384, 90, (_, _) => RemoveSelected()));
-        Controls.Add(BuildButton("Move up", 240, 384, 90, (_, _) => MoveSelected(-1)));
-        Controls.Add(BuildButton("Move down", 340, 384, 100, (_, _) => MoveSelected(1)));
+        leftPanel.Controls.Add(BuildButton("Load watch folder", 12, 524, 120, (_, _) => LoadExistingClipsFromFolder(outputFolder)));
+        leftPanel.Controls.Add(BuildButton("Add clips...", 140, 524, 78, (_, _) => AddFiles()));
+        leftPanel.Controls.Add(BuildButton("Remove", 224, 524, 82, (_, _) => RemoveSelected()));
+        leftPanel.Controls.Add(BuildButton("Move up", 12, 560, 92, (_, _) => MoveSelected(-1)));
+        leftPanel.Controls.Add(BuildButton("Move down", 112, 560, 102, (_, _) => MoveSelected(1)));
+
+        var centerPanel = new Panel
+        {
+            Location = new Point(356, 92),
+            Size = new Size(560, 620),
+            BackColor = Color.FromArgb(18, 18, 22),
+            BorderStyle = BorderStyle.FixedSingle,
+            Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
+        };
+        Controls.Add(centerPanel);
+
+        centerPanel.Controls.Add(BuildSectionLabel("Visual preview", 14, 12));
+        _videoInfoLabel = BuildSmallLabel("Select one clip to preview and edit.", 14, 34, 520);
+        centerPanel.Controls.Add(_videoInfoLabel);
+
+        _sourcePreview = new EditorPreviewBox
+        {
+            Location = new Point(14, 64),
+            Size = new Size(530, 300),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+        };
+        _sourcePreview.CropChanged += OnCropSelectionChanged;
+        centerPanel.Controls.Add(_sourcePreview);
+
+        _previewTimeLabel = BuildSmallLabel("Preview time: 00:00.000", 14, 372, 200);
+        centerPanel.Controls.Add(_previewTimeLabel);
+
+        _timelineBar = new TrackBar
+        {
+            Location = new Point(14, 394),
+            Size = new Size(430, 42),
+            Minimum = 0,
+            Maximum = 1000,
+            TickStyle = TickStyle.None,
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+        };
+        _timelineBar.Scroll += (_, _) => QueuePreviewRefreshFromSlider();
+        centerPanel.Controls.Add(_timelineBar);
+
+        _refreshPreviewButton = BuildButton("Refresh frame", 452, 392, 92, async (_, _) => await RefreshPreviewAsync(GetCurrentPreviewTime()));
+        _refreshPreviewButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        centerPanel.Controls.Add(_refreshPreviewButton);
+
+        centerPanel.Controls.Add(BuildSectionLabel("Output preview", 14, 438));
+        centerPanel.Controls.Add(BuildSmallLabel("Crop output preview updates from the selected frame.", 14, 460, 400));
+
+        _outputPreview = new PictureBox
+        {
+            Location = new Point(14, 486),
+            Size = new Size(530, 118),
+            BackColor = Color.FromArgb(10, 10, 12),
+            BorderStyle = BorderStyle.FixedSingle,
+            SizeMode = PictureBoxSizeMode.Zoom,
+            Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
+        };
+        centerPanel.Controls.Add(_outputPreview);
 
         var rightPanel = new Panel
         {
-            Location = new Point(460, 92),
-            Size = new Size(280, 360),
+            Location = new Point(932, 92),
+            Size = new Size(330, 620),
             BackColor = Color.FromArgb(18, 18, 22),
             BorderStyle = BorderStyle.FixedSingle,
+            Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Right,
         };
         Controls.Add(rightPanel);
 
-        var outputNameLabel = BuildLabel("Output name", 14, 14);
-        rightPanel.Controls.Add(outputNameLabel);
-        _outputNameBox = BuildTextBox("Leave blank to auto-name", 14, 34, 248);
+        int y = 12;
+        rightPanel.Controls.Add(BuildSectionLabel("Output", 14, y));
+        y += 22;
+        rightPanel.Controls.Add(BuildLabel("Name", 14, y));
+        y += 18;
+        _outputNameBox = BuildTextBox("Leave blank to auto-name", 14, y, 300);
         rightPanel.Controls.Add(_outputNameBox);
+        y += 38;
 
-        var outputFolderLabel = BuildLabel("Output folder", 14, 72);
-        rightPanel.Controls.Add(outputFolderLabel);
-        _outputFolderBox = BuildTextBox(outputFolder, 14, 92, 180);
+        rightPanel.Controls.Add(BuildLabel("Folder", 14, y));
+        y += 18;
+        _outputFolderBox = BuildTextBox(outputFolder, 14, y, 224);
         rightPanel.Controls.Add(_outputFolderBox);
-        rightPanel.Controls.Add(BuildButton("Browse", 200, 90, 62, (_, _) => PickOutputFolder()));
+        rightPanel.Controls.Add(BuildButton("Browse", 244, y - 1, 70, (_, _) => PickOutputFolder()));
+        y += 46;
 
-        var trimLabel = BuildLabel("Trim selected clip", 14, 138);
-        trimLabel.Font = new Font(trimLabel.Font, FontStyle.Bold);
-        rightPanel.Controls.Add(trimLabel);
-
-        rightPanel.Controls.Add(BuildLabel("Start (sec)", 14, 170));
-        _startBox = BuildNumeric(0, 0, 86400, 14, 190, 116);
+        rightPanel.Controls.Add(BuildSectionLabel("Trim", 14, y));
+        y += 22;
+        rightPanel.Controls.Add(BuildLabel("Start (sec)", 14, y));
+        rightPanel.Controls.Add(BuildLabel("End (sec)", 166, y));
+        y += 18;
+        _startBox = BuildNumeric(0, 0, 86400, 14, y, 136);
+        _endBox = BuildNumeric(30, 0, 86400, 166, y, 136);
         rightPanel.Controls.Add(_startBox);
-
-        rightPanel.Controls.Add(BuildLabel("End (sec)", 146, 170));
-        _endBox = BuildNumeric(30, 0, 86400, 146, 190, 116);
         rightPanel.Controls.Add(_endBox);
-
-        _trimButton = BuildButton("Create trimmed clip", 14, 230, 248, async (_, _) => await RunTrimAsync());
+        y += 36;
+        rightPanel.Controls.Add(BuildButton("Set current as IN", 14, y, 136, (_, _) => SetTrimBoundary(true)));
+        rightPanel.Controls.Add(BuildButton("Set current as OUT", 166, y, 136, (_, _) => SetTrimBoundary(false)));
+        y += 38;
+        _trimButton = BuildActionButton("Render trimmed clip", 14, y, 288, async (_, _) => await RunTrimAsync());
         rightPanel.Controls.Add(_trimButton);
+        y += 50;
 
-        var mergeLabel = BuildLabel("Merge selected clips", 14, 282);
-        mergeLabel.Font = new Font(mergeLabel.Font, FontStyle.Bold);
-        rightPanel.Controls.Add(mergeLabel);
+        rightPanel.Controls.Add(BuildSectionLabel("Crop", 14, y));
+        y += 22;
+        _enableCropBox = new CheckBox
+        {
+            Text = "Enable visual crop",
+            Checked = true,
+            AutoSize = true,
+            Location = new Point(14, y),
+            ForeColor = Color.FromArgb(220, 220, 230),
+            BackColor = Color.Transparent,
+        };
+        _enableCropBox.CheckedChanged += (_, _) =>
+        {
+            _sourcePreview.ShowCropOverlay = _enableCropBox.Checked;
+            _ = RefreshPreviewAsync(GetCurrentPreviewTime());
+        };
+        rightPanel.Controls.Add(_enableCropBox);
+        y += 28;
 
-        _mergeButton = BuildButton("Merge selection", 14, 308, 248, async (_, _) => await RunMergeAsync());
+        rightPanel.Controls.Add(BuildLabel("X", 14, y));
+        rightPanel.Controls.Add(BuildLabel("Y", 92, y));
+        rightPanel.Controls.Add(BuildLabel("W", 170, y));
+        rightPanel.Controls.Add(BuildLabel("H", 248, y));
+        y += 18;
+        _cropXBox = BuildNumeric(0, 0, 10000, 14, y, 60);
+        _cropYBox = BuildNumeric(0, 0, 10000, 92, y, 60);
+        _cropWBox = BuildNumeric(1920, 1, 10000, 170, y, 60);
+        _cropHBox = BuildNumeric(1080, 1, 10000, 248, y, 60);
+        rightPanel.Controls.Add(_cropXBox);
+        rightPanel.Controls.Add(_cropYBox);
+        rightPanel.Controls.Add(_cropWBox);
+        rightPanel.Controls.Add(_cropHBox);
+        y += 38;
+
+        _cropXBox.ValueChanged += (_, _) => SyncCropPreviewFromFields();
+        _cropYBox.ValueChanged += (_, _) => SyncCropPreviewFromFields();
+        _cropWBox.ValueChanged += (_, _) => SyncCropPreviewFromFields();
+        _cropHBox.ValueChanged += (_, _) => SyncCropPreviewFromFields();
+
+        rightPanel.Controls.Add(BuildButton("Use full frame", 14, y, 136, (_, _) => ResetCropToFullFrame()));
+        rightPanel.Controls.Add(BuildButton("Preview crop", 166, y, 136, async (_, _) => await RefreshPreviewAsync(GetCurrentPreviewTime())));
+        y += 38;
+        _cropButton = BuildActionButton("Render cropped clip", 14, y, 288, async (_, _) => await RunCropAsync());
+        rightPanel.Controls.Add(_cropButton);
+        y += 50;
+
+        rightPanel.Controls.Add(BuildSectionLabel("Merge", 14, y));
+        y += 22;
+        rightPanel.Controls.Add(BuildSmallLabel("Select multiple clips in the left bin, then render them in that order.", 14, y, 290));
+        y += 40;
+        _mergeButton = BuildActionButton("Render merged clip", 14, y, 288, async (_, _) => await RunMergeAsync());
         rightPanel.Controls.Add(_mergeButton);
 
         _statusLabel = new Label
         {
             Text = "Ready.",
             AutoSize = false,
-            Size = new Size(720, 42),
-            Location = new Point(20, 462),
+            Size = new Size(1240, 36),
+            Location = new Point(20, 726),
             ForeColor = Color.FromArgb(155, 155, 165),
+            Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom,
         };
         Controls.Add(_statusLabel);
+
+        _previewDebounceTimer = new System.Windows.Forms.Timer { Interval = 280 };
+        _previewDebounceTimer.Tick += async (_, _) =>
+        {
+            _previewDebounceTimer.Stop();
+            await RefreshPreviewAsync(_requestedPreviewTime);
+        };
+
+        LoadExistingClipsFromFolder(outputFolder);
     }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _previewDebounceTimer.Stop();
+            _previewDebounceTimer.Dispose();
+            _previewCts?.Cancel();
+            ReplacePicture(_outputPreview, null);
+            _sourcePreview.DisposePreviewImage();
+        }
+
+        base.Dispose(disposing);
+    }
+
+    private static Label BuildSectionLabel(string text, int x, int y) => new()
+    {
+        Text = text,
+        AutoSize = true,
+        Location = new Point(x, y),
+        Font = new Font("Segoe UI", 8f, FontStyle.Bold),
+        ForeColor = Color.FromArgb(124, 58, 237),
+    };
 
     private static Label BuildLabel(string text, int x, int y) => new()
     {
@@ -136,6 +318,14 @@ public sealed class QuickEditForm : Form
         AutoSize = true,
         Location = new Point(x, y),
         ForeColor = Color.FromArgb(200, 200, 210),
+    };
+
+    private static Label BuildSmallLabel(string text, int x, int y, int width) => new()
+    {
+        Text = text,
+        Location = new Point(x, y),
+        Size = new Size(width, 34),
+        ForeColor = Color.FromArgb(150, 150, 160),
     };
 
     private static TextBox BuildTextBox(string text, int x, int y, int width) => new()
@@ -178,13 +368,47 @@ public sealed class QuickEditForm : Form
         return button;
     }
 
+    private static Button BuildActionButton(string text, int x, int y, int width, EventHandler onClick)
+    {
+        var button = BuildButton(text, x, y, width, onClick);
+        button.BackColor = Color.FromArgb(124, 58, 237);
+        button.FlatAppearance.BorderColor = Color.FromArgb(154, 92, 255);
+        return button;
+    }
+
+    private void LoadExistingClipsFromFolder(string folder)
+    {
+        if (!Directory.Exists(folder))
+        {
+            _statusLabel.Text = $"Watch/output folder not found: {folder}";
+            return;
+        }
+
+        var files = Directory
+            .EnumerateFiles(folder, "*.*", SearchOption.AllDirectories)
+            .Where(file => SupportedExtensions.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase))
+            .OrderByDescending(file => File.GetLastWriteTimeUtc(file))
+            .Take(120)
+            .ToList();
+
+        foreach (var file in files)
+        {
+            if (!_filesList.Items.Contains(file))
+                _filesList.Items.Add(file);
+        }
+
+        _statusLabel.Text = files.Count == 0
+            ? "No videos were found in the watch folder yet."
+            : $"Loaded {files.Count} recent clip(s) from the watch folder.";
+    }
+
     private void AddFiles()
     {
         using var dialog = new OpenFileDialog
         {
             Multiselect = true,
             Filter = "Video files|*.mp4;*.mkv;*.mov;*.avi;*.webm|All files|*.*",
-            Title = "Add clips to quick editor",
+            Title = "Add clips to the video editor",
         };
 
         if (dialog.ShowDialog(this) != DialogResult.OK)
@@ -223,6 +447,279 @@ public sealed class QuickEditForm : Form
         _filesList.SelectedIndex = newIndex;
     }
 
+    private async Task HandleSelectionChangedAsync()
+    {
+        if (_filesList.SelectedItems.Count != 1)
+        {
+            _selectedFile = null;
+            _videoInfoLabel.Text = _filesList.SelectedItems.Count > 1
+                ? "Multiple clips selected — you can merge them, but preview/edit works on one clip at a time."
+                : "Select one clip to preview and edit.";
+            _sourcePreview.ClearPreview();
+            ReplacePicture(_outputPreview, null);
+            return;
+        }
+
+        _selectedFile = _filesList.SelectedItem?.ToString();
+        if (string.IsNullOrWhiteSpace(_selectedFile) || !File.Exists(_selectedFile))
+        {
+            _selectedFile = null;
+            _videoInfoLabel.Text = "The selected file could not be found.";
+            _sourcePreview.ClearPreview();
+            ReplacePicture(_outputPreview, null);
+            return;
+        }
+
+        _statusLabel.Text = $"Loading preview for {Path.GetFileName(_selectedFile)}...";
+
+        try
+        {
+            var details = await GetVideoDetailsAsync(_selectedFile, CancellationToken.None);
+            _videoDuration = details.Duration;
+            _videoSize = new Size(details.Width, details.Height);
+            _videoInfoLabel.Text = $"{Path.GetFileName(_selectedFile)} • {details.Width}×{details.Height} • {FormatTime(details.Duration)}";
+
+            var durationDecimal = (decimal)Math.Max(details.Duration, 0.25);
+            _startBox.Maximum = durationDecimal;
+            _endBox.Maximum = durationDecimal;
+            _endBox.Value = Math.Min(durationDecimal, Math.Max((decimal)1, _endBox.Value <= _startBox.Value ? _startBox.Value + 1 : _endBox.Value));
+
+            _timelineBar.Value = 0;
+            ResetCropToFullFrame();
+            await RefreshPreviewAsync(0);
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Failed to load video preview info", ex);
+            _videoInfoLabel.Text = $"Preview unavailable: {ex.Message}";
+            _statusLabel.Text = $"Could not load the selected clip: {ex.Message}";
+        }
+    }
+
+    private async Task<VideoDetails> GetVideoDetailsAsync(string input, CancellationToken ct)
+    {
+        var ffprobePath = FFmpegHelper.GetFFprobePath() ?? "ffprobe";
+        var args = $"-v error -select_streams v:0 -show_entries stream=width,height:format=duration -of default=noprint_wrappers=1:nokey=1 {Quote(input)}";
+        var psi = new ProcessStartInfo(ffprobePath, args)
+        {
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
+        };
+
+        using var process = Process.Start(psi) ?? throw new InvalidOperationException("ffprobe could not be started.");
+        var stdout = await process.StandardOutput.ReadToEndAsync(ct);
+        var stderr = await process.StandardError.ReadToEndAsync(ct);
+        await process.WaitForExitAsync(ct);
+
+        if (process.ExitCode != 0)
+            throw new InvalidOperationException(string.IsNullOrWhiteSpace(stderr) ? "ffprobe failed." : stderr[^Math.Min(stderr.Length, 400)..]);
+
+        var lines = stdout
+            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        if (lines.Length < 3)
+            throw new InvalidOperationException("ffprobe did not return video size information.");
+
+        var width = int.TryParse(lines[0], out var parsedWidth) ? parsedWidth : 1920;
+        var height = int.TryParse(lines[1], out var parsedHeight) ? parsedHeight : 1080;
+        var duration = double.TryParse(lines[2], NumberStyles.Any, CultureInfo.InvariantCulture, out var parsedDuration) ? parsedDuration : 0;
+        return new VideoDetails(duration, width, height);
+    }
+
+    private void QueuePreviewRefreshFromSlider()
+    {
+        _requestedPreviewTime = GetCurrentPreviewTime();
+        _previewTimeLabel.Text = $"Preview time: {FormatTime(_requestedPreviewTime)}";
+        _previewDebounceTimer.Stop();
+        _previewDebounceTimer.Start();
+    }
+
+    private double GetCurrentPreviewTime()
+    {
+        if (_videoDuration <= 0)
+            return 0;
+
+        return (_timelineBar.Value / 1000d) * _videoDuration;
+    }
+
+    private async Task RefreshPreviewAsync(double time)
+    {
+        if (string.IsNullOrWhiteSpace(_selectedFile) || !File.Exists(_selectedFile))
+            return;
+
+        _previewCts?.Cancel();
+        _previewCts = new CancellationTokenSource();
+        var ct = _previewCts.Token;
+
+        try
+        {
+            var image = await ExtractPreviewImageAsync(_selectedFile, time, ct);
+            if (ct.IsCancellationRequested)
+            {
+                image.Dispose();
+                return;
+            }
+
+            _sourcePreview.VideoSize = _videoSize;
+            _sourcePreview.SetPreviewImage(image);
+            _sourcePreview.ShowCropOverlay = _enableCropBox.Checked;
+            _previewTimeLabel.Text = $"Preview time: {FormatTime(time)}";
+            _statusLabel.Text = $"Preview updated for {Path.GetFileName(_selectedFile)} at {FormatTime(time)}.";
+
+            await RefreshOutputPreviewAsync(time, ct);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Failed to refresh preview", ex);
+            _statusLabel.Text = $"Preview failed: {ex.Message}";
+        }
+    }
+
+    private async Task<Image> ExtractPreviewImageAsync(string filePath, double time, CancellationToken ct, Rectangle? crop = null)
+    {
+        var ffmpegPath = FFmpegHelper.GetFFmpegPath() ?? "ffmpeg";
+        var tempFile = Path.Combine(Path.GetTempPath(), $"velo-preview-{Guid.NewGuid():N}.jpg");
+        var clampedTime = Math.Max(0, time);
+        var filter = crop is { Width: > 0, Height: > 0 }
+            ? $"-vf \"crop={crop.Value.Width}:{crop.Value.Height}:{crop.Value.X}:{crop.Value.Y},scale=960:-1\""
+            : "-vf \"scale=960:-1\"";
+
+        var args = $"-ss {clampedTime.ToString(CultureInfo.InvariantCulture)} -i {Quote(filePath)} -frames:v 1 {filter} -q:v 2 -y {Quote(tempFile)}";
+        var psi = new ProcessStartInfo(ffmpegPath, args)
+        {
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
+        };
+
+        try
+        {
+            using var process = Process.Start(psi) ?? throw new InvalidOperationException("ffmpeg could not be started.");
+            var stderr = await process.StandardError.ReadToEndAsync(ct);
+            await process.WaitForExitAsync(ct);
+
+            if (process.ExitCode != 0 || !File.Exists(tempFile))
+                throw new InvalidOperationException(string.IsNullOrWhiteSpace(stderr) ? "FFmpeg could not render the preview frame." : stderr[^Math.Min(stderr.Length, 400)..]);
+
+            using var fs = new FileStream(tempFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var temp = Image.FromStream(fs);
+            return new Bitmap(temp);
+        }
+        finally
+        {
+            try { File.Delete(tempFile); } catch { }
+        }
+    }
+
+    private async Task RefreshOutputPreviewAsync(double time, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(_selectedFile) || !File.Exists(_selectedFile))
+        {
+            ReplacePicture(_outputPreview, null);
+            return;
+        }
+
+        if (!_enableCropBox.Checked)
+        {
+            ReplacePicture(_outputPreview, _sourcePreview.ClonePreviewImage());
+            return;
+        }
+
+        var cropRect = GetCropRectangle();
+        if (cropRect.Width < 2 || cropRect.Height < 2)
+        {
+            ReplacePicture(_outputPreview, _sourcePreview.ClonePreviewImage());
+            return;
+        }
+
+        var cropPreview = await ExtractPreviewImageAsync(_selectedFile, time, ct, cropRect);
+        if (!ct.IsCancellationRequested)
+            ReplacePicture(_outputPreview, cropPreview);
+        else
+            cropPreview.Dispose();
+    }
+
+    private void SetTrimBoundary(bool isStart)
+    {
+        var current = (decimal)GetCurrentPreviewTime();
+        if (isStart)
+        {
+            _startBox.Value = Math.Min(_endBox.Value, current);
+        }
+        else
+        {
+            _endBox.Value = Math.Max(_startBox.Value, current);
+        }
+    }
+
+    private void OnCropSelectionChanged(Rectangle cropRect)
+    {
+        if (_updatingCropFields)
+            return;
+
+        _updatingCropFields = true;
+        try
+        {
+            _cropXBox.Value = cropRect.X;
+            _cropYBox.Value = cropRect.Y;
+            _cropWBox.Value = Math.Max(1, cropRect.Width);
+            _cropHBox.Value = Math.Max(1, cropRect.Height);
+        }
+        finally
+        {
+            _updatingCropFields = false;
+        }
+
+        _ = RefreshPreviewAsync(GetCurrentPreviewTime());
+    }
+
+    private void SyncCropPreviewFromFields()
+    {
+        if (_updatingCropFields)
+            return;
+
+        _sourcePreview.SetCropRect(GetCropRectangle());
+        _ = RefreshPreviewAsync(GetCurrentPreviewTime());
+    }
+
+    private Rectangle GetCropRectangle()
+    {
+        var maxWidth = Math.Max(1, _videoSize.Width);
+        var maxHeight = Math.Max(1, _videoSize.Height);
+        var x = Math.Clamp((int)Math.Round(_cropXBox.Value), 0, maxWidth - 1);
+        var y = Math.Clamp((int)Math.Round(_cropYBox.Value), 0, maxHeight - 1);
+        var width = Math.Clamp((int)Math.Round(_cropWBox.Value), 1, maxWidth - x);
+        var height = Math.Clamp((int)Math.Round(_cropHBox.Value), 1, maxHeight - y);
+        return new Rectangle(x, y, width, height);
+    }
+
+    private void ResetCropToFullFrame()
+    {
+        if (_videoSize.Width <= 0 || _videoSize.Height <= 0)
+            return;
+
+        _updatingCropFields = true;
+        try
+        {
+            _cropXBox.Value = 0;
+            _cropYBox.Value = 0;
+            _cropWBox.Value = _videoSize.Width;
+            _cropHBox.Value = _videoSize.Height;
+        }
+        finally
+        {
+            _updatingCropFields = false;
+        }
+
+        _sourcePreview.SetCropRect(new Rectangle(0, 0, _videoSize.Width, _videoSize.Height));
+    }
+
     private void PickOutputFolder()
     {
         using var dialog = new FolderBrowserDialog
@@ -239,16 +736,9 @@ public sealed class QuickEditForm : Form
 
     private async Task RunTrimAsync()
     {
-        if (_filesList.SelectedItems.Count != 1)
+        if (!TryGetSingleSelectedFile(out var input, out var error))
         {
-            MessageBox.Show(this, "Select exactly one clip to trim.", "VELO Quick Editor", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            return;
-        }
-
-        var input = _filesList.SelectedItem?.ToString();
-        if (string.IsNullOrWhiteSpace(input) || !File.Exists(input))
-        {
-            MessageBox.Show(this, "The selected input file is missing.", "VELO Quick Editor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, error, "VELO Video Editor", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 
@@ -256,7 +746,7 @@ public sealed class QuickEditForm : Form
         var end = (double)_endBox.Value;
         if (end <= start)
         {
-            MessageBox.Show(this, "End time must be greater than start time.", "VELO Quick Editor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, "End time must be greater than start time.", "VELO Video Editor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
@@ -266,12 +756,32 @@ public sealed class QuickEditForm : Form
         await RunFfmpegAsync(args, $"Trim created: {Path.GetFileName(outputPath)}", outputPath);
     }
 
+    private async Task RunCropAsync()
+    {
+        if (!TryGetSingleSelectedFile(out var input, out var error))
+        {
+            MessageBox.Show(this, error, "VELO Video Editor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var crop = GetCropRectangle();
+        if (crop.Width < 2 || crop.Height < 2)
+        {
+            MessageBox.Show(this, "Choose a valid crop area first.", "VELO Video Editor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        var outputPath = BuildOutputPath(input, "cropped", forceMp4: true);
+        var args = $"-i {Quote(input)} -vf \"crop={crop.Width}:{crop.Height}:{crop.X}:{crop.Y}\" -c:v libx264 -preset fast -crf 18 -c:a copy -movflags +faststart -y {Quote(outputPath)}";
+        await RunFfmpegAsync(args, $"Crop created: {Path.GetFileName(outputPath)}", outputPath);
+    }
+
     private async Task RunMergeAsync()
     {
-        var files = _filesList.SelectedItems.Cast<string>().ToList();
+        var files = _filesList.SelectedItems.Cast<string>().Where(File.Exists).ToList();
         if (files.Count < 2)
         {
-            MessageBox.Show(this, "Select at least two clips to merge.", "VELO Quick Editor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, "Select at least two clips to merge.", "VELO Video Editor", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 
@@ -293,12 +803,31 @@ public sealed class QuickEditForm : Form
         }
     }
 
+    private bool TryGetSingleSelectedFile(out string input, out string error)
+    {
+        input = string.Empty;
+        error = string.Empty;
+
+        if (_filesList.SelectedItems.Count != 1)
+        {
+            error = "Select exactly one clip for trim or crop editing.";
+            return false;
+        }
+
+        input = _filesList.SelectedItem?.ToString() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(input) || !File.Exists(input))
+        {
+            error = "The selected input file is missing.";
+            return false;
+        }
+
+        return true;
+    }
+
     private async Task RunFfmpegAsync(string args, string successMessage, string outputPath)
     {
         var ffmpegPath = FFmpegHelper.GetFFmpegPath() ?? "ffmpeg";
-        _trimButton.Enabled = false;
-        _mergeButton.Enabled = false;
-        _statusLabel.Text = "Running FFmpeg…";
+        SetEditorBusy(true, "Running FFmpeg…");
 
         try
         {
@@ -320,21 +849,31 @@ public sealed class QuickEditForm : Form
             if (process.ExitCode != 0)
                 throw new InvalidOperationException(string.IsNullOrWhiteSpace(stderr) ? "FFmpeg failed." : stderr[^Math.Min(stderr.Length, 800)..]);
 
-            Logger.Info($"Quick editor output created: {outputPath}");
+            Logger.Info($"Video editor output created: {outputPath}");
+            if (!_filesList.Items.Contains(outputPath))
+                _filesList.Items.Insert(0, outputPath);
             _statusLabel.Text = successMessage;
-            MessageBox.Show(this, $"{successMessage}\n\nSaved to:\n{outputPath}", "VELO Quick Editor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, $"{successMessage}\n\nSaved to:\n{outputPath}", "VELO Video Editor", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
         catch (Exception ex)
         {
-            Logger.Error("Quick editor operation failed", ex);
+            Logger.Error("Video editor operation failed", ex);
             _statusLabel.Text = $"Editor task failed: {ex.Message}";
-            MessageBox.Show(this, ex.Message, "VELO Quick Editor", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            MessageBox.Show(this, ex.Message, "VELO Video Editor", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
         {
-            _trimButton.Enabled = true;
-            _mergeButton.Enabled = true;
+            SetEditorBusy(false, _statusLabel.Text);
         }
+    }
+
+    private void SetEditorBusy(bool busy, string status)
+    {
+        _trimButton.Enabled = !busy;
+        _cropButton.Enabled = !busy;
+        _mergeButton.Enabled = !busy;
+        _refreshPreviewButton.Enabled = !busy;
+        _statusLabel.Text = status;
     }
 
     private string BuildOutputPath(string inputFile, string suffix, bool forceMp4 = false)
@@ -360,12 +899,211 @@ public sealed class QuickEditForm : Form
         return candidate;
     }
 
+    private static void ReplacePicture(PictureBox box, Image? image)
+    {
+        var old = box.Image;
+        box.Image = image;
+        old?.Dispose();
+    }
+
     private static string Quote(string value) => $"\"{value}\"";
+
+    private static string FormatTime(double totalSeconds)
+    {
+        var safe = Math.Max(0, totalSeconds);
+        var ts = TimeSpan.FromSeconds(safe);
+        return safe >= 3600
+            ? ts.ToString(@"hh\:mm\:ss\.fff")
+            : ts.ToString(@"mm\:ss\.fff");
+    }
 
     private static string SanitizeFileName(string value)
     {
         var invalid = Path.GetInvalidFileNameChars();
         var cleaned = new string(value.Select(ch => invalid.Contains(ch) ? '_' : ch).ToArray()).Trim();
         return string.IsNullOrWhiteSpace(cleaned) ? $"clip-{DateTime.Now:yyyyMMdd-HHmmss}" : cleaned;
+    }
+
+    private sealed class EditorPreviewBox : PictureBox
+    {
+        private bool _dragging;
+        private Point _dragStart;
+
+        [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+        public Size VideoSize { get; set; } = Size.Empty;
+
+        [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+        public Rectangle CropRect { get; private set; } = Rectangle.Empty;
+
+        [System.ComponentModel.DefaultValue(true)]
+        [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+        public bool ShowCropOverlay { get; set; } = true;
+        public event Action<Rectangle>? CropChanged;
+
+        public EditorPreviewBox()
+        {
+            BackColor = Color.FromArgb(10, 10, 12);
+            BorderStyle = BorderStyle.FixedSingle;
+            SizeMode = PictureBoxSizeMode.Zoom;
+        }
+
+        public void SetPreviewImage(Image image)
+        {
+            var old = Image;
+            Image = image;
+            old?.Dispose();
+            Invalidate();
+        }
+
+        public Image? ClonePreviewImage() => Image is null ? null : new Bitmap(Image);
+
+        public void ClearPreview()
+        {
+            var old = Image;
+            Image = null;
+            old?.Dispose();
+            CropRect = Rectangle.Empty;
+            Invalidate();
+        }
+
+        public void DisposePreviewImage()
+        {
+            var old = Image;
+            Image = null;
+            old?.Dispose();
+        }
+
+        public void SetCropRect(Rectangle rect)
+        {
+            CropRect = NormalizeToVideo(rect);
+            Invalidate();
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            base.OnMouseDown(e);
+            if (!ShowCropOverlay || e.Button != MouseButtons.Left || VideoSize.Width <= 0 || VideoSize.Height <= 0)
+                return;
+
+            var imgRect = GetImageBounds();
+            if (!imgRect.Contains(e.Location))
+                return;
+
+            _dragging = true;
+            _dragStart = e.Location;
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            if (!_dragging)
+                return;
+
+            var rect = BuildCropRectFromPoints(_dragStart, e.Location);
+            if (rect.Width > 1 && rect.Height > 1)
+            {
+                CropRect = rect;
+                Invalidate();
+            }
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            base.OnMouseUp(e);
+            if (!_dragging)
+                return;
+
+            _dragging = false;
+            var rect = BuildCropRectFromPoints(_dragStart, e.Location);
+            if (rect.Width > 1 && rect.Height > 1)
+            {
+                CropRect = rect;
+                CropChanged?.Invoke(CropRect);
+            }
+            Invalidate();
+        }
+
+        protected override void OnPaint(PaintEventArgs pe)
+        {
+            base.OnPaint(pe);
+            if (!ShowCropOverlay || Image == null || VideoSize.Width <= 0 || VideoSize.Height <= 0 || CropRect.Width <= 0 || CropRect.Height <= 0)
+                return;
+
+            var imgRect = GetImageBounds();
+            var overlayRect = ToDisplayRect(CropRect, imgRect);
+            using var shade = new SolidBrush(Color.FromArgb(110, 0, 0, 0));
+            using var pen = new Pen(Color.FromArgb(124, 58, 237), 2);
+
+            pe.Graphics.FillRectangle(shade, new Rectangle(imgRect.Left, imgRect.Top, imgRect.Width, Math.Max(0, overlayRect.Top - imgRect.Top)));
+            pe.Graphics.FillRectangle(shade, new Rectangle(imgRect.Left, overlayRect.Bottom, imgRect.Width, Math.Max(0, imgRect.Bottom - overlayRect.Bottom)));
+            pe.Graphics.FillRectangle(shade, new Rectangle(imgRect.Left, overlayRect.Top, Math.Max(0, overlayRect.Left - imgRect.Left), overlayRect.Height));
+            pe.Graphics.FillRectangle(shade, new Rectangle(overlayRect.Right, overlayRect.Top, Math.Max(0, imgRect.Right - overlayRect.Right), overlayRect.Height));
+            pe.Graphics.DrawRectangle(pen, overlayRect);
+        }
+
+        private Rectangle BuildCropRectFromPoints(Point start, Point end)
+        {
+            var first = ClientToVideoPoint(start);
+            var second = ClientToVideoPoint(end);
+            if (first == null || second == null)
+                return CropRect;
+
+            var left = Math.Min(first.Value.X, second.Value.X);
+            var top = Math.Min(first.Value.Y, second.Value.Y);
+            var right = Math.Max(first.Value.X, second.Value.X);
+            var bottom = Math.Max(first.Value.Y, second.Value.Y);
+            return NormalizeToVideo(Rectangle.FromLTRB(left, top, right, bottom));
+        }
+
+        private Rectangle NormalizeToVideo(Rectangle rect)
+        {
+            if (VideoSize.Width <= 0 || VideoSize.Height <= 0)
+                return Rectangle.Empty;
+
+            var left = Math.Clamp(rect.Left, 0, VideoSize.Width - 1);
+            var top = Math.Clamp(rect.Top, 0, VideoSize.Height - 1);
+            var right = Math.Clamp(rect.Right, left + 1, VideoSize.Width);
+            var bottom = Math.Clamp(rect.Bottom, top + 1, VideoSize.Height);
+            return Rectangle.FromLTRB(left, top, right, bottom);
+        }
+
+        private Point? ClientToVideoPoint(Point point)
+        {
+            var rect = GetImageBounds();
+            if (!rect.Contains(point) || VideoSize.Width <= 0 || VideoSize.Height <= 0)
+                return null;
+
+            var x = (point.X - rect.Left) * VideoSize.Width / Math.Max(1, rect.Width);
+            var y = (point.Y - rect.Top) * VideoSize.Height / Math.Max(1, rect.Height);
+            return new Point(Math.Clamp(x, 0, VideoSize.Width - 1), Math.Clamp(y, 0, VideoSize.Height - 1));
+        }
+
+        private Rectangle ToDisplayRect(Rectangle cropRect, Rectangle imageRect)
+        {
+            var x = imageRect.Left + (int)Math.Round(cropRect.X * imageRect.Width / (double)Math.Max(1, VideoSize.Width));
+            var y = imageRect.Top + (int)Math.Round(cropRect.Y * imageRect.Height / (double)Math.Max(1, VideoSize.Height));
+            var width = (int)Math.Round(cropRect.Width * imageRect.Width / (double)Math.Max(1, VideoSize.Width));
+            var height = (int)Math.Round(cropRect.Height * imageRect.Height / (double)Math.Max(1, VideoSize.Height));
+            return new Rectangle(x, y, Math.Max(2, width), Math.Max(2, height));
+        }
+
+        private Rectangle GetImageBounds()
+        {
+            if (Image == null)
+                return ClientRectangle;
+
+            var imageRatio = Image.Width / (double)Math.Max(1, Image.Height);
+            var boxRatio = Width / (double)Math.Max(1, Height);
+            if (imageRatio > boxRatio)
+            {
+                var drawHeight = (int)Math.Round(Width / imageRatio);
+                var y = (Height - drawHeight) / 2;
+                return new Rectangle(0, y, Width, drawHeight);
+            }
+
+            var drawWidth = (int)Math.Round(Height * imageRatio);
+            var x = (Width - drawWidth) / 2;
+            return new Rectangle(x, 0, drawWidth, Height);
+        }
     }
 }
