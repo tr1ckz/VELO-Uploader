@@ -173,7 +173,7 @@ public class TrayContext : ApplicationContext
         processNowItem.Click += (_, _) => SetQueueProcessingEnabled(true, flushExistingQueue: true);
         menu.Items.Add(processNowItem);
 
-        var quickEditorItem = new ToolStripMenuItem("Quick Editor...");
+        var quickEditorItem = new ToolStripMenuItem("Video Editor...");
         quickEditorItem.Click += (_, _) => ShowQuickEditor();
         menu.Items.Add(quickEditorItem);
 

@@ -3,15 +3,24 @@ namespace VeloUploader;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
+using System.Windows.Forms.Integration;
+using WpfControls = System.Windows.Controls;
+using WpfMedia = System.Windows.Media;
 
 public sealed class QuickEditForm : Form
 {
     private readonly ListBox _filesList;
+    private readonly ElementHost _playerHost;
+    private readonly WpfControls.MediaElement _mediaElement;
     private readonly EditorPreviewBox _sourcePreview;
     private readonly PictureBox _outputPreview;
     private readonly TrackBar _timelineBar;
+    private readonly Button _playPauseButton;
+    private readonly Button _jumpBackButton;
+    private readonly Button _jumpForwardButton;
     private readonly Label _previewTimeLabel;
     private readonly Label _videoInfoLabel;
+    private readonly Label _playerStatusLabel;
     private readonly NumericUpDown _startBox;
     private readonly NumericUpDown _endBox;
     private readonly NumericUpDown _cropXBox;
@@ -27,8 +36,11 @@ public sealed class QuickEditForm : Form
     private readonly Button _refreshPreviewButton;
     private readonly CheckBox _enableCropBox;
     private readonly System.Windows.Forms.Timer _previewDebounceTimer;
+    private readonly System.Windows.Forms.Timer _playerTimer;
 
     private string? _selectedFile;
+    private bool _isPlaying;
+    private bool _timelineUpdateFromPlayer;
     private double _videoDuration;
     private Size _videoSize = Size.Empty;
     private bool _updatingCropFields;
@@ -102,12 +114,15 @@ public sealed class QuickEditForm : Form
             Size = new Size(294, 450),
             HorizontalScrollbar = true,
             SelectionMode = SelectionMode.MultiExtended,
+            AllowDrop = true,
             BackColor = Color.FromArgb(14, 14, 18),
             ForeColor = Color.FromArgb(240, 240, 245),
             BorderStyle = BorderStyle.FixedSingle,
             Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
         };
         _filesList.SelectedIndexChanged += async (_, _) => await HandleSelectionChangedAsync();
+        _filesList.DragEnter += OnFilesListDragEnter;
+        _filesList.DragDrop += OnFilesListDragDrop;
         leftPanel.Controls.Add(_filesList);
 
         leftPanel.Controls.Add(BuildButton("Load watch folder", 12, 524, 120, (_, _) => LoadExistingClipsFromFolder(outputFolder)));
@@ -126,25 +141,55 @@ public sealed class QuickEditForm : Form
         };
         Controls.Add(centerPanel);
 
-        centerPanel.Controls.Add(BuildSectionLabel("Visual preview", 14, 12));
-        _videoInfoLabel = BuildSmallLabel("Select one clip to preview and edit.", 14, 34, 520);
+        centerPanel.Controls.Add(BuildSectionLabel("Playback + frame preview", 14, 12));
+        _videoInfoLabel = BuildSmallLabel("Select one clip to play, scrub, crop, and export.", 14, 34, 520);
         centerPanel.Controls.Add(_videoInfoLabel);
 
-        _sourcePreview = new EditorPreviewBox
+        _mediaElement = new WpfControls.MediaElement
+        {
+            LoadedBehavior = WpfControls.MediaState.Manual,
+            UnloadedBehavior = WpfControls.MediaState.Manual,
+            ScrubbingEnabled = true,
+            Stretch = WpfMedia.Stretch.Uniform,
+            Volume = 0.45,
+        };
+        _mediaElement.MediaOpened += (_, _) => OnMediaOpened();
+        _mediaElement.MediaEnded += (_, _) => StopPlayback(resetToStart: true);
+        _mediaElement.MediaFailed += (_, e) =>
+        {
+            StopPlayback(resetToStart: false);
+            _playerStatusLabel!.Text = $"Playback error: {e.ErrorException?.Message ?? "unknown"}";
+            _statusLabel!.Text = _playerStatusLabel.Text;
+        };
+
+        _playerHost = new ElementHost
         {
             Location = new Point(14, 64),
-            Size = new Size(530, 300),
+            Size = new Size(530, 220),
+            Child = _mediaElement,
+            BackColor = Color.FromArgb(10, 10, 12),
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
         };
-        _sourcePreview.CropChanged += OnCropSelectionChanged;
-        centerPanel.Controls.Add(_sourcePreview);
+        centerPanel.Controls.Add(_playerHost);
 
-        _previewTimeLabel = BuildSmallLabel("Preview time: 00:00.000", 14, 372, 200);
+        _playPauseButton = BuildActionButton("Play", 14, 292, 70, (_, _) => TogglePlayback());
+        centerPanel.Controls.Add(_playPauseButton);
+
+        _jumpBackButton = BuildButton("« 5s", 92, 292, 58, (_, _) => SkipSeconds(-5));
+        centerPanel.Controls.Add(_jumpBackButton);
+
+        _jumpForwardButton = BuildButton("5s »", 158, 292, 58, (_, _) => SkipSeconds(5));
+        centerPanel.Controls.Add(_jumpForwardButton);
+
+        _playerStatusLabel = BuildSmallLabel("Load a clip to start playback.", 228, 290, 316);
+        centerPanel.Controls.Add(_playerStatusLabel);
+
+        _previewTimeLabel = BuildSmallLabel("Timeline: 00:00.000", 14, 326, 220);
         centerPanel.Controls.Add(_previewTimeLabel);
 
         _timelineBar = new TrackBar
         {
-            Location = new Point(14, 394),
+            Location = new Point(14, 350),
             Size = new Size(430, 42),
             Minimum = 0,
             Maximum = 1000,
@@ -154,17 +199,26 @@ public sealed class QuickEditForm : Form
         _timelineBar.Scroll += (_, _) => QueuePreviewRefreshFromSlider();
         centerPanel.Controls.Add(_timelineBar);
 
-        _refreshPreviewButton = BuildButton("Refresh frame", 452, 392, 92, async (_, _) => await RefreshPreviewAsync(GetCurrentPreviewTime()));
+        _refreshPreviewButton = BuildButton("Refresh frame", 452, 348, 92, async (_, _) => await RefreshPreviewAsync(GetCurrentPreviewTime()));
         _refreshPreviewButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         centerPanel.Controls.Add(_refreshPreviewButton);
 
-        centerPanel.Controls.Add(BuildSectionLabel("Output preview", 14, 438));
-        centerPanel.Controls.Add(BuildSmallLabel("Crop output preview updates from the selected frame.", 14, 460, 400));
+        centerPanel.Controls.Add(BuildSectionLabel("Crop frame", 14, 404));
+        centerPanel.Controls.Add(BuildSectionLabel("Export preview", 288, 404));
+
+        _sourcePreview = new EditorPreviewBox
+        {
+            Location = new Point(14, 430),
+            Size = new Size(255, 174),
+            Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left,
+        };
+        _sourcePreview.CropChanged += OnCropSelectionChanged;
+        centerPanel.Controls.Add(_sourcePreview);
 
         _outputPreview = new PictureBox
         {
-            Location = new Point(14, 486),
-            Size = new Size(530, 118),
+            Location = new Point(288, 430),
+            Size = new Size(256, 174),
             BackColor = Color.FromArgb(10, 10, 12),
             BorderStyle = BorderStyle.FixedSingle,
             SizeMode = PictureBoxSizeMode.Zoom,
@@ -286,6 +340,9 @@ public sealed class QuickEditForm : Form
             await RefreshPreviewAsync(_requestedPreviewTime);
         };
 
+        _playerTimer = new System.Windows.Forms.Timer { Interval = 180 };
+        _playerTimer.Tick += (_, _) => UpdatePlayerPositionFromPlayback();
+
         LoadExistingClipsFromFolder(outputFolder);
     }
 
@@ -293,9 +350,12 @@ public sealed class QuickEditForm : Form
     {
         if (disposing)
         {
+            _playerTimer.Stop();
+            _playerTimer.Dispose();
             _previewDebounceTimer.Stop();
             _previewDebounceTimer.Dispose();
             _previewCts?.Cancel();
+            StopPlayback(resetToStart: false);
             ReplacePicture(_outputPreview, null);
             _sourcePreview.DisposePreviewImage();
         }
@@ -381,6 +441,160 @@ public sealed class QuickEditForm : Form
         return button;
     }
 
+    private void OnFilesListDragEnter(object? sender, DragEventArgs e)
+    {
+        e.Effect = e.Data?.GetDataPresent(DataFormats.FileDrop) == true
+            ? DragDropEffects.Copy
+            : DragDropEffects.None;
+    }
+
+    private void OnFilesListDragDrop(object? sender, DragEventArgs e)
+    {
+        if (e.Data?.GetData(DataFormats.FileDrop) is not string[] files || files.Length == 0)
+            return;
+
+        foreach (var file in files.Where(File.Exists))
+        {
+            if (!_filesList.Items.Contains(file))
+                _filesList.Items.Add(file);
+        }
+
+        _statusLabel.Text = $"Added {files.Length} dragged clip(s) to the editor.";
+    }
+
+    private void OnMediaOpened()
+    {
+        if (_mediaElement.NaturalDuration.HasTimeSpan)
+        {
+            _videoDuration = Math.Max(_videoDuration, _mediaElement.NaturalDuration.TimeSpan.TotalSeconds);
+        }
+
+        _playerStatusLabel.Text = "Paused — drag the timeline or hit Play.";
+        _playPauseButton.Text = "Play";
+        _isPlaying = false;
+        UpdatePlayerPositionFromPlayback();
+    }
+
+    private void TogglePlayback()
+    {
+        if (_mediaElement.Source == null)
+        {
+            _statusLabel.Text = "Select a clip first.";
+            return;
+        }
+
+        if (_isPlaying)
+        {
+            StopPlayback(resetToStart: false);
+            return;
+        }
+
+        try
+        {
+            _mediaElement.Play();
+            _isPlaying = true;
+            _playPauseButton.Text = "Pause";
+            _playerStatusLabel.Text = "Playing…";
+            _playerTimer.Start();
+        }
+        catch (Exception ex)
+        {
+            _playerStatusLabel.Text = $"Playback failed: {ex.Message}";
+            _statusLabel.Text = _playerStatusLabel.Text;
+        }
+    }
+
+    private void StopPlayback(bool resetToStart)
+    {
+        try
+        {
+            _mediaElement.Pause();
+        }
+        catch
+        {
+        }
+
+        if (resetToStart)
+        {
+            try
+            {
+                _mediaElement.Position = TimeSpan.Zero;
+            }
+            catch
+            {
+            }
+        }
+
+        _isPlaying = false;
+        _playerTimer.Stop();
+        _playPauseButton.Text = "Play";
+        _playerStatusLabel.Text = _mediaElement.Source == null
+            ? "Load a clip to start playback."
+            : "Paused — drag the timeline or hit Play.";
+
+        if (resetToStart)
+        {
+            _timelineUpdateFromPlayer = true;
+            _timelineBar.Value = 0;
+            _timelineUpdateFromPlayer = false;
+            _previewTimeLabel.Text = "Timeline: 00:00.000";
+        }
+    }
+
+    private void SkipSeconds(double deltaSeconds)
+    {
+        var target = GetCurrentPreviewTime() + deltaSeconds;
+        SeekToTime(target, refreshPreview: true);
+    }
+
+    private void SeekToTime(double seconds, bool refreshPreview)
+    {
+        var clamped = Math.Clamp(seconds, 0, Math.Max(_videoDuration, 0));
+
+        try
+        {
+            if (_mediaElement.Source != null)
+                _mediaElement.Position = TimeSpan.FromSeconds(clamped);
+        }
+        catch
+        {
+        }
+
+        _timelineUpdateFromPlayer = true;
+        _timelineBar.Value = _videoDuration <= 0
+            ? 0
+            : Math.Clamp((int)Math.Round((clamped / _videoDuration) * _timelineBar.Maximum), 0, _timelineBar.Maximum);
+        _timelineUpdateFromPlayer = false;
+        _previewTimeLabel.Text = $"Timeline: {FormatTime(clamped)}";
+
+        if (refreshPreview)
+        {
+            _requestedPreviewTime = clamped;
+            _previewDebounceTimer.Stop();
+            _previewDebounceTimer.Start();
+        }
+    }
+
+    private void UpdatePlayerPositionFromPlayback()
+    {
+        if (_mediaElement.Source == null)
+            return;
+
+        try
+        {
+            var position = _mediaElement.Position.TotalSeconds;
+            _timelineUpdateFromPlayer = true;
+            _timelineBar.Value = _videoDuration <= 0
+                ? 0
+                : Math.Clamp((int)Math.Round((position / Math.Max(_videoDuration, 0.001)) * _timelineBar.Maximum), 0, _timelineBar.Maximum);
+            _timelineUpdateFromPlayer = false;
+            _previewTimeLabel.Text = $"Timeline: {FormatTime(position)}";
+        }
+        catch
+        {
+        }
+    }
+
     private void LoadExistingClipsFromFolder(string folder)
     {
         if (!Directory.Exists(folder))
@@ -457,6 +671,8 @@ public sealed class QuickEditForm : Form
         if (_filesList.SelectedItems.Count != 1)
         {
             _selectedFile = null;
+            StopPlayback(resetToStart: true);
+            _mediaElement.Source = null;
             _videoInfoLabel.Text = _filesList.SelectedItems.Count > 1
                 ? "Multiple clips selected — you can merge them, but preview/edit works on one clip at a time."
                 : "Select one clip to preview and edit.";
@@ -469,6 +685,8 @@ public sealed class QuickEditForm : Form
         if (string.IsNullOrWhiteSpace(_selectedFile) || !File.Exists(_selectedFile))
         {
             _selectedFile = null;
+            StopPlayback(resetToStart: true);
+            _mediaElement.Source = null;
             _videoInfoLabel.Text = "The selected file could not be found.";
             _sourcePreview.ClearPreview();
             ReplacePicture(_outputPreview, null);
@@ -487,7 +705,17 @@ public sealed class QuickEditForm : Form
             var durationDecimal = (decimal)Math.Max(details.Duration, 0.25);
             _startBox.Maximum = durationDecimal;
             _endBox.Maximum = durationDecimal;
+            _startBox.Value = Math.Min(_startBox.Value, durationDecimal);
             _endBox.Value = Math.Min(durationDecimal, Math.Max((decimal)1, _endBox.Value <= _startBox.Value ? _startBox.Value + 1 : _endBox.Value));
+
+            _cropXBox.Maximum = Math.Max(1, details.Width);
+            _cropYBox.Maximum = Math.Max(1, details.Height);
+            _cropWBox.Maximum = Math.Max(1, details.Width);
+            _cropHBox.Maximum = Math.Max(1, details.Height);
+
+            StopPlayback(resetToStart: true);
+            _mediaElement.Source = new Uri(_selectedFile);
+            _playerStatusLabel.Text = "Loading video…";
 
             _timelineBar.Value = 0;
             ResetCropToFullFrame();
@@ -536,7 +764,13 @@ public sealed class QuickEditForm : Form
     private void QueuePreviewRefreshFromSlider()
     {
         _requestedPreviewTime = GetCurrentPreviewTime();
-        _previewTimeLabel.Text = $"Preview time: {FormatTime(_requestedPreviewTime)}";
+        _previewTimeLabel.Text = $"Timeline: {FormatTime(_requestedPreviewTime)}";
+
+        if (!_timelineUpdateFromPlayer)
+        {
+            SeekToTime(_requestedPreviewTime, refreshPreview: false);
+        }
+
         _previewDebounceTimer.Stop();
         _previewDebounceTimer.Start();
     }
@@ -874,10 +1108,14 @@ public sealed class QuickEditForm : Form
 
     private void SetEditorBusy(bool busy, string status)
     {
+        var canControlPlayback = !busy && _mediaElement.Source != null;
         _trimButton.Enabled = !busy;
         _cropButton.Enabled = !busy;
         _mergeButton.Enabled = !busy;
         _refreshPreviewButton.Enabled = !busy;
+        _playPauseButton.Enabled = canControlPlayback;
+        _jumpBackButton.Enabled = canControlPlayback;
+        _jumpForwardButton.Enabled = canControlPlayback;
         _statusLabel.Text = status;
     }
 

@@ -811,7 +811,7 @@ public class SettingsForm : Form
         _queueProcessNowBtn.Click += (_, _) => _setQueueProcessing?.Invoke(true, true);
         s.Controls.Add(_queueProcessNowBtn);
 
-        _quickEditorBtn = MkBtn("Open Quick Editor", lx + 340, sy, 140, 30, C_BTN, C_BTN_H);
+        _quickEditorBtn = MkBtn("Open Video Editor", lx + 340, sy, 140, 30, C_BTN, C_BTN_H);
         _quickEditorBtn.Enabled = _openQuickEditor != null;
         _quickEditorBtn.Click += (_, _) => _openQuickEditor?.Invoke();
         s.Controls.Add(_quickEditorBtn);
