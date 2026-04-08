@@ -10,6 +10,7 @@ using WpfMedia = System.Windows.Media;
 public sealed class QuickEditForm : Form
 {
     private readonly ListBox _filesList;
+    private readonly FlowLayoutPanel _mediaThumbStrip;
     private readonly ElementHost _playerHost;
     private readonly WpfControls.MediaElement _mediaElement;
     private readonly EditorPreviewBox _sourcePreview;
@@ -35,6 +36,9 @@ public sealed class QuickEditForm : Form
     private readonly SequenceTimelineView _sequenceTimelineView;
     private readonly Label _sequenceSummaryLabel;
     private readonly Label _sequenceHintLabel;
+    private readonly ListBox _markerList;
+    private readonly Label _markerHintLabel;
+    private readonly Button _addMarkerButton;
     private readonly Label _statusLabel;
     private readonly Button _trimButton;
     private readonly Button _cropButton;
@@ -56,6 +60,8 @@ public sealed class QuickEditForm : Form
     private double _requestedPreviewTime;
     private CancellationTokenSource? _previewCts;
     private readonly List<TimelineSegment> _sequenceSegments = [];
+    private readonly Dictionary<string, Image> _mediaThumbCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, List<double>> _clipMarkers = new(StringComparer.OrdinalIgnoreCase);
 
     private static readonly string[] SupportedExtensions = [".mp4", ".mkv", ".mov", ".avi", ".webm"];
 
@@ -121,12 +127,25 @@ public sealed class QuickEditForm : Form
         Controls.Add(leftPanel);
 
         leftPanel.Controls.Add(BuildSectionLabel("Project / media bin", 12, 12));
-        leftPanel.Controls.Add(BuildSmallLabel("Import clips, reorder them, then mark ranges to send into the timeline.", 12, 34, 232));
+        leftPanel.Controls.Add(BuildSmallLabel("Import clips, preview their thumbnails, then mark ranges to send into the timeline.", 12, 34, 248));
+
+        _mediaThumbStrip = new FlowLayoutPanel
+        {
+            Location = new Point(12, 64),
+            Size = new Size(236, 92),
+            BackColor = Color.FromArgb(14, 14, 18),
+            BorderStyle = BorderStyle.FixedSingle,
+            WrapContents = true,
+            AutoScroll = false,
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+            Padding = new Padding(4),
+        };
+        leftPanel.Controls.Add(_mediaThumbStrip);
 
         _filesList = new ListBox
         {
-            Location = new Point(12, 62),
-            Size = new Size(224, 510),
+            Location = new Point(12, 166),
+            Size = new Size(236, 406),
             HorizontalScrollbar = true,
             SelectionMode = SelectionMode.MultiExtended,
             AllowDrop = true,
@@ -140,11 +159,11 @@ public sealed class QuickEditForm : Form
         _filesList.DragDrop += OnFilesListDragDrop;
         leftPanel.Controls.Add(_filesList);
 
-        leftPanel.Controls.Add(BuildButton("Load folder", 12, 584, 102, (_, _) => LoadExistingClipsFromFolder(outputFolder)));
-        leftPanel.Controls.Add(BuildButton("Import...", 122, 584, 62, (_, _) => AddFiles()));
-        leftPanel.Controls.Add(BuildButton("Remove", 192, 584, 56, (_, _) => RemoveSelected()));
-        leftPanel.Controls.Add(BuildButton("Up", 12, 620, 52, (_, _) => MoveSelected(-1)));
-        leftPanel.Controls.Add(BuildButton("Down", 72, 620, 62, (_, _) => MoveSelected(1)));
+        leftPanel.Controls.Add(BuildButton("Import clips...", 12, 584, 116, (_, _) => AddFiles()));
+        leftPanel.Controls.Add(BuildButton("Load folder", 136, 584, 112, (_, _) => LoadExistingClipsFromFolder(outputFolder)));
+        leftPanel.Controls.Add(BuildButton("Remove", 12, 620, 72, (_, _) => RemoveSelected()));
+        leftPanel.Controls.Add(BuildButton("Up", 92, 620, 52, (_, _) => MoveSelected(-1)));
+        leftPanel.Controls.Add(BuildButton("Down", 152, 620, 62, (_, _) => MoveSelected(1)));
 
         var centerPanel = new Panel
         {
@@ -156,8 +175,10 @@ public sealed class QuickEditForm : Form
         };
         Controls.Add(centerPanel);
 
-        centerPanel.Controls.Add(BuildSectionLabel("Source monitor", 14, 12));
-        centerPanel.Controls.Add(BuildSectionLabel("Program monitor", 390, 12));
+        var sourceMonitorLabel = BuildSectionLabel("Source monitor", 14, 12);
+        centerPanel.Controls.Add(sourceMonitorLabel);
+        var programMonitorLabel = BuildSectionLabel("Program monitor", 390, 12);
+        centerPanel.Controls.Add(programMonitorLabel);
         _videoInfoLabel = BuildSmallLabel("Select one clip to scrub and mark. The program monitor plays it back while the source monitor lets you crop visually.", 14, 34, 720);
         centerPanel.Controls.Add(_videoInfoLabel);
 
@@ -203,7 +224,8 @@ public sealed class QuickEditForm : Form
         _playerStatusLabel = BuildSmallLabel("Load a clip to start playback.", 390, 274, 354);
         centerPanel.Controls.Add(_playerStatusLabel);
 
-        centerPanel.Controls.Add(BuildSectionLabel("Cut / trim timeline", 14, 302));
+        var trimSectionLabel = BuildSectionLabel("Cut / trim timeline", 14, 302);
+        centerPanel.Controls.Add(trimSectionLabel);
         var trimHint = BuildSmallLabel("This is the actual edit bar: drag the IN and OUT handles directly on the clip to trim the selected range.", 14, 324, 720);
         centerPanel.Controls.Add(trimHint);
 
@@ -242,7 +264,8 @@ public sealed class QuickEditForm : Form
         _jumpForwardButton = BuildButton("5s »", 164, 468, 58, (_, _) => SkipSeconds(5));
         centerPanel.Controls.Add(_jumpForwardButton);
 
-        centerPanel.Controls.Add(BuildSectionLabel("Sequence timeline", 14, 512));
+        var sequenceSectionLabel = BuildSectionLabel("Sequence timeline", 14, 512);
+        centerPanel.Controls.Add(sequenceSectionLabel);
         var timelineHint = BuildSmallLabel("Marked cuts appear here like edit blocks. Double-click a cut on the right to load it back into the source monitor.", 14, 534, 720);
         centerPanel.Controls.Add(timelineHint);
 
@@ -313,11 +336,33 @@ public sealed class QuickEditForm : Form
         y += 38;
         _trimButton = BuildActionButton("Render selected range", 14, y, 260, async (_, _) => await RunTrimAsync());
         rightPanel.Controls.Add(_trimButton);
-        y += 38;
+        y += 36;
 
-        _addCutButton = BuildButton("Insert marked range to timeline", 14, y, 260, (_, _) => AddCurrentCutToSequence());
+        _markerHintLabel = BuildSmallLabel("Workflow: drag the IN/OUT handles on the trim timeline, then click one of the actions below.", 14, y, 260);
+        rightPanel.Controls.Add(_markerHintLabel);
+        y += 34;
+
+        _addCutButton = BuildButton("Add selected range as clip block", 14, y, 260, (_, _) => AddCurrentCutToSequence());
         rightPanel.Controls.Add(_addCutButton);
-        y += 50;
+        y += 36;
+
+        _addMarkerButton = BuildButton("Add marker at playhead", 14, y, 180, (_, _) => AddMarkerAtPlayhead());
+        rightPanel.Controls.Add(_addMarkerButton);
+        rightPanel.Controls.Add(BuildButton("Remove", 202, y, 72, (_, _) => RemoveSelectedMarker()));
+        y += 36;
+
+        _markerList = new ListBox
+        {
+            Location = new Point(14, y),
+            Size = new Size(260, 78),
+            BackColor = Color.FromArgb(14, 14, 18),
+            ForeColor = Color.FromArgb(240, 240, 245),
+            BorderStyle = BorderStyle.FixedSingle,
+            HorizontalScrollbar = true,
+        };
+        _markerList.DoubleClick += (_, _) => JumpToSelectedMarker();
+        rightPanel.Controls.Add(_markerList);
+        y += 90;
 
         rightPanel.Controls.Add(BuildSectionLabel("Frame crop (optional)", 14, y));
         y += 22;
@@ -428,6 +473,67 @@ public sealed class QuickEditForm : Form
         };
         Controls.Add(_statusLabel);
 
+        void LayoutWorkspace()
+        {
+            const int outerMargin = 20;
+            const int top = 92;
+            const int gap = 16;
+            var panelHeight = Math.Max(620, ClientSize.Height - top - 88);
+
+            leftPanel.Bounds = new Rectangle(outerMargin, top, 280, panelHeight);
+            rightPanel.Bounds = new Rectangle(ClientSize.Width - outerMargin - 300, top, 300, panelHeight);
+            centerPanel.Bounds = new Rectangle(leftPanel.Right + gap, top, Math.Max(560, rightPanel.Left - gap - (leftPanel.Right + gap)), panelHeight);
+
+            _mediaThumbStrip.Size = new Size(leftPanel.ClientSize.Width - 24, 92);
+            _filesList.Size = new Size(leftPanel.ClientSize.Width - 24, Math.Max(220, leftPanel.ClientSize.Height - 274));
+
+            const int margin = 14;
+            const int monitorGap = 12;
+            var sourceWidth = Math.Clamp(centerPanel.ClientSize.Width / 4, 220, 280);
+            var programX = margin + sourceWidth + monitorGap;
+            var programWidth = Math.Max(260, centerPanel.ClientSize.Width - programX - margin);
+            var monitorHeight = Math.Clamp(centerPanel.ClientSize.Height / 3, 200, 280);
+
+            sourceMonitorLabel.Location = new Point(margin, 12);
+            programMonitorLabel.Location = new Point(programX, 12);
+            _videoInfoLabel.Location = new Point(margin, 34);
+            _videoInfoLabel.Size = new Size(centerPanel.ClientSize.Width - (margin * 2), 28);
+
+            _sourcePreview.Bounds = new Rectangle(margin, 64, sourceWidth, monitorHeight);
+            _playerHost.Bounds = new Rectangle(programX, 64, programWidth, monitorHeight);
+
+            _previewTimeLabel.Location = new Point(margin, _playerHost.Bottom + 8);
+            _playerStatusLabel.Location = new Point(programX, _playerHost.Bottom + 8);
+            _playerStatusLabel.Size = new Size(programWidth, 24);
+
+            var trimHeaderY = _playerHost.Bottom + 34;
+            trimSectionLabel.Location = new Point(margin, trimHeaderY);
+            trimHint.Location = new Point(margin, trimHeaderY + 20);
+            trimHint.Size = new Size(centerPanel.ClientSize.Width - (margin * 2), 30);
+
+            _trimTimelineView.Bounds = new Rectangle(margin, trimHint.Bottom + 4, centerPanel.ClientSize.Width - (margin * 2), 74);
+            _timelineBar.Bounds = new Rectangle(margin, _trimTimelineView.Bottom + 8, Math.Max(220, centerPanel.ClientSize.Width - 126), 32);
+            _refreshPreviewButton.Location = new Point(centerPanel.ClientSize.Width - margin - _refreshPreviewButton.Width, _trimTimelineView.Bottom + 6);
+
+            var transportY = _timelineBar.Bottom + 10;
+            _playPauseButton.Location = new Point(margin, transportY);
+            _jumpBackButton.Location = new Point(_playPauseButton.Right + 8, transportY);
+            _jumpForwardButton.Location = new Point(_jumpBackButton.Right + 8, transportY);
+
+            var sequenceHeaderY = _playPauseButton.Bottom + 20;
+            sequenceSectionLabel.Location = new Point(margin, sequenceHeaderY);
+            timelineHint.Location = new Point(margin, sequenceHeaderY + 20);
+            timelineHint.Size = new Size(centerPanel.ClientSize.Width - (margin * 2), 30);
+            _sequenceTimelineView.Bounds = new Rectangle(margin, timelineHint.Bottom + 4, centerPanel.ClientSize.Width - (margin * 2), Math.Max(110, centerPanel.ClientSize.Height - timelineHint.Bottom - 18));
+
+            _statusLabel.Location = new Point(20, ClientSize.Height - 48);
+            _statusLabel.Size = new Size(ClientSize.Width - 40, 24);
+        }
+
+        SizeChanged += (_, _) => LayoutWorkspace();
+        centerPanel.SizeChanged += (_, _) => LayoutWorkspace();
+        LayoutWorkspace();
+
         _previewDebounceTimer = new System.Windows.Forms.Timer { Interval = 280 };
         _previewDebounceTimer.Tick += async (_, _) =>
         {
@@ -439,6 +545,7 @@ public sealed class QuickEditForm : Form
         _playerTimer.Tick += (_, _) => UpdatePlayerPositionFromPlayback();
 
         UpdateSequenceUi();
+        UpdateMarkerUi();
         LoadExistingClipsFromFolder(outputFolder);
     }
 
@@ -454,6 +561,9 @@ public sealed class QuickEditForm : Form
             StopPlayback(resetToStart: false);
             ReplacePicture(_outputPreview, null);
             _sourcePreview.DisposePreviewImage();
+            foreach (var image in _mediaThumbCache.Values)
+                image.Dispose();
+            _mediaThumbCache.Clear();
         }
 
         base.Dispose(disposing);
@@ -556,6 +666,101 @@ public sealed class QuickEditForm : Form
         }
 
         _statusLabel.Text = $"Added {files.Length} dragged clip(s) to the editor.";
+        _ = RefreshMediaBinThumbnailsAsync();
+    }
+
+    private async Task RefreshMediaBinThumbnailsAsync()
+    {
+        if (IsDisposed)
+            return;
+
+        var files = _filesList.Items
+            .Cast<object>()
+            .Select(item => item?.ToString())
+            .Where(path => !string.IsNullOrWhiteSpace(path) && File.Exists(path))
+            .Cast<string>()
+            .ToList();
+
+        if (!string.IsNullOrWhiteSpace(_selectedFile) && files.Remove(_selectedFile))
+            files.Insert(0, _selectedFile);
+
+        files = files.Take(4).ToList();
+
+        _mediaThumbStrip.SuspendLayout();
+        try
+        {
+            foreach (Control control in _mediaThumbStrip.Controls)
+                control.Dispose();
+            _mediaThumbStrip.Controls.Clear();
+
+            if (files.Count == 0)
+            {
+                _mediaThumbStrip.Controls.Add(new Label
+                {
+                    AutoSize = false,
+                    Size = new Size(_mediaThumbStrip.Width - 12, 72),
+                    Text = "Import clips or load your watch folder to populate the media bin with preview thumbnails.",
+                    ForeColor = Color.FromArgb(150, 150, 160),
+                    BackColor = Color.Transparent,
+                });
+                return;
+            }
+
+            foreach (var file in files)
+            {
+                var card = new Panel
+                {
+                    Size = new Size(106, 74),
+                    Margin = new Padding(4),
+                    BackColor = Color.FromArgb(18, 18, 22),
+                    BorderStyle = BorderStyle.FixedSingle,
+                };
+
+                var thumbBox = new PictureBox
+                {
+                    Location = new Point(4, 4),
+                    Size = new Size(96, 44),
+                    BackColor = Color.FromArgb(8, 8, 10),
+                    SizeMode = PictureBoxSizeMode.Zoom,
+                };
+                card.Controls.Add(thumbBox);
+
+                card.Controls.Add(new Label
+                {
+                    Location = new Point(4, 52),
+                    Size = new Size(96, 18),
+                    Text = Path.GetFileNameWithoutExtension(file),
+                    ForeColor = Color.White,
+                    AutoEllipsis = true,
+                });
+
+                _mediaThumbStrip.Controls.Add(card);
+
+                if (!_mediaThumbCache.TryGetValue(file, out var cachedThumb))
+                {
+                    try
+                    {
+                        using var thumb = await ExtractPreviewImageAsync(file, 0, CancellationToken.None);
+                        cachedThumb = new Bitmap(thumb, new Size(96, 44));
+                        _mediaThumbCache[file] = cachedThumb;
+                    }
+                    catch
+                    {
+                        cachedThumb = new Bitmap(96, 44);
+                        using var g = Graphics.FromImage(cachedThumb);
+                        g.Clear(Color.FromArgb(20, 20, 26));
+                        TextRenderer.DrawText(g, "VIDEO", new Font("Segoe UI", 8f, FontStyle.Bold), new Rectangle(0, 12, 96, 20), Color.FromArgb(190, 190, 205), TextFormatFlags.HorizontalCenter);
+                        _mediaThumbCache[file] = cachedThumb;
+                    }
+                }
+
+                thumbBox.Image = cachedThumb;
+            }
+        }
+        finally
+        {
+            _mediaThumbStrip.ResumeLayout();
+        }
     }
 
     private void OnMediaOpened()
@@ -721,6 +926,7 @@ public sealed class QuickEditForm : Form
         _statusLabel.Text = files.Count == 0
             ? "No videos were found in the watch folder yet."
             : $"Loaded {files.Count} recent clip(s) from the watch folder.";
+        _ = RefreshMediaBinThumbnailsAsync();
     }
 
     private void AddFiles()
@@ -742,6 +948,7 @@ public sealed class QuickEditForm : Form
         }
 
         _statusLabel.Text = $"Loaded {_filesList.Items.Count} clip(s).";
+        _ = RefreshMediaBinThumbnailsAsync();
     }
 
     private void RemoveSelected()
@@ -750,6 +957,7 @@ public sealed class QuickEditForm : Form
         foreach (var item in selected)
             _filesList.Items.Remove(item);
         _statusLabel.Text = $"Loaded {_filesList.Items.Count} clip(s).";
+        _ = RefreshMediaBinThumbnailsAsync();
     }
 
     private void MoveSelected(int direction)
@@ -766,6 +974,7 @@ public sealed class QuickEditForm : Form
         _filesList.Items.RemoveAt(index);
         _filesList.Items.Insert(newIndex, item);
         _filesList.SelectedIndex = newIndex;
+        _ = RefreshMediaBinThumbnailsAsync();
     }
 
     private async Task HandleSelectionChangedAsync()
@@ -779,6 +988,8 @@ public sealed class QuickEditForm : Form
                 ? "Multiple clips selected — you can merge them, but preview/edit works on one clip at a time."
                 : "Select one clip to preview and edit.";
             _trimTimelineView.SetTimeline(0, 0, 0, 0, _filesList.SelectedItems.Count > 1 ? "Multi-select" : "No clip selected");
+            UpdateMarkerUi();
+            _ = RefreshMediaBinThumbnailsAsync();
             _sourcePreview.ClearPreview();
             ReplacePicture(_outputPreview, null);
             return;
@@ -792,6 +1003,8 @@ public sealed class QuickEditForm : Form
             _mediaElement.Source = null;
             _videoInfoLabel.Text = "The selected file could not be found.";
             _trimTimelineView.SetTimeline(0, 0, 0, 0, "Missing clip");
+            UpdateMarkerUi();
+            _ = RefreshMediaBinThumbnailsAsync();
             _sourcePreview.ClearPreview();
             ReplacePicture(_outputPreview, null);
             return;
@@ -823,6 +1036,8 @@ public sealed class QuickEditForm : Form
 
             _timelineBar.Value = 0;
             UpdateTrimTimelineUi();
+            UpdateMarkerUi();
+            _ = RefreshMediaBinThumbnailsAsync();
             ResetCropToFullFrame();
             await RefreshPreviewAsync(0);
         }
@@ -910,6 +1125,7 @@ public sealed class QuickEditForm : Form
             _sourcePreview.SetPreviewImage(image);
             _sourcePreview.ShowCropOverlay = _enableCropBox.Checked;
             _previewTimeLabel.Text = $"Playhead: {FormatTime(time)}";
+            _trimTimelineView.SetPlayhead(time);
             _sequenceTimelineView.SetPlayhead(time);
             _statusLabel.Text = $"Preview updated for {Path.GetFileName(_selectedFile)} at {FormatTime(time)}.";
 
@@ -1211,6 +1427,76 @@ public sealed class QuickEditForm : Form
     {
         var label = string.IsNullOrWhiteSpace(_selectedFile) ? "No clip selected" : Path.GetFileName(_selectedFile);
         _trimTimelineView.SetTimeline(_videoDuration, (double)_startBox.Value, (double)_endBox.Value, GetCurrentPreviewTime(), label);
+        _trimTimelineView.SetMarkers(GetCurrentClipMarkers());
+    }
+
+    private List<double> GetCurrentClipMarkers()
+    {
+        if (string.IsNullOrWhiteSpace(_selectedFile))
+            return [];
+
+        return _clipMarkers.TryGetValue(_selectedFile, out var markers)
+            ? markers
+            : [];
+    }
+
+    private void UpdateMarkerUi()
+    {
+        _markerList.BeginUpdate();
+        _markerList.Items.Clear();
+        var markers = GetCurrentClipMarkers();
+        for (var index = 0; index < markers.Count; index++)
+            _markerList.Items.Add($"Marker {index + 1} • {FormatTime(markers[index])}");
+        _markerList.EndUpdate();
+
+        _addMarkerButton.Enabled = !string.IsNullOrWhiteSpace(_selectedFile);
+        _trimTimelineView.SetMarkers(markers);
+    }
+
+    private void AddMarkerAtPlayhead()
+    {
+        if (string.IsNullOrWhiteSpace(_selectedFile))
+        {
+            MessageBox.Show(this, "Select one clip before creating a marker.", "VELO Video Editor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        if (!_clipMarkers.TryGetValue(_selectedFile, out var markers))
+        {
+            markers = [];
+            _clipMarkers[_selectedFile] = markers;
+        }
+
+        var current = Math.Round(GetCurrentPreviewTime(), 3);
+        if (!markers.Any(value => Math.Abs(value - current) < 0.05))
+            markers.Add(current);
+        markers.Sort();
+        UpdateMarkerUi();
+        _statusLabel.Text = $"Added marker at {FormatTime(current)} for {Path.GetFileName(_selectedFile)}.";
+    }
+
+    private void RemoveSelectedMarker()
+    {
+        if (string.IsNullOrWhiteSpace(_selectedFile) || !_clipMarkers.TryGetValue(_selectedFile, out var markers))
+            return;
+
+        var index = _markerList.SelectedIndex;
+        if (index < 0 || index >= markers.Count)
+            return;
+
+        markers.RemoveAt(index);
+        UpdateMarkerUi();
+        _statusLabel.Text = "Marker removed.";
+    }
+
+    private void JumpToSelectedMarker()
+    {
+        var index = _markerList.SelectedIndex;
+        var markers = GetCurrentClipMarkers();
+        if (index < 0 || index >= markers.Count)
+            return;
+
+        SeekToTime(markers[index], refreshPreview: true);
     }
 
     private void AddCurrentCutToSequence()
@@ -1608,6 +1894,7 @@ public sealed class QuickEditForm : Form
         private double _rangeEnd;
         private double _playhead;
         private string _clipLabel = "No clip selected";
+        private readonly List<double> _markers = [];
         private DragMode _dragMode;
         private double _dragOffsetSeconds;
 
@@ -1636,6 +1923,13 @@ public sealed class QuickEditForm : Form
         public void SetPlayhead(double playhead)
         {
             _playhead = Math.Clamp(playhead, 0, Math.Max(_duration, 0));
+            Invalidate();
+        }
+
+        public void SetMarkers(IEnumerable<double> markers)
+        {
+            _markers.Clear();
+            _markers.AddRange(markers.OrderBy(value => value));
             Invalidate();
         }
 
@@ -1728,6 +2022,20 @@ public sealed class QuickEditForm : Form
             var selectedRect = Rectangle.FromLTRB(SecondsToX(_rangeStart, rail), rail.Top + 2, SecondsToX(_rangeEnd, rail), rail.Bottom - 2);
             e.Graphics.FillRectangle(clipBrush, rail.Left + 1, rail.Top + 6, rail.Width - 2, rail.Height - 12);
             e.Graphics.FillRectangle(rangeBrush, selectedRect);
+
+            using var markerPen = new Pen(Color.FromArgb(251, 191, 36), 2);
+            using var markerBrush = new SolidBrush(Color.FromArgb(251, 191, 36));
+            foreach (var marker in _markers)
+            {
+                var markerX = SecondsToX(marker, rail);
+                e.Graphics.DrawLine(markerPen, markerX, rail.Top - 2, markerX, rail.Bottom + 2);
+                e.Graphics.FillPolygon(markerBrush,
+                [
+                    new Point(markerX, rail.Top - 8),
+                    new Point(markerX - 4, rail.Top - 2),
+                    new Point(markerX + 4, rail.Top - 2),
+                ]);
+            }
 
             var startHandle = new Rectangle(selectedRect.Left - 4, rail.Top - 3, 8, rail.Height + 6);
             var endHandle = new Rectangle(selectedRect.Right - 4, rail.Top - 3, 8, rail.Height + 6);
