@@ -229,7 +229,7 @@ public class SettingsForm : Form
     public SettingsForm(AppSettings settings, int initialTab = 0, Action<bool, bool>? setQueueProcessing = null, Action? openQuickEditor = null)
     {
         _settings = settings;
-        _activeTab = initialTab;
+        _activeTab = Math.Clamp(initialTab, 0, 3);
         _setQueueProcessing = setQueueProcessing;
         _openQuickEditor = openQuickEditor;
         SuspendLayout();
@@ -298,9 +298,9 @@ public class SettingsForm : Form
         var tabBar = new Panel { Location = new Point(0, header.Height), Size = new Size(ClientSize.Width, 36), BackColor = C_PANEL, Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right };
         Controls.Add(tabBar);
 
-        _tabBtns = new Button[5];
-        string[] tabNames = ["General", "Rules", "Logs", "Activity", "Queue + Edit"];
-        for (int i = 0; i < 5; i++)
+        _tabBtns = new Button[4];
+        string[] tabNames = ["General", "Settings", "Logs", "Status"];
+        for (int i = 0; i < _tabBtns.Length; i++)
         {
             int idx = i;
             var btn = new Button
@@ -325,14 +325,15 @@ public class SettingsForm : Form
         // Tab underline painted on tabBar
         tabBar.Paint += (_, e) =>
         {
-            var btn = _tabBtns[_activeTab];
+            var tabIndex = Math.Clamp(_activeTab, 0, _tabBtns.Length - 1);
+            var btn = _tabBtns[tabIndex];
             using var brush = new SolidBrush(C_ACCENT);
             e.Graphics.FillRectangle(brush, btn.Left + 10, 33, btn.Width - 20, 3);
         };
 
         // ── Pages ──
-        _pages = new Panel[5];
-        for (int i = 0; i < 5; i++)
+        _pages = new Panel[4];
+        for (int i = 0; i < _pages.Length; i++)
         {
             _pages[i] = new Panel
             {
@@ -418,10 +419,109 @@ public class SettingsForm : Form
         LayoutShell();
 
         // ═══════════════════════════════════════
-        //  PAGE 0: GENERAL
+        //  PAGE 0: GENERAL (queue + recent videos)
         // ═══════════════════════════════════════
-        var g = _pages[0];
+        var home = _pages[0];
         int y = 14, lx = 22, w = 636;
+
+        MkSectionLabel(home, "QUEUE + RECENT VIDEOS", lx, y); y += 22;
+        home.Controls.Add(MkLabel("This is the day-to-day dashboard: what is queued, what uploaded, and where to jump next.", lx, y, new Font("Segoe UI", 7.8f), C_T3));
+        y += 24;
+
+        _queueModeLabel = MkLabel("Queue mode: Live upload", lx, y, new Font("Segoe UI", 8.5f, FontStyle.Bold), C_GREEN);
+        home.Controls.Add(_queueModeLabel);
+        _queueSummaryLabel = MkLabel("Pending local videos: 0", lx + 240, y, new Font("Segoe UI", 8.5f), C_T2);
+        home.Controls.Add(_queueSummaryLabel);
+        y += 28;
+
+        _quickEditorBtn = MkBtn("Open Video Editor", lx, y, 136, 32, C_ACCENT, C_ACCENT_H);
+        _quickEditorBtn.Enabled = _openQuickEditor != null;
+        _quickEditorBtn.Click += (_, _) => _openQuickEditor?.Invoke();
+        home.Controls.Add(_quickEditorBtn);
+
+        _queueProcessNowBtn = MkBtn("Process Queue", lx + 146, y, 118, 32, C_BTN, C_BTN_H);
+        _queueProcessNowBtn.Enabled = _setQueueProcessing != null;
+        _queueProcessNowBtn.Click += (_, _) => _setQueueProcessing?.Invoke(true, true);
+        home.Controls.Add(_queueProcessNowBtn);
+
+        _queueToggleBtn = MkBtn("Queue Only", lx + 274, y, 108, 32, C_BTN, C_BTN_H);
+        _queueToggleBtn.Enabled = _setQueueProcessing != null;
+        _queueToggleBtn.Click += (_, _) => _setQueueProcessing?.Invoke(_queueToggleBtn.Text.Contains("Resume", StringComparison.OrdinalIgnoreCase), true);
+        home.Controls.Add(_queueToggleBtn);
+
+        var openSettingsBtn = MkBtn("Open Settings", lx + 392, y, 118, 32, C_BTN, C_BTN_H);
+        openSettingsBtn.Click += (_, _) => ShowTab(1);
+        home.Controls.Add(openSettingsBtn);
+
+        var openLogsBtn = MkBtn("Open Logs", lx + 520, y, 94, 32, C_BTN, C_BTN_H);
+        openLogsBtn.Click += (_, _) => ShowTab(2);
+        home.Controls.Add(openLogsBtn);
+        y += 46;
+
+        MkSectionLabel(home, "PENDING QUEUE", lx, y); y += 18;
+        _pendingQueueList = new ListBox
+        {
+            Location = new Point(lx, y),
+            Size = new Size(w, 160),
+            BackColor = C_PANEL,
+            ForeColor = C_T1,
+            BorderStyle = BorderStyle.FixedSingle,
+            HorizontalScrollbar = true,
+        };
+        _pendingQueueList.Items.Add("No pending local videos.");
+        home.Controls.Add(_pendingQueueList);
+        y += 176;
+
+        MkSectionLabel(home, "RECENT VIDEO ACTIVITY", lx, y); y += 18;
+        _historyList = new DarkListBox(lx, y, w, 240);
+        home.Controls.Add(_historyList);
+
+        var copyHistory = MkBtn("Copy URL", lx, y + 248, 88, 28, C_BTN, C_BTN_H);
+        copyHistory.Click += (_, _) =>
+        {
+            var entry = SelectedHistoryEntry();
+            if (!string.IsNullOrWhiteSpace(entry?.Url))
+            {
+                try { Clipboard.SetText(entry.Url); } catch { }
+            }
+        };
+        home.Controls.Add(copyHistory);
+
+        var clearHistory = MkBtn("Clear", lx + 96, y + 248, 72, 28, C_RED, Color.FromArgb(190, 50, 50));
+        clearHistory.Click += (_, _) => UploadHistoryManager.Clear();
+        home.Controls.Add(clearHistory);
+
+        var historyHint = new Label
+        {
+            Location = new Point(lx, y + 282),
+            Size = new Size(w, 48),
+            ForeColor = C_T2,
+            Font = new Font("Segoe UI", 8f),
+            Text = "Select a recent video to inspect what happened. Successful uploads can be copied back to the clipboard.",
+        };
+        home.Controls.Add(historyHint);
+
+        LoadHistory();
+        _historyList.Inner.SelectedIndexChanged += (_, _) =>
+        {
+            var entry = SelectedHistoryEntry();
+            if (entry == null)
+            {
+                historyHint.Text = "Select a recent video to inspect what happened. Successful uploads can be copied back to the clipboard.";
+                return;
+            }
+
+            var status = entry.Success ? "Success" : $"Failed: {entry.Error}";
+            var compression = entry.UsedCompression ? $"Compressed ({entry.CompressionPreset})" : "Original upload";
+            historyHint.Text = $"{status} • {compression} • {FormatSize(entry.SourceSizeBytes)} -> {FormatSize(entry.UploadedSizeBytes)}";
+        };
+        UploadHistoryManager.Changed += OnHistoryChanged;
+
+        // ═══════════════════════════════════════
+        //  PAGE 1: SETTINGS
+        // ═══════════════════════════════════════
+        var g = _pages[1];
+        y = 14;
 
         // ─────────────────────────────────────
         // SECTION: QUICK ACTIONS
@@ -436,8 +536,8 @@ public class SettingsForm : Form
         openEditorBtn.Enabled = _openQuickEditor != null;
         g.Controls.Add(openEditorBtn);
 
-        var openQueueBtn = MkBtn("Queue + Edit", lx + 138, y, 110, 30, C_BTN, C_BTN_H);
-        openQueueBtn.Click += (_, _) => ShowTab(4);
+        var openQueueBtn = MkBtn("Open General", lx + 138, y, 110, 30, C_BTN, C_BTN_H);
+        openQueueBtn.Click += (_, _) => ShowTab(0);
         g.Controls.Add(openQueueBtn);
 
         var processNowBtn = MkBtn("Process Queue", lx + 258, y, 110, 30, C_BTN, C_BTN_H);
@@ -663,10 +763,12 @@ public class SettingsForm : Form
         UpdateTlsUi();
 
         // ═══════════════════════════════════════
-        //  PAGE 1: FILTERS
+        //  PAGE 1: SETTINGS — rules + filters
         // ═══════════════════════════════════════
         var f = _pages[1];
-        y = 10;
+        y += 64;
+
+        Section(f, "RULES + FILTERS", lx, y); y += 18;
 
         Section(f, "IGNORED FOLDERS", lx, y);
         f.Controls.Add(MkLabel("Clips in these folder names are skipped", lx + 130, y + 1, new Font("Segoe UI", 7.5f), C_T3));
@@ -721,14 +823,32 @@ public class SettingsForm : Form
         f.Controls.Add(saveFilt);
 
         // ═══════════════════════════════════════
-        //  PAGE 2: LOGS
+        //  PAGE 2: LOGS (activity + raw logs)
         // ═══════════════════════════════════════
         var l = _pages[2];
+        int ly = 10;
 
+        MkSectionLabel(l, "ACTIVITY", lx, ly); ly += 18;
+        _eventLogBox = new RichTextBox
+        {
+            Location = new Point(lx, ly),
+            Size = new Size(w, 120),
+            BackColor = C_PANEL,
+            ForeColor = C_T2,
+            BorderStyle = BorderStyle.FixedSingle,
+            Font = new Font("Consolas", 8f),
+            ReadOnly = true,
+            WordWrap = true,
+            ScrollBars = RichTextBoxScrollBars.Vertical,
+        };
+        l.Controls.Add(_eventLogBox);
+        ly += 132;
+
+        MkSectionLabel(l, "RAW LOG", lx, ly); ly += 18;
         _logBox = new RichTextBox
         {
-            Location = new Point(lx, 10),
-            Size = new Size(w, 340),
+            Location = new Point(lx, ly),
+            Size = new Size(w, 240),
             BackColor = C_INPUT,
             ForeColor = C_T2,
             ReadOnly = true,
@@ -739,7 +859,7 @@ public class SettingsForm : Form
         };
         l.Controls.Add(_logBox);
 
-        y = 358;
+        y = ly + 248;
         var clr = MkBtn("Clear", lx, y, 70, 28, C_BTN, C_BTN_H);
         clr.Click += (_, _) => { Logger.Clear(); _logBox.Clear(); };
         l.Controls.Add(clr);
@@ -767,96 +887,10 @@ public class SettingsForm : Form
         };
 
         // ═══════════════════════════════════════
-        //  PAGE 3: HISTORY
+        //  PAGE 3: STATUS
         // ═══════════════════════════════════════
-        var h = _pages[3];
-        _historyList = new DarkListBox(lx, 10, w, 360);
-        h.Controls.Add(_historyList);
-
-        var copyHistory = MkBtn("Copy URL", lx, 380, 80, 28, C_BTN, C_BTN_H);
-        copyHistory.Click += (_, _) =>
-        {
-            var entry = SelectedHistoryEntry();
-            if (!string.IsNullOrWhiteSpace(entry?.Url))
-            {
-                try { Clipboard.SetText(entry.Url); } catch { }
-            }
-        };
-        h.Controls.Add(copyHistory);
-
-        var clearHistory = MkBtn("Clear", lx + 88, 380, 70, 28, C_RED, Color.FromArgb(190, 50, 50));
-        clearHistory.Click += (_, _) => UploadHistoryManager.Clear();
-        h.Controls.Add(clearHistory);
-
-        var historyHint = new Label
-        {
-            Location = new Point(lx, 416),
-            Size = new Size(w, 44),
-            ForeColor = C_T2,
-            Font = new Font("Segoe UI", 8f),
-            Text = "Select an entry to inspect it. Successful entries can be copied back to the clipboard.",
-        };
-        h.Controls.Add(historyHint);
-
-        LoadHistory();
-        _historyList.Inner.SelectedIndexChanged += (_, _) =>
-        {
-            var entry = SelectedHistoryEntry();
-            if (entry == null)
-            {
-                historyHint.Text = "Select an entry to inspect it. Successful entries can be copied back to the clipboard.";
-                return;
-            }
-
-            var status = entry.Success ? "Success" : $"Failed: {entry.Error}";
-            var compression = entry.UsedCompression ? $"Compressed ({entry.CompressionPreset})" : "Original upload";
-            historyHint.Text = $"{status} • {compression} • {FormatSize(entry.SourceSizeBytes)} -> {FormatSize(entry.UploadedSizeBytes)}";
-        };
-        UploadHistoryManager.Changed += OnHistoryChanged;
-
-        // ═══════════════════════════════════════
-        //  PAGE 4: QUEUE + EDITOR
-        // ═══════════════════════════════════════
-        var s = _pages[4];
+        var s = _pages[3];
         int sy = 14;
-
-        MkSectionLabel(s, "QUEUE + EDITOR WORKSPACE", lx, sy); sy += 22;
-
-        _queueModeLabel = MkLabel("Queue mode: Live upload", lx, sy, new Font("Segoe UI", 8.5f, FontStyle.Bold), C_GREEN);
-        s.Controls.Add(_queueModeLabel);
-
-        _queueSummaryLabel = MkLabel("Pending local videos: 0", lx + 240, sy, new Font("Segoe UI", 8.5f), C_T2);
-        s.Controls.Add(_queueSummaryLabel);
-        sy += 24;
-
-        _queueToggleBtn = MkBtn("Pause Uploads (Queue Only)", lx, sy, 170, 30, C_ACCENT, C_ACCENT_H);
-        _queueToggleBtn.Enabled = _setQueueProcessing != null;
-        _queueToggleBtn.Click += (_, _) => _setQueueProcessing?.Invoke(_queueToggleBtn.Text.Contains("Resume", StringComparison.OrdinalIgnoreCase), true);
-        s.Controls.Add(_queueToggleBtn);
-
-        _queueProcessNowBtn = MkBtn("Process Queued Now", lx + 180, sy, 150, 30, C_BTN, C_BTN_H);
-        _queueProcessNowBtn.Enabled = _setQueueProcessing != null;
-        _queueProcessNowBtn.Click += (_, _) => _setQueueProcessing?.Invoke(true, true);
-        s.Controls.Add(_queueProcessNowBtn);
-
-        _quickEditorBtn = MkBtn("Open Video Editor", lx + 340, sy, 140, 30, C_ACCENT, C_ACCENT_H);
-        _quickEditorBtn.Enabled = _openQuickEditor != null;
-        _quickEditorBtn.Click += (_, _) => _openQuickEditor?.Invoke();
-        s.Controls.Add(_quickEditorBtn);
-        sy += 40;
-
-        _pendingQueueList = new ListBox
-        {
-            Location = new Point(lx, sy),
-            Size = new Size(w, 110),
-            BackColor = C_PANEL,
-            ForeColor = C_T1,
-            BorderStyle = BorderStyle.FixedSingle,
-            HorizontalScrollbar = true,
-        };
-        _pendingQueueList.Items.Add("No pending local videos.");
-        s.Controls.Add(_pendingQueueList);
-        sy += 122;
 
         // Current Task Section
         MkSectionLabel(s, "CURRENT TASK", lx, sy); sy += 22;
@@ -1069,23 +1103,16 @@ public class SettingsForm : Form
         };
         s.Controls.Add(_updateCheckBtn);
 
-        // Event Log Section (compact in remaining space)
         sy += 36;
-        MkSectionLabel(s, "EVENT LOG", lx, sy); sy += 18;
-
-        _eventLogBox = new RichTextBox
+        var statusHint = new Label
         {
             Location = new Point(lx, sy),
-            Size = new Size(w, 120),
-            BackColor = C_PANEL,
+            Size = new Size(w, 44),
             ForeColor = C_T2,
-            BorderStyle = BorderStyle.FixedSingle,
-            Font = new Font("Consolas", 8f),
-            ReadOnly = true,
-            WordWrap = true,
-            ScrollBars = RichTextBoxScrollBars.Vertical,
+            Font = new Font("Segoe UI", 8f),
+            Text = "Need activity details? Open the Logs tab. Status stays focused on health, uptime checks, storage, and updates.",
         };
-        s.Controls.Add(_eventLogBox);
+        s.Controls.Add(statusHint);
 
         // Setup refresh timer (every 15 seconds)
         _statusRefreshTimer = new System.Windows.Forms.Timer
@@ -1128,18 +1155,23 @@ public class SettingsForm : Form
 
     // ── Tab switching ──
 
-    public void ShowTab(int idx) => SwitchTab(idx);
+    public void ShowTab(int idx) => SwitchTab(Math.Clamp(idx, 0, _tabBtns.Length - 1));
 
     void SwitchTab(int idx)
     {
-        _activeTab = idx;
-        for (int i = 0; i < 5; i++)
+        _activeTab = Math.Clamp(idx, 0, _tabBtns.Length - 1);
+
+        for (int i = 0; i < _pages.Length; i++)
         {
-            _pages[i].Visible = i == idx;
-            _tabBtns[i].ForeColor = i == idx ? C_T1 : C_T3;
-            _tabBtns[i].Font = new Font("Segoe UI", 9f, i == idx ? FontStyle.Bold : FontStyle.Regular);
+            _pages[i].Visible = i == _activeTab;
         }
-        // Repaint tab bar to move underline
+
+        for (int i = 0; i < _tabBtns.Length; i++)
+        {
+            _tabBtns[i].ForeColor = i == _activeTab ? C_T1 : C_T3;
+            _tabBtns[i].Font = new Font("Segoe UI", 9f, i == _activeTab ? FontStyle.Bold : FontStyle.Regular);
+        }
+
         _tabBtns[0].Parent?.Invalidate();
     }
 

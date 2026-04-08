@@ -177,16 +177,16 @@ public class TrayContext : ApplicationContext
         quickEditorItem.Click += (_, _) => ShowQuickEditor();
         menu.Items.Add(quickEditorItem);
 
-        var videoProcessorItem = new ToolStripMenuItem("Video Processor...");
-        videoProcessorItem.Click += (_, _) => ShowSettingsOnTab(4);
-        menu.Items.Add(videoProcessorItem);
+        var dashboardItem = new ToolStripMenuItem("Queue Dashboard...");
+        dashboardItem.Click += (_, _) => ShowSettingsOnTab(0);
+        menu.Items.Add(dashboardItem);
 
         var settingsItem = new ToolStripMenuItem("Settings...");
-        settingsItem.Click += (_, _) => ShowSettings();
+        settingsItem.Click += (_, _) => ShowSettingsOnTab(1);
         menu.Items.Add(settingsItem);
 
-        var logsItem = new ToolStripMenuItem("View Logs...");
-        logsItem.Click += (_, _) => ShowSettingsOnTab(2); // Logs tab
+        var logsItem = new ToolStripMenuItem("Logs...");
+        logsItem.Click += (_, _) => ShowSettingsOnTab(2);
         menu.Items.Add(logsItem);
 
         var updatesItem = new ToolStripMenuItem("Check for Updates...");

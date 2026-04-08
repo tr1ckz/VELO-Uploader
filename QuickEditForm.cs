@@ -30,6 +30,7 @@ public sealed class QuickEditForm : Form
     private readonly TextBox _outputNameBox;
     private readonly TextBox _outputFolderBox;
     private readonly ListBox _sequenceList;
+    private readonly SequenceTimelineView _sequenceTimelineView;
     private readonly Label _sequenceSummaryLabel;
     private readonly Label _sequenceHintLabel;
     private readonly Label _statusLabel;
@@ -69,8 +70,8 @@ public sealed class QuickEditForm : Form
             : Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
 
         Text = "VELO Video Editor";
-        ClientSize = new Size(1280, 780);
-        MinimumSize = new Size(1180, 720);
+        ClientSize = new Size(1400, 860);
+        MinimumSize = new Size(1260, 780);
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.Sizable;
         BackColor = Color.FromArgb(12, 12, 15);
@@ -88,7 +89,7 @@ public sealed class QuickEditForm : Form
 
         var title = new Label
         {
-            Text = "Video editor",
+            Text = "Premiere-style video editor",
             AutoSize = true,
             Location = new Point(20, 14),
             Font = new Font("Segoe UI Semibold", 14f),
@@ -98,9 +99,9 @@ public sealed class QuickEditForm : Form
 
         var hint = new Label
         {
-            Text = "Preview a real frame, scrub the timeline, drag a crop box visually, then render trim / crop / merge outputs directly into your watch folder.",
+            Text = "Import clips into the project bin, scrub a source frame, preview the program monitor, and assemble cuts on a proper timeline workspace.",
             AutoSize = false,
-            Size = new Size(1180, 40),
+            Size = new Size(1320, 40),
             Location = new Point(20, 42),
             ForeColor = Color.FromArgb(155, 155, 165),
         };
@@ -109,20 +110,20 @@ public sealed class QuickEditForm : Form
         var leftPanel = new Panel
         {
             Location = new Point(20, 92),
-            Size = new Size(320, 620),
+            Size = new Size(260, 680),
             BackColor = Color.FromArgb(18, 18, 22),
             BorderStyle = BorderStyle.FixedSingle,
             Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left,
         };
         Controls.Add(leftPanel);
 
-        leftPanel.Controls.Add(BuildSectionLabel("Clip bin", 12, 12));
-        leftPanel.Controls.Add(BuildSmallLabel("These can be pending uploads or any local clips you want to edit.", 12, 34, 290));
+        leftPanel.Controls.Add(BuildSectionLabel("Project / media bin", 12, 12));
+        leftPanel.Controls.Add(BuildSmallLabel("Import clips, reorder them, then mark ranges to send into the timeline.", 12, 34, 232));
 
         _filesList = new ListBox
         {
             Location = new Point(12, 62),
-            Size = new Size(294, 450),
+            Size = new Size(224, 510),
             HorizontalScrollbar = true,
             SelectionMode = SelectionMode.MultiExtended,
             AllowDrop = true,
@@ -136,24 +137,25 @@ public sealed class QuickEditForm : Form
         _filesList.DragDrop += OnFilesListDragDrop;
         leftPanel.Controls.Add(_filesList);
 
-        leftPanel.Controls.Add(BuildButton("Load watch folder", 12, 524, 120, (_, _) => LoadExistingClipsFromFolder(outputFolder)));
-        leftPanel.Controls.Add(BuildButton("Add clips...", 140, 524, 78, (_, _) => AddFiles()));
-        leftPanel.Controls.Add(BuildButton("Remove", 224, 524, 82, (_, _) => RemoveSelected()));
-        leftPanel.Controls.Add(BuildButton("Move up", 12, 560, 92, (_, _) => MoveSelected(-1)));
-        leftPanel.Controls.Add(BuildButton("Move down", 112, 560, 102, (_, _) => MoveSelected(1)));
+        leftPanel.Controls.Add(BuildButton("Load folder", 12, 584, 102, (_, _) => LoadExistingClipsFromFolder(outputFolder)));
+        leftPanel.Controls.Add(BuildButton("Import...", 122, 584, 62, (_, _) => AddFiles()));
+        leftPanel.Controls.Add(BuildButton("Remove", 192, 584, 56, (_, _) => RemoveSelected()));
+        leftPanel.Controls.Add(BuildButton("Up", 12, 620, 52, (_, _) => MoveSelected(-1)));
+        leftPanel.Controls.Add(BuildButton("Down", 72, 620, 62, (_, _) => MoveSelected(1)));
 
         var centerPanel = new Panel
         {
-            Location = new Point(356, 92),
-            Size = new Size(560, 620),
+            Location = new Point(296, 92),
+            Size = new Size(760, 680),
             BackColor = Color.FromArgb(18, 18, 22),
             BorderStyle = BorderStyle.FixedSingle,
             Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
         };
         Controls.Add(centerPanel);
 
-        centerPanel.Controls.Add(BuildSectionLabel("Playback + frame preview", 14, 12));
-        _videoInfoLabel = BuildSmallLabel("Select one clip to play, scrub, crop, and export.", 14, 34, 520);
+        centerPanel.Controls.Add(BuildSectionLabel("Source monitor", 14, 12));
+        centerPanel.Controls.Add(BuildSectionLabel("Program monitor", 390, 12));
+        _videoInfoLabel = BuildSmallLabel("Select one clip to scrub and mark. The program monitor plays it back while the source monitor lets you crop visually.", 14, 34, 720);
         centerPanel.Controls.Add(_videoInfoLabel);
 
         _mediaElement = new WpfControls.MediaElement
@@ -173,35 +175,35 @@ public sealed class QuickEditForm : Form
             _statusLabel!.Text = _playerStatusLabel.Text;
         };
 
-        _playerHost = new ElementHost
+        _sourcePreview = new EditorPreviewBox
         {
             Location = new Point(14, 64),
-            Size = new Size(530, 220),
+            Size = new Size(356, 200),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left,
+        };
+        _sourcePreview.CropChanged += OnCropSelectionChanged;
+        centerPanel.Controls.Add(_sourcePreview);
+
+        _playerHost = new ElementHost
+        {
+            Location = new Point(390, 64),
+            Size = new Size(354, 200),
             Child = _mediaElement,
             BackColor = Color.FromArgb(10, 10, 12),
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
         };
         centerPanel.Controls.Add(_playerHost);
 
-        _playPauseButton = BuildActionButton("Play", 14, 292, 70, (_, _) => TogglePlayback());
-        centerPanel.Controls.Add(_playPauseButton);
-
-        _jumpBackButton = BuildButton("« 5s", 92, 292, 58, (_, _) => SkipSeconds(-5));
-        centerPanel.Controls.Add(_jumpBackButton);
-
-        _jumpForwardButton = BuildButton("5s »", 158, 292, 58, (_, _) => SkipSeconds(5));
-        centerPanel.Controls.Add(_jumpForwardButton);
-
-        _playerStatusLabel = BuildSmallLabel("Load a clip to start playback.", 228, 290, 316);
-        centerPanel.Controls.Add(_playerStatusLabel);
-
-        _previewTimeLabel = BuildSmallLabel("Timeline: 00:00.000", 14, 326, 220);
+        _previewTimeLabel = BuildSmallLabel("Playhead: 00:00.000", 14, 274, 220);
         centerPanel.Controls.Add(_previewTimeLabel);
+
+        _playerStatusLabel = BuildSmallLabel("Load a clip to start playback.", 390, 274, 354);
+        centerPanel.Controls.Add(_playerStatusLabel);
 
         _timelineBar = new TrackBar
         {
-            Location = new Point(14, 350),
-            Size = new Size(430, 42),
+            Location = new Point(14, 304),
+            Size = new Size(632, 42),
             Minimum = 0,
             Maximum = 1000,
             TickStyle = TickStyle.None,
@@ -210,37 +212,36 @@ public sealed class QuickEditForm : Form
         _timelineBar.Scroll += (_, _) => QueuePreviewRefreshFromSlider();
         centerPanel.Controls.Add(_timelineBar);
 
-        _refreshPreviewButton = BuildButton("Refresh frame", 452, 348, 92, async (_, _) => await RefreshPreviewAsync(GetCurrentPreviewTime()));
+        _refreshPreviewButton = BuildButton("Refresh frame", 652, 302, 92, async (_, _) => await RefreshPreviewAsync(GetCurrentPreviewTime()));
         _refreshPreviewButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         centerPanel.Controls.Add(_refreshPreviewButton);
 
-        centerPanel.Controls.Add(BuildSectionLabel("Crop frame", 14, 404));
-        centerPanel.Controls.Add(BuildSectionLabel("Export preview", 288, 404));
+        _playPauseButton = BuildActionButton("Play", 14, 344, 76, (_, _) => TogglePlayback());
+        centerPanel.Controls.Add(_playPauseButton);
 
-        _sourcePreview = new EditorPreviewBox
-        {
-            Location = new Point(14, 430),
-            Size = new Size(255, 174),
-            Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left,
-        };
-        _sourcePreview.CropChanged += OnCropSelectionChanged;
-        centerPanel.Controls.Add(_sourcePreview);
+        _jumpBackButton = BuildButton("« 5s", 98, 344, 58, (_, _) => SkipSeconds(-5));
+        centerPanel.Controls.Add(_jumpBackButton);
 
-        _outputPreview = new PictureBox
+        _jumpForwardButton = BuildButton("5s »", 164, 344, 58, (_, _) => SkipSeconds(5));
+        centerPanel.Controls.Add(_jumpForwardButton);
+
+        centerPanel.Controls.Add(BuildSectionLabel("Timeline", 14, 392));
+        var timelineHint = BuildSmallLabel("Marked cuts appear here like edit blocks. Double-click a cut on the right to load it back into the source monitor.", 14, 414, 720);
+        centerPanel.Controls.Add(timelineHint);
+
+        _sequenceTimelineView = new SequenceTimelineView
         {
-            Location = new Point(288, 430),
-            Size = new Size(256, 174),
-            BackColor = Color.FromArgb(10, 10, 12),
-            BorderStyle = BorderStyle.FixedSingle,
-            SizeMode = PictureBoxSizeMode.Zoom,
+            Location = new Point(14, 446),
+            Size = new Size(730, 188),
             Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
         };
-        centerPanel.Controls.Add(_outputPreview);
+        _sequenceTimelineView.SegmentClicked += async index => await LoadSequenceSegmentAsync(index);
+        centerPanel.Controls.Add(_sequenceTimelineView);
 
         var rightPanel = new Panel
         {
-            Location = new Point(932, 92),
-            Size = new Size(330, 620),
+            Location = new Point(1072, 92),
+            Size = new Size(300, 680),
             BackColor = Color.FromArgb(18, 18, 22),
             BorderStyle = BorderStyle.FixedSingle,
             Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Right,
@@ -249,39 +250,53 @@ public sealed class QuickEditForm : Form
         Controls.Add(rightPanel);
 
         int y = 12;
-        rightPanel.Controls.Add(BuildSectionLabel("Output", 14, y));
+        rightPanel.Controls.Add(BuildSectionLabel("Inspector / export", 14, y));
         y += 22;
+        rightPanel.Controls.Add(BuildSmallLabel("This panel mirrors the program output and gives you the trim, crop, and export controls.", 14, y, 260));
+        y += 38;
+
+        _outputPreview = new PictureBox
+        {
+            Location = new Point(14, y),
+            Size = new Size(260, 146),
+            BackColor = Color.FromArgb(10, 10, 12),
+            BorderStyle = BorderStyle.FixedSingle,
+            SizeMode = PictureBoxSizeMode.Zoom,
+        };
+        rightPanel.Controls.Add(_outputPreview);
+        y += 158;
+
         rightPanel.Controls.Add(BuildLabel("Name", 14, y));
         y += 18;
-        _outputNameBox = BuildTextBox("Leave blank to auto-name", 14, y, 300);
+        _outputNameBox = BuildTextBox("Leave blank to auto-name", 14, y, 260);
         rightPanel.Controls.Add(_outputNameBox);
         y += 38;
 
         rightPanel.Controls.Add(BuildLabel("Folder", 14, y));
         y += 18;
-        _outputFolderBox = BuildTextBox(outputFolder, 14, y, 224);
+        _outputFolderBox = BuildTextBox(outputFolder, 14, y, 180);
         rightPanel.Controls.Add(_outputFolderBox);
-        rightPanel.Controls.Add(BuildButton("Browse", 244, y - 1, 70, (_, _) => PickOutputFolder()));
+        rightPanel.Controls.Add(BuildButton("Browse", 202, y - 1, 72, (_, _) => PickOutputFolder()));
         y += 46;
 
         rightPanel.Controls.Add(BuildSectionLabel("Trim", 14, y));
         y += 22;
         rightPanel.Controls.Add(BuildLabel("Start (sec)", 14, y));
-        rightPanel.Controls.Add(BuildLabel("End (sec)", 166, y));
+        rightPanel.Controls.Add(BuildLabel("End (sec)", 150, y));
         y += 18;
-        _startBox = BuildNumeric(0, 0, 86400, 14, y, 136);
-        _endBox = BuildNumeric(30, 0, 86400, 166, y, 136);
+        _startBox = BuildNumeric(0, 0, 86400, 14, y, 124);
+        _endBox = BuildNumeric(30, 0, 86400, 150, y, 124);
         rightPanel.Controls.Add(_startBox);
         rightPanel.Controls.Add(_endBox);
         y += 36;
-        rightPanel.Controls.Add(BuildButton("Set current as IN", 14, y, 136, (_, _) => SetTrimBoundary(true)));
-        rightPanel.Controls.Add(BuildButton("Set current as OUT", 166, y, 136, (_, _) => SetTrimBoundary(false)));
+        rightPanel.Controls.Add(BuildButton("Mark IN at playhead", 14, y, 124, (_, _) => SetTrimBoundary(true)));
+        rightPanel.Controls.Add(BuildButton("Mark OUT at playhead", 150, y, 124, (_, _) => SetTrimBoundary(false)));
         y += 38;
-        _trimButton = BuildActionButton("Render trimmed clip", 14, y, 288, async (_, _) => await RunTrimAsync());
+        _trimButton = BuildActionButton("Render selected range", 14, y, 260, async (_, _) => await RunTrimAsync());
         rightPanel.Controls.Add(_trimButton);
         y += 38;
 
-        _addCutButton = BuildButton("Add current cut to timeline", 14, y, 288, (_, _) => AddCurrentCutToSequence());
+        _addCutButton = BuildButton("Insert marked range to timeline", 14, y, 260, (_, _) => AddCurrentCutToSequence());
         rightPanel.Controls.Add(_addCutButton);
         y += 50;
 
@@ -305,14 +320,14 @@ public sealed class QuickEditForm : Form
         y += 28;
 
         rightPanel.Controls.Add(BuildLabel("X", 14, y));
-        rightPanel.Controls.Add(BuildLabel("Y", 92, y));
-        rightPanel.Controls.Add(BuildLabel("W", 170, y));
-        rightPanel.Controls.Add(BuildLabel("H", 248, y));
+        rightPanel.Controls.Add(BuildLabel("Y", 80, y));
+        rightPanel.Controls.Add(BuildLabel("W", 146, y));
+        rightPanel.Controls.Add(BuildLabel("H", 212, y));
         y += 18;
-        _cropXBox = BuildNumeric(0, 0, 10000, 14, y, 60);
-        _cropYBox = BuildNumeric(0, 0, 10000, 92, y, 60);
-        _cropWBox = BuildNumeric(1920, 1, 10000, 170, y, 60);
-        _cropHBox = BuildNumeric(1080, 1, 10000, 248, y, 60);
+        _cropXBox = BuildNumeric(0, 0, 10000, 14, y, 56);
+        _cropYBox = BuildNumeric(0, 0, 10000, 80, y, 56);
+        _cropWBox = BuildNumeric(1920, 1, 10000, 146, y, 56);
+        _cropHBox = BuildNumeric(1080, 1, 10000, 212, y, 56);
         rightPanel.Controls.Add(_cropXBox);
         rightPanel.Controls.Add(_cropYBox);
         rightPanel.Controls.Add(_cropWBox);
@@ -324,50 +339,52 @@ public sealed class QuickEditForm : Form
         _cropWBox.ValueChanged += (_, _) => SyncCropPreviewFromFields();
         _cropHBox.ValueChanged += (_, _) => SyncCropPreviewFromFields();
 
-        rightPanel.Controls.Add(BuildButton("Use full frame", 14, y, 136, (_, _) => ResetCropToFullFrame()));
-        rightPanel.Controls.Add(BuildButton("Preview crop", 166, y, 136, async (_, _) => await RefreshPreviewAsync(GetCurrentPreviewTime())));
+        rightPanel.Controls.Add(BuildButton("Use full frame", 14, y, 124, (_, _) => ResetCropToFullFrame()));
+        rightPanel.Controls.Add(BuildButton("Preview crop", 150, y, 124, async (_, _) => await RefreshPreviewAsync(GetCurrentPreviewTime())));
         y += 38;
-        _cropButton = BuildActionButton("Render cropped clip", 14, y, 288, async (_, _) => await RunCropAsync());
+        _cropButton = BuildActionButton("Render cropped clip", 14, y, 260, async (_, _) => await RunCropAsync());
         rightPanel.Controls.Add(_cropButton);
         y += 50;
 
         rightPanel.Controls.Add(BuildSectionLabel("Timeline / sequence", 14, y));
         y += 22;
-        _sequenceHintLabel = BuildSmallLabel("Queue cuts here, reorder them, then export one merged result.", 14, y, 290);
+        _sequenceHintLabel = BuildSmallLabel("Queue cuts here, reorder them, then export one merged result. Double-click any cut to load it back into the monitors.", 14, y, 260);
         rightPanel.Controls.Add(_sequenceHintLabel);
         y += 34;
 
         _sequenceList = new ListBox
         {
             Location = new Point(14, y),
-            Size = new Size(288, 120),
+            Size = new Size(260, 120),
             BackColor = Color.FromArgb(14, 14, 18),
             ForeColor = Color.FromArgb(240, 240, 245),
             BorderStyle = BorderStyle.FixedSingle,
             HorizontalScrollbar = true,
         };
+        _sequenceList.SelectedIndexChanged += (_, _) => _sequenceTimelineView.SetSelectedIndex(_sequenceList.SelectedIndex);
+        _sequenceList.DoubleClick += async (_, _) => await LoadSequenceSegmentAsync(_sequenceList.SelectedIndex);
         rightPanel.Controls.Add(_sequenceList);
         y += 128;
 
-        rightPanel.Controls.Add(BuildButton("Remove cut", 14, y, 90, (_, _) => RemoveSelectedSequenceSegment()));
-        rightPanel.Controls.Add(BuildButton("Up", 112, y, 48, (_, _) => MoveSelectedSequenceSegment(-1)));
-        rightPanel.Controls.Add(BuildButton("Down", 168, y, 56, (_, _) => MoveSelectedSequenceSegment(1)));
-        rightPanel.Controls.Add(BuildButton("Clear", 232, y, 70, (_, _) => ClearSequence()));
+        rightPanel.Controls.Add(BuildButton("Remove", 14, y, 70, (_, _) => RemoveSelectedSequenceSegment()));
+        rightPanel.Controls.Add(BuildButton("Up", 92, y, 42, (_, _) => MoveSelectedSequenceSegment(-1)));
+        rightPanel.Controls.Add(BuildButton("Down", 142, y, 52, (_, _) => MoveSelectedSequenceSegment(1)));
+        rightPanel.Controls.Add(BuildButton("Clear", 202, y, 72, (_, _) => ClearSequence()));
         y += 38;
 
-        _sequenceSummaryLabel = BuildSmallLabel("Timeline empty — add a cut to start building your export.", 14, y, 288);
+        _sequenceSummaryLabel = BuildSmallLabel("Timeline empty — add a cut to start building your export.", 14, y, 260);
         rightPanel.Controls.Add(_sequenceSummaryLabel);
         y += 36;
 
-        _exportSequenceButton = BuildActionButton("Export timeline sequence", 14, y, 288, async (_, _) => await ExportSequenceAsync());
+        _exportSequenceButton = BuildActionButton("Export timeline", 14, y, 260, async (_, _) => await ExportSequenceAsync());
         rightPanel.Controls.Add(_exportSequenceButton);
         y += 40;
 
         rightPanel.Controls.Add(BuildSectionLabel("Quick merge", 14, y));
         y += 22;
-        rightPanel.Controls.Add(BuildSmallLabel("Or merge the currently-selected clips directly in their listed order.", 14, y, 290));
+        rightPanel.Controls.Add(BuildSmallLabel("Or merge the currently-selected clips directly in their listed order.", 14, y, 260));
         y += 40;
-        _mergeButton = BuildActionButton("Render merged clip", 14, y, 288, async (_, _) => await RunMergeAsync());
+        _mergeButton = BuildActionButton("Auto-merge selected clips", 14, y, 260, async (_, _) => await RunMergeAsync());
         rightPanel.Controls.Add(_mergeButton);
 
         _statusLabel = new Label
@@ -586,7 +603,8 @@ public sealed class QuickEditForm : Form
             _timelineUpdateFromPlayer = true;
             _timelineBar.Value = 0;
             _timelineUpdateFromPlayer = false;
-            _previewTimeLabel.Text = "Timeline: 00:00.000";
+            _previewTimeLabel.Text = "Playhead: 00:00.000";
+            _sequenceTimelineView.SetPlayhead(0);
         }
     }
 
@@ -614,7 +632,8 @@ public sealed class QuickEditForm : Form
             ? 0
             : Math.Clamp((int)Math.Round((clamped / _videoDuration) * _timelineBar.Maximum), 0, _timelineBar.Maximum);
         _timelineUpdateFromPlayer = false;
-        _previewTimeLabel.Text = $"Timeline: {FormatTime(clamped)}";
+        _previewTimeLabel.Text = $"Playhead: {FormatTime(clamped)}";
+        _sequenceTimelineView.SetPlayhead(clamped);
 
         if (refreshPreview)
         {
@@ -637,7 +656,8 @@ public sealed class QuickEditForm : Form
                 ? 0
                 : Math.Clamp((int)Math.Round((position / Math.Max(_videoDuration, 0.001)) * _timelineBar.Maximum), 0, _timelineBar.Maximum);
             _timelineUpdateFromPlayer = false;
-            _previewTimeLabel.Text = $"Timeline: {FormatTime(position)}";
+            _previewTimeLabel.Text = $"Playhead: {FormatTime(position)}";
+            _sequenceTimelineView.SetPlayhead(position);
         }
         catch
         {
@@ -813,7 +833,7 @@ public sealed class QuickEditForm : Form
     private void QueuePreviewRefreshFromSlider()
     {
         _requestedPreviewTime = GetCurrentPreviewTime();
-        _previewTimeLabel.Text = $"Timeline: {FormatTime(_requestedPreviewTime)}";
+        _previewTimeLabel.Text = $"Playhead: {FormatTime(_requestedPreviewTime)}";
 
         if (!_timelineUpdateFromPlayer)
         {
@@ -853,7 +873,8 @@ public sealed class QuickEditForm : Form
             _sourcePreview.VideoSize = _videoSize;
             _sourcePreview.SetPreviewImage(image);
             _sourcePreview.ShowCropOverlay = _enableCropBox.Checked;
-            _previewTimeLabel.Text = $"Preview time: {FormatTime(time)}";
+            _previewTimeLabel.Text = $"Playhead: {FormatTime(time)}";
+            _sequenceTimelineView.SetPlayhead(time);
             _statusLabel.Text = $"Preview updated for {Path.GetFileName(_selectedFile)} at {FormatTime(time)}.";
 
             await RefreshOutputPreviewAsync(time, ct);
@@ -1061,6 +1082,35 @@ public sealed class QuickEditForm : Form
         UpdateSequenceUi();
     }
 
+    private async Task LoadSequenceSegmentAsync(int index)
+    {
+        if (index < 0 || index >= _sequenceSegments.Count)
+            return;
+
+        var segment = _sequenceSegments[index];
+        var existingIndex = _filesList.Items.IndexOf(segment.SourceFile);
+        if (existingIndex < 0)
+        {
+            _filesList.Items.Insert(0, segment.SourceFile);
+            existingIndex = 0;
+        }
+
+        var currentSelected = _filesList.SelectedItem?.ToString();
+        if (!string.Equals(currentSelected, segment.SourceFile, StringComparison.OrdinalIgnoreCase))
+        {
+            _filesList.ClearSelected();
+            _filesList.SelectedIndex = existingIndex;
+            await HandleSelectionChangedAsync();
+        }
+
+        _startBox.Value = Math.Clamp((decimal)segment.StartSec, _startBox.Minimum, _startBox.Maximum);
+        _endBox.Value = Math.Clamp((decimal)segment.EndSec, _endBox.Minimum, _endBox.Maximum);
+        _sequenceList.SelectedIndex = index;
+        _sequenceTimelineView.SetSelectedIndex(index);
+        SeekToTime(segment.StartSec, refreshPreview: true);
+        _statusLabel.Text = $"Loaded timeline cut {index + 1} back into the source/program monitors.";
+    }
+
     private void UpdateSequenceUi(int selectedIndex = -1)
     {
         _sequenceList.BeginUpdate();
@@ -1071,14 +1121,19 @@ public sealed class QuickEditForm : Form
 
         if (_sequenceSegments.Count > 0)
         {
+            var safeIndex = selectedIndex >= 0 && selectedIndex < _sequenceSegments.Count
+                ? selectedIndex
+                : Math.Min(_sequenceList.SelectedIndex, _sequenceSegments.Count - 1);
             var totalDuration = _sequenceSegments.Sum(segment => segment.Duration);
             _sequenceSummaryLabel.Text = $"{_sequenceSegments.Count} cut(s) queued • {FormatTime(totalDuration)} total";
-            if (selectedIndex >= 0 && selectedIndex < _sequenceList.Items.Count)
-                _sequenceList.SelectedIndex = selectedIndex;
+            _sequenceTimelineView.SetSegments(_sequenceSegments, safeIndex);
+            if (safeIndex >= 0 && safeIndex < _sequenceList.Items.Count)
+                _sequenceList.SelectedIndex = safeIndex;
         }
         else
         {
             _sequenceSummaryLabel.Text = "Timeline empty — add a cut to start building your export.";
+            _sequenceTimelineView.SetSegments(Array.Empty<TimelineSegment>(), -1);
         }
 
         _exportSequenceButton.Enabled = _sequenceSegments.Count > 0;
@@ -1351,6 +1406,146 @@ public sealed class QuickEditForm : Form
         var invalid = Path.GetInvalidFileNameChars();
         var cleaned = new string(value.Select(ch => invalid.Contains(ch) ? '_' : ch).ToArray()).Trim();
         return string.IsNullOrWhiteSpace(cleaned) ? $"clip-{DateTime.Now:yyyyMMdd-HHmmss}" : cleaned;
+    }
+
+    private sealed class SequenceTimelineView : Control
+    {
+        private readonly List<TimelineSegment> _segments = [];
+        private readonly List<(Rectangle Rect, int Index)> _hitTargets = [];
+        private int _selectedIndex = -1;
+        private double _playheadSeconds;
+
+        public event Action<int>? SegmentClicked;
+
+        public SequenceTimelineView()
+        {
+            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.UserPaint, true);
+            BackColor = Color.FromArgb(10, 10, 12);
+            ForeColor = Color.FromArgb(240, 240, 245);
+            Cursor = Cursors.Hand;
+        }
+
+        public void SetSegments(IEnumerable<TimelineSegment> segments, int selectedIndex)
+        {
+            _segments.Clear();
+            _segments.AddRange(segments);
+            _selectedIndex = selectedIndex;
+            Invalidate();
+        }
+
+        public void SetSelectedIndex(int index)
+        {
+            _selectedIndex = index;
+            Invalidate();
+        }
+
+        public void SetPlayhead(double seconds)
+        {
+            _playheadSeconds = Math.Max(0, seconds);
+            Invalidate();
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            base.OnMouseDown(e);
+            var hit = _hitTargets.FirstOrDefault(target => target.Rect.Contains(e.Location));
+            if (hit.Rect != Rectangle.Empty)
+            {
+                _selectedIndex = hit.Index;
+                Invalidate();
+                SegmentClicked?.Invoke(hit.Index);
+            }
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            _hitTargets.Clear();
+
+            e.Graphics.Clear(BackColor);
+            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+
+            using var borderPen = new Pen(Color.FromArgb(40, 40, 50));
+            e.Graphics.DrawRectangle(borderPen, 0, 0, Width - 1, Height - 1);
+
+            if (_segments.Count == 0)
+            {
+                TextRenderer.DrawText(
+                    e.Graphics,
+                    "Timeline is empty — mark an IN / OUT range and insert it here.",
+                    Font,
+                    new Rectangle(16, 16, Math.Max(40, Width - 32), Math.Max(20, Height - 32)),
+                    Color.FromArgb(145, 145, 160),
+                    TextFormatFlags.Left | TextFormatFlags.Top | TextFormatFlags.WordBreak);
+                return;
+            }
+
+            var totalDuration = Math.Max(0.1, _segments.Sum(segment => segment.Duration));
+            var timelineLeft = 56;
+            var timelineWidth = Math.Max(120, Width - timelineLeft - 14);
+            var rulerTop = 16;
+            var videoRect = new Rectangle(timelineLeft, 38, timelineWidth, 58);
+            var audioRect = new Rectangle(timelineLeft, 108, timelineWidth, 26);
+
+            TextRenderer.DrawText(e.Graphics, "V1", Font, new Point(16, videoRect.Top + 18), Color.FromArgb(180, 180, 195));
+            TextRenderer.DrawText(e.Graphics, "A1", Font, new Point(16, audioRect.Top + 5), Color.FromArgb(180, 180, 195));
+
+            using var railBrush = new SolidBrush(Color.FromArgb(18, 18, 24));
+            e.Graphics.FillRectangle(railBrush, videoRect);
+            e.Graphics.FillRectangle(railBrush, audioRect);
+            e.Graphics.DrawRectangle(borderPen, videoRect);
+            e.Graphics.DrawRectangle(borderPen, audioRect);
+
+            for (var mark = 0; mark <= 6; mark++)
+            {
+                var x = timelineLeft + (int)Math.Round(mark * (timelineWidth / 6d));
+                using var gridPen = new Pen(Color.FromArgb(32, 32, 40));
+                e.Graphics.DrawLine(gridPen, x, rulerTop + 12, x, audioRect.Bottom);
+                var stamp = FormatTime(totalDuration * mark / 6d);
+                TextRenderer.DrawText(e.Graphics, stamp, new Font("Segoe UI", 7f), new Point(Math.Max(0, x - 16), rulerTop), Color.FromArgb(120, 120, 135));
+            }
+
+            var cursorSeconds = 0d;
+            for (var index = 0; index < _segments.Count; index++)
+            {
+                var segment = _segments[index];
+                var startRatio = cursorSeconds / totalDuration;
+                var endRatio = (cursorSeconds + segment.Duration) / totalDuration;
+                var startX = timelineLeft + (int)Math.Round(startRatio * timelineWidth);
+                var endX = timelineLeft + (int)Math.Round(endRatio * timelineWidth);
+                var blockWidth = Math.Max(34, endX - startX);
+                var rect = new Rectangle(startX, videoRect.Top + 6, Math.Min(blockWidth, videoRect.Right - startX - 1), videoRect.Height - 12);
+                var audioBlock = new Rectangle(startX, audioRect.Top + 4, rect.Width, audioRect.Height - 8);
+
+                var fill = index == _selectedIndex ? Color.FromArgb(124, 58, 237) : (index % 2 == 0 ? Color.FromArgb(37, 99, 235) : Color.FromArgb(8, 145, 178));
+                using var blockBrush = new SolidBrush(fill);
+                using var audioBrush = new SolidBrush(Color.FromArgb(Math.Max(0, fill.R - 20), Math.Max(0, fill.G - 20), Math.Max(0, fill.B - 20)));
+                using var activePen = new Pen(index == _selectedIndex ? Color.FromArgb(221, 214, 254) : Color.FromArgb(120, 120, 150), index == _selectedIndex ? 2 : 1);
+
+                e.Graphics.FillRectangle(blockBrush, rect);
+                e.Graphics.FillRectangle(audioBrush, audioBlock);
+                e.Graphics.DrawRectangle(activePen, rect);
+                e.Graphics.DrawRectangle(activePen, audioBlock);
+
+                var label = $"{index + 1}. {Path.GetFileNameWithoutExtension(segment.SourceFile)}";
+                TextRenderer.DrawText(e.Graphics, label, Font, rect, Color.White, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine);
+                _hitTargets.Add((rect, index));
+                cursorSeconds += segment.Duration;
+            }
+
+            var selectedOffset = Math.Clamp(_playheadSeconds, 0, totalDuration);
+            if (_selectedIndex >= 0 && _selectedIndex < _segments.Count)
+            {
+                var priorDuration = _segments.Take(_selectedIndex).Sum(segment => segment.Duration);
+                var selectedSegment = _segments[_selectedIndex];
+                var localOffset = Math.Clamp(_playheadSeconds - selectedSegment.StartSec, 0, selectedSegment.Duration);
+                selectedOffset = Math.Clamp(priorDuration + localOffset, 0, totalDuration);
+            }
+
+            var playheadX = timelineLeft + (int)Math.Round((selectedOffset / totalDuration) * timelineWidth);
+            using var playheadPen = new Pen(Color.FromArgb(248, 113, 113), 2);
+            e.Graphics.DrawLine(playheadPen, playheadX, rulerTop + 10, playheadX, audioRect.Bottom + 8);
+        }
     }
 
     private sealed class EditorPreviewBox : PictureBox
