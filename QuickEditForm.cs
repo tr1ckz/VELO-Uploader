@@ -14,6 +14,7 @@ public sealed class QuickEditForm : Form
     private readonly WpfControls.MediaElement _mediaElement;
     private readonly EditorPreviewBox _sourcePreview;
     private readonly PictureBox _outputPreview;
+    private readonly TrimTimelineView _trimTimelineView;
     private readonly TrackBar _timelineBar;
     private readonly Button _playPauseButton;
     private readonly Button _jumpBackButton;
@@ -51,6 +52,7 @@ public sealed class QuickEditForm : Form
     private double _videoDuration;
     private Size _videoSize = Size.Empty;
     private bool _updatingCropFields;
+    private bool _updatingTrimRange;
     private double _requestedPreviewTime;
     private CancellationTokenSource? _previewCts;
     private readonly List<TimelineSegment> _sequenceSegments = [];
@@ -201,10 +203,24 @@ public sealed class QuickEditForm : Form
         _playerStatusLabel = BuildSmallLabel("Load a clip to start playback.", 390, 274, 354);
         centerPanel.Controls.Add(_playerStatusLabel);
 
+        centerPanel.Controls.Add(BuildSectionLabel("Cut / trim timeline", 14, 302));
+        var trimHint = BuildSmallLabel("This is the actual edit bar: drag the IN and OUT handles directly on the clip to trim the selected range.", 14, 324, 720);
+        centerPanel.Controls.Add(trimHint);
+
+        _trimTimelineView = new TrimTimelineView
+        {
+            Location = new Point(14, 356),
+            Size = new Size(730, 74),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+        };
+        _trimTimelineView.SeekRequested += seconds => SeekToTime(seconds, refreshPreview: true);
+        _trimTimelineView.RangeChanged += (start, end) => ApplyTrimRangeFromTimeline(start, end);
+        centerPanel.Controls.Add(_trimTimelineView);
+
         _timelineBar = new TrackBar
         {
-            Location = new Point(14, 304),
-            Size = new Size(632, 42),
+            Location = new Point(14, 436),
+            Size = new Size(632, 36),
             Minimum = 0,
             Maximum = 1000,
             TickStyle = TickStyle.None,
@@ -213,27 +229,27 @@ public sealed class QuickEditForm : Form
         _timelineBar.Scroll += (_, _) => QueuePreviewRefreshFromSlider();
         centerPanel.Controls.Add(_timelineBar);
 
-        _refreshPreviewButton = BuildButton("Refresh frame", 652, 302, 92, async (_, _) => await RefreshPreviewAsync(GetCurrentPreviewTime()));
+        _refreshPreviewButton = BuildButton("Refresh frame", 652, 434, 92, async (_, _) => await RefreshPreviewAsync(GetCurrentPreviewTime()));
         _refreshPreviewButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         centerPanel.Controls.Add(_refreshPreviewButton);
 
-        _playPauseButton = BuildActionButton("Play", 14, 344, 76, (_, _) => TogglePlayback());
+        _playPauseButton = BuildActionButton("Play", 14, 468, 76, (_, _) => TogglePlayback());
         centerPanel.Controls.Add(_playPauseButton);
 
-        _jumpBackButton = BuildButton("« 5s", 98, 344, 58, (_, _) => SkipSeconds(-5));
+        _jumpBackButton = BuildButton("« 5s", 98, 468, 58, (_, _) => SkipSeconds(-5));
         centerPanel.Controls.Add(_jumpBackButton);
 
-        _jumpForwardButton = BuildButton("5s »", 164, 344, 58, (_, _) => SkipSeconds(5));
+        _jumpForwardButton = BuildButton("5s »", 164, 468, 58, (_, _) => SkipSeconds(5));
         centerPanel.Controls.Add(_jumpForwardButton);
 
-        centerPanel.Controls.Add(BuildSectionLabel("Timeline", 14, 392));
-        var timelineHint = BuildSmallLabel("Marked cuts appear here like edit blocks. Double-click a cut on the right to load it back into the source monitor.", 14, 414, 720);
+        centerPanel.Controls.Add(BuildSectionLabel("Sequence timeline", 14, 512));
+        var timelineHint = BuildSmallLabel("Marked cuts appear here like edit blocks. Double-click a cut on the right to load it back into the source monitor.", 14, 534, 720);
         centerPanel.Controls.Add(timelineHint);
 
         _sequenceTimelineView = new SequenceTimelineView
         {
-            Location = new Point(14, 446),
-            Size = new Size(730, 188),
+            Location = new Point(14, 566),
+            Size = new Size(730, 120),
             Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
         };
         _sequenceTimelineView.SegmentClicked += async index => await LoadSequenceSegmentAsync(index);
@@ -289,6 +305,8 @@ public sealed class QuickEditForm : Form
         _endBox = BuildNumeric(30, 0, 86400, 150, y, 124);
         rightPanel.Controls.Add(_startBox);
         rightPanel.Controls.Add(_endBox);
+        _startBox.ValueChanged += (_, _) => SyncTrimRangeFromFields();
+        _endBox.ValueChanged += (_, _) => SyncTrimRangeFromFields();
         y += 36;
         rightPanel.Controls.Add(BuildButton("Mark IN at playhead", 14, y, 124, (_, _) => SetTrimBoundary(true)));
         rightPanel.Controls.Add(BuildButton("Mark OUT at playhead", 150, y, 124, (_, _) => SetTrimBoundary(false)));
@@ -301,11 +319,11 @@ public sealed class QuickEditForm : Form
         rightPanel.Controls.Add(_addCutButton);
         y += 50;
 
-        rightPanel.Controls.Add(BuildSectionLabel("Crop", 14, y));
+        rightPanel.Controls.Add(BuildSectionLabel("Frame crop (optional)", 14, y));
         y += 22;
         _enableCropBox = new CheckBox
         {
-            Text = "Enable visual crop",
+            Text = "Enable frame crop",
             Checked = true,
             AutoSize = true,
             Location = new Point(14, y),
@@ -616,6 +634,7 @@ public sealed class QuickEditForm : Form
             _timelineBar.Value = 0;
             _timelineUpdateFromPlayer = false;
             _previewTimeLabel.Text = "Playhead: 00:00.000";
+            _trimTimelineView.SetPlayhead(0);
             _sequenceTimelineView.SetPlayhead(0);
         }
     }
@@ -645,6 +664,7 @@ public sealed class QuickEditForm : Form
             : Math.Clamp((int)Math.Round((clamped / _videoDuration) * _timelineBar.Maximum), 0, _timelineBar.Maximum);
         _timelineUpdateFromPlayer = false;
         _previewTimeLabel.Text = $"Playhead: {FormatTime(clamped)}";
+        _trimTimelineView.SetPlayhead(clamped);
         _sequenceTimelineView.SetPlayhead(clamped);
 
         if (refreshPreview)
@@ -669,6 +689,7 @@ public sealed class QuickEditForm : Form
                 : Math.Clamp((int)Math.Round((position / Math.Max(_videoDuration, 0.001)) * _timelineBar.Maximum), 0, _timelineBar.Maximum);
             _timelineUpdateFromPlayer = false;
             _previewTimeLabel.Text = $"Playhead: {FormatTime(position)}";
+            _trimTimelineView.SetPlayhead(position);
             _sequenceTimelineView.SetPlayhead(position);
         }
         catch
@@ -757,6 +778,7 @@ public sealed class QuickEditForm : Form
             _videoInfoLabel.Text = _filesList.SelectedItems.Count > 1
                 ? "Multiple clips selected — you can merge them, but preview/edit works on one clip at a time."
                 : "Select one clip to preview and edit.";
+            _trimTimelineView.SetTimeline(0, 0, 0, 0, _filesList.SelectedItems.Count > 1 ? "Multi-select" : "No clip selected");
             _sourcePreview.ClearPreview();
             ReplacePicture(_outputPreview, null);
             return;
@@ -769,6 +791,7 @@ public sealed class QuickEditForm : Form
             StopPlayback(resetToStart: true);
             _mediaElement.Source = null;
             _videoInfoLabel.Text = "The selected file could not be found.";
+            _trimTimelineView.SetTimeline(0, 0, 0, 0, "Missing clip");
             _sourcePreview.ClearPreview();
             ReplacePicture(_outputPreview, null);
             return;
@@ -799,6 +822,7 @@ public sealed class QuickEditForm : Form
             _playerStatusLabel.Text = "Loading video…";
 
             _timelineBar.Value = 0;
+            UpdateTrimTimelineUi();
             ResetCropToFullFrame();
             await RefreshPreviewAsync(0);
         }
@@ -977,6 +1001,8 @@ public sealed class QuickEditForm : Form
         {
             _endBox.Value = Math.Max(_startBox.Value, current);
         }
+
+        UpdateTrimTimelineUi();
     }
 
     private void OnCropSelectionChanged(Rectangle cropRect)
@@ -1138,6 +1164,53 @@ public sealed class QuickEditForm : Form
         var fullRect = new Rectangle(0, 0, _videoSize.Width, _videoSize.Height);
         _sourcePreview.SetCropRect(fullRect);
         UpdateCropInfoLabel(fullRect);
+    }
+
+    private void SyncTrimRangeFromFields()
+    {
+        if (_updatingTrimRange)
+            return;
+
+        if (_endBox.Value < _startBox.Value)
+        {
+            _updatingTrimRange = true;
+            try
+            {
+                _endBox.Value = _startBox.Value;
+            }
+            finally
+            {
+                _updatingTrimRange = false;
+            }
+        }
+
+        UpdateTrimTimelineUi();
+    }
+
+    private void ApplyTrimRangeFromTimeline(double start, double end)
+    {
+        if (_updatingTrimRange)
+            return;
+
+        var max = (decimal)Math.Max(_videoDuration, 0.25);
+        _updatingTrimRange = true;
+        try
+        {
+            _startBox.Value = Math.Clamp((decimal)start, _startBox.Minimum, max);
+            _endBox.Value = Math.Clamp((decimal)end, _endBox.Minimum, max);
+        }
+        finally
+        {
+            _updatingTrimRange = false;
+        }
+
+        UpdateTrimTimelineUi();
+    }
+
+    private void UpdateTrimTimelineUi()
+    {
+        var label = string.IsNullOrWhiteSpace(_selectedFile) ? "No clip selected" : Path.GetFileName(_selectedFile);
+        _trimTimelineView.SetTimeline(_videoDuration, (double)_startBox.Value, (double)_endBox.Value, GetCurrentPreviewTime(), label);
     }
 
     private void AddCurrentCutToSequence()
@@ -1517,6 +1590,222 @@ public sealed class QuickEditForm : Form
         var invalid = Path.GetInvalidFileNameChars();
         var cleaned = new string(value.Select(ch => invalid.Contains(ch) ? '_' : ch).ToArray()).Trim();
         return string.IsNullOrWhiteSpace(cleaned) ? $"clip-{DateTime.Now:yyyyMMdd-HHmmss}" : cleaned;
+    }
+
+    private sealed class TrimTimelineView : Control
+    {
+        private enum DragMode
+        {
+            None,
+            Seek,
+            Start,
+            End,
+            Range,
+        }
+
+        private double _duration;
+        private double _rangeStart;
+        private double _rangeEnd;
+        private double _playhead;
+        private string _clipLabel = "No clip selected";
+        private DragMode _dragMode;
+        private double _dragOffsetSeconds;
+
+        public event Action<double>? SeekRequested;
+        public event Action<double, double>? RangeChanged;
+
+        public TrimTimelineView()
+        {
+            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.UserPaint, true);
+            BackColor = Color.FromArgb(10, 10, 12);
+            ForeColor = Color.FromArgb(240, 240, 245);
+            Cursor = Cursors.Hand;
+        }
+
+        public void SetTimeline(double duration, double start, double end, double playhead, string? clipLabel = null)
+        {
+            _duration = Math.Max(0, duration);
+            _rangeStart = Math.Clamp(start, 0, Math.Max(_duration, 0));
+            _rangeEnd = Math.Clamp(Math.Max(end, _rangeStart), _rangeStart, Math.Max(_duration, _rangeStart));
+            _playhead = Math.Clamp(playhead, 0, Math.Max(_duration, 0));
+            if (!string.IsNullOrWhiteSpace(clipLabel))
+                _clipLabel = clipLabel;
+            Invalidate();
+        }
+
+        public void SetPlayhead(double playhead)
+        {
+            _playhead = Math.Clamp(playhead, 0, Math.Max(_duration, 0));
+            Invalidate();
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            base.OnMouseDown(e);
+            if (_duration <= 0)
+                return;
+
+            var rail = GetRailRect();
+            var startX = SecondsToX(_rangeStart, rail);
+            var endX = SecondsToX(_rangeEnd, rail);
+            var startHandle = new Rectangle(startX - 5, rail.Top - 4, 10, rail.Height + 8);
+            var endHandle = new Rectangle(endX - 5, rail.Top - 4, 10, rail.Height + 8);
+            var selectedRange = Rectangle.FromLTRB(startX, rail.Top, endX, rail.Bottom);
+
+            if (startHandle.Contains(e.Location))
+                _dragMode = DragMode.Start;
+            else if (endHandle.Contains(e.Location))
+                _dragMode = DragMode.End;
+            else if (selectedRange.Contains(e.Location))
+            {
+                _dragMode = DragMode.Range;
+                _dragOffsetSeconds = XToSeconds(e.X, rail) - _rangeStart;
+            }
+            else
+                _dragMode = DragMode.Seek;
+
+            HandleDrag(e.Location);
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            if (_dragMode == DragMode.None)
+            {
+                UpdateCursor(e.Location);
+                return;
+            }
+
+            HandleDrag(e.Location);
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            base.OnMouseUp(e);
+            if (_dragMode != DragMode.None)
+                HandleDrag(e.Location);
+            _dragMode = DragMode.None;
+            UpdateCursor(e.Location);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            e.Graphics.Clear(BackColor);
+            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+
+            using var borderPen = new Pen(Color.FromArgb(40, 40, 50));
+            using var textBrush = new SolidBrush(Color.FromArgb(145, 145, 160));
+            using var railBrush = new SolidBrush(Color.FromArgb(20, 20, 26));
+            using var clipBrush = new SolidBrush(Color.FromArgb(37, 99, 235));
+            using var rangeBrush = new SolidBrush(Color.FromArgb(124, 58, 237));
+            using var playheadPen = new Pen(Color.FromArgb(248, 113, 113), 2);
+            using var handleBrush = new SolidBrush(Color.FromArgb(245, 245, 250));
+
+            e.Graphics.DrawRectangle(borderPen, 0, 0, Width - 1, Height - 1);
+            var rail = GetRailRect();
+
+            TextRenderer.DrawText(e.Graphics, _clipLabel, Font, new Rectangle(14, 8, Width - 28, 18), Color.FromArgb(220, 220, 235), TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
+
+            if (_duration <= 0)
+            {
+                TextRenderer.DrawText(e.Graphics, "Select a clip to see the editable trim timeline.", Font, new Rectangle(14, 30, Width - 28, 20), textBrush.Color, TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+                return;
+            }
+
+            e.Graphics.FillRectangle(railBrush, rail);
+            e.Graphics.DrawRectangle(borderPen, rail);
+
+            for (var i = 0; i < 12; i++)
+            {
+                var blockWidth = Math.Max(10, rail.Width / 12 - 3);
+                var blockX = rail.Left + i * rail.Width / 12;
+                var blockRect = new Rectangle(blockX + 1, rail.Top + 4, blockWidth, rail.Height - 8);
+                using var filmBrush = new SolidBrush(i % 2 == 0 ? Color.FromArgb(32, 32, 40) : Color.FromArgb(25, 25, 32));
+                e.Graphics.FillRectangle(filmBrush, blockRect);
+            }
+
+            var selectedRect = Rectangle.FromLTRB(SecondsToX(_rangeStart, rail), rail.Top + 2, SecondsToX(_rangeEnd, rail), rail.Bottom - 2);
+            e.Graphics.FillRectangle(clipBrush, rail.Left + 1, rail.Top + 6, rail.Width - 2, rail.Height - 12);
+            e.Graphics.FillRectangle(rangeBrush, selectedRect);
+
+            var startHandle = new Rectangle(selectedRect.Left - 4, rail.Top - 3, 8, rail.Height + 6);
+            var endHandle = new Rectangle(selectedRect.Right - 4, rail.Top - 3, 8, rail.Height + 6);
+            e.Graphics.FillRectangle(handleBrush, startHandle);
+            e.Graphics.FillRectangle(handleBrush, endHandle);
+            e.Graphics.DrawRectangle(borderPen, startHandle);
+            e.Graphics.DrawRectangle(borderPen, endHandle);
+
+            var playheadX = SecondsToX(_playhead, rail);
+            e.Graphics.DrawLine(playheadPen, playheadX, rail.Top - 6, playheadX, rail.Bottom + 6);
+
+            TextRenderer.DrawText(e.Graphics, $"IN {FormatTime(_rangeStart)}", new Font("Segoe UI", 7f), new Point(14, rail.Bottom + 6), Color.FromArgb(200, 200, 215));
+            TextRenderer.DrawText(e.Graphics, $"OUT {FormatTime(_rangeEnd)}", new Font("Segoe UI", 7f), new Point(120, rail.Bottom + 6), Color.FromArgb(200, 200, 215));
+            TextRenderer.DrawText(e.Graphics, $"LEN {FormatTime(Math.Max(0, _rangeEnd - _rangeStart))}", new Font("Segoe UI", 7f), new Point(240, rail.Bottom + 6), Color.FromArgb(200, 200, 215));
+        }
+
+        private void HandleDrag(Point location)
+        {
+            var rail = GetRailRect();
+            var seconds = XToSeconds(location.X, rail);
+
+            switch (_dragMode)
+            {
+                case DragMode.Start:
+                    _rangeStart = Math.Clamp(seconds, 0, _rangeEnd);
+                    RangeChanged?.Invoke(_rangeStart, _rangeEnd);
+                    break;
+                case DragMode.End:
+                    _rangeEnd = Math.Clamp(seconds, _rangeStart, _duration);
+                    RangeChanged?.Invoke(_rangeStart, _rangeEnd);
+                    break;
+                case DragMode.Range:
+                    var length = Math.Max(0.01, _rangeEnd - _rangeStart);
+                    var start = Math.Clamp(seconds - _dragOffsetSeconds, 0, Math.Max(0, _duration - length));
+                    _rangeStart = start;
+                    _rangeEnd = start + length;
+                    RangeChanged?.Invoke(_rangeStart, _rangeEnd);
+                    break;
+                default:
+                    _playhead = seconds;
+                    SeekRequested?.Invoke(seconds);
+                    break;
+            }
+
+            Invalidate();
+        }
+
+        private void UpdateCursor(Point location)
+        {
+            var rail = GetRailRect();
+            var startX = SecondsToX(_rangeStart, rail);
+            var endX = SecondsToX(_rangeEnd, rail);
+            var startHandle = new Rectangle(startX - 5, rail.Top - 4, 10, rail.Height + 8);
+            var endHandle = new Rectangle(endX - 5, rail.Top - 4, 10, rail.Height + 8);
+            var selectedRange = Rectangle.FromLTRB(startX, rail.Top, endX, rail.Bottom);
+
+            Cursor = startHandle.Contains(location) || endHandle.Contains(location)
+                ? Cursors.SizeWE
+                : selectedRange.Contains(location)
+                    ? Cursors.SizeAll
+                    : Cursors.Hand;
+        }
+
+        private Rectangle GetRailRect() => new(14, 30, Math.Max(120, Width - 28), 24);
+
+        private int SecondsToX(double seconds, Rectangle rail)
+        {
+            if (_duration <= 0)
+                return rail.Left;
+            var ratio = Math.Clamp(seconds / _duration, 0, 1);
+            return rail.Left + (int)Math.Round(ratio * rail.Width);
+        }
+
+        private double XToSeconds(int x, Rectangle rail)
+        {
+            var ratio = Math.Clamp((x - rail.Left) / (double)Math.Max(1, rail.Width), 0, 1);
+            return ratio * _duration;
+        }
     }
 
     private sealed class SequenceTimelineView : Control
