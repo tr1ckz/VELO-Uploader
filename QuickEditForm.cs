@@ -162,6 +162,15 @@ public sealed class QuickEditForm : Form
         };
         Controls.Add(leftPanel);
 
+        var leftSplitter = new Panel
+        {
+            Size = new Size(5, 680),
+            BackColor = Color.FromArgb(44, 52, 64),
+            Cursor = Cursors.VSplit,
+            Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left,
+        };
+        Controls.Add(leftSplitter);
+
         leftPanel.Controls.Add(BuildSectionLabel("Project / media bin", 12, 12));
         leftPanel.Controls.Add(BuildSmallLabel("Import clips, preview their thumbnails, then mark ranges to send into the timeline.", 12, 34, 248));
 
@@ -211,6 +220,15 @@ public sealed class QuickEditForm : Form
             Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
         };
         Controls.Add(centerPanel);
+
+        var rightSplitter = new Panel
+        {
+            Size = new Size(5, 680),
+            BackColor = Color.FromArgb(44, 52, 64),
+            Cursor = Cursors.VSplit,
+            Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Right,
+        };
+        Controls.Add(rightSplitter);
 
         var sourceMonitorLabel = BuildSectionLabel("Source monitor", 14, 12);
         centerPanel.Controls.Add(sourceMonitorLabel);
@@ -546,20 +564,64 @@ public sealed class QuickEditForm : Form
         };
         Controls.Add(_statusLabel);
 
+        var leftPanelWidth = 270;
+        var rightPanelWidth = 292;
+        var resizingLeftPanel = false;
+        var resizingRightPanel = false;
+        var resizeOriginX = 0;
+        var resizeOriginWidth = 0;
+
+        leftSplitter.MouseDown += (_, e) =>
+        {
+            if (e.Button != MouseButtons.Left) return;
+            resizingLeftPanel = true;
+            resizeOriginX = Cursor.Position.X;
+            resizeOriginWidth = leftPanelWidth;
+        };
+        leftSplitter.MouseMove += (_, _) =>
+        {
+            if (!resizingLeftPanel) return;
+            leftPanelWidth = Math.Clamp(resizeOriginWidth + (Cursor.Position.X - resizeOriginX), 220, 420);
+            LayoutWorkspace();
+        };
+        leftSplitter.MouseUp += (_, _) => resizingLeftPanel = false;
+
+        rightSplitter.MouseDown += (_, e) =>
+        {
+            if (e.Button != MouseButtons.Left) return;
+            resizingRightPanel = true;
+            resizeOriginX = Cursor.Position.X;
+            resizeOriginWidth = rightPanelWidth;
+        };
+        rightSplitter.MouseMove += (_, _) =>
+        {
+            if (!resizingRightPanel) return;
+            rightPanelWidth = Math.Clamp(resizeOriginWidth - (Cursor.Position.X - resizeOriginX), 250, 420);
+            LayoutWorkspace();
+        };
+        rightSplitter.MouseUp += (_, _) => resizingRightPanel = false;
+        MouseUp += (_, _) =>
+        {
+            resizingLeftPanel = false;
+            resizingRightPanel = false;
+        };
+
         void LayoutWorkspace()
         {
             const int outerMargin = 20;
             const int top = 112;
-            const int gap = 14;
-             _workspaceBadgeStrip.Location = new Point(20, 74);
+            const int gap = 10;
+            _workspaceBadgeStrip.Location = new Point(20, 74);
             _workspaceBadgeStrip.Size = new Size(ClientSize.Width - 40, 28);
             var panelHeight = Math.Max(600, ClientSize.Height - top - 88);
-            var leftWidth = Math.Clamp((int)Math.Round(ClientSize.Width * 0.19), 246, 280);
-            var rightWidth = Math.Clamp((int)Math.Round(ClientSize.Width * 0.21), 284, 320);
+            var leftWidth = Math.Clamp(leftPanelWidth, 220, Math.Min(420, Math.Max(220, ClientSize.Width / 3)));
+            var rightWidth = Math.Clamp(rightPanelWidth, 250, Math.Min(420, Math.Max(250, ClientSize.Width / 3)));
 
             leftPanel.Bounds = new Rectangle(outerMargin, top, leftWidth, panelHeight);
+            leftSplitter.Bounds = new Rectangle(leftPanel.Right + 4, top, 5, panelHeight);
             rightPanel.Bounds = new Rectangle(ClientSize.Width - outerMargin - rightWidth, top, rightWidth, panelHeight);
-            centerPanel.Bounds = new Rectangle(leftPanel.Right + gap, top, Math.Max(600, rightPanel.Left - gap - (leftPanel.Right + gap)), panelHeight);
+            rightSplitter.Bounds = new Rectangle(rightPanel.Left - 9, top, 5, panelHeight);
+            centerPanel.Bounds = new Rectangle(leftSplitter.Right + gap, top, Math.Max(560, rightSplitter.Left - gap - (leftSplitter.Right + gap)), panelHeight);
 
             _mediaThumbStrip.Size = new Size(leftPanel.ClientSize.Width - 24, 92);
             _filesList.Size = new Size(leftPanel.ClientSize.Width - 24, Math.Max(220, leftPanel.ClientSize.Height - 274));
@@ -819,22 +881,10 @@ public sealed class QuickEditForm : Form
             return;
 
         var cardRect = Rectangle.Inflate(rect, 2, 2);
-        using var shadowBrush = new SolidBrush(Color.FromArgb(34, 0, 0, 0));
-        using var backgroundBrush = new SolidBrush(Color.FromArgb(11, 13, 17));
-        using var headerBrush = new SolidBrush(Color.FromArgb(18, 22, 28));
-        using var borderPen = new Pen(Color.FromArgb(52, 62, 76));
-        using var accentBrush = new SolidBrush(accent);
-
-        graphics.FillRectangle(shadowBrush, cardRect.X + 2, cardRect.Y + 2, cardRect.Width, cardRect.Height);
-        graphics.FillRectangle(backgroundBrush, cardRect);
+        using var borderPen = new Pen(Color.FromArgb(36, 50, 66));
+        using var accentPen = new Pen(accent, 1.5f);
         graphics.DrawRectangle(borderPen, cardRect);
-
-        var headerRect = new Rectangle(cardRect.Left + 1, cardRect.Top + 1, cardRect.Width - 2, 22);
-        graphics.FillRectangle(headerBrush, headerRect);
-        graphics.FillRectangle(accentBrush, new Rectangle(cardRect.Left + 1, cardRect.Top + 1, 4, 22));
-
-        TextRenderer.DrawText(graphics, title, new Font("Segoe UI Semibold", 8f, FontStyle.Bold), new Rectangle(cardRect.Left + 10, cardRect.Top + 3, cardRect.Width - 20, 10), Color.White, TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
-        TextRenderer.DrawText(graphics, subtitle, new Font("Segoe UI", 7f), new Rectangle(cardRect.Left + 10, cardRect.Top + 11, cardRect.Width - 20, 10), Color.FromArgb(148, 163, 184), TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
+        graphics.DrawLine(accentPen, cardRect.Left + 1, cardRect.Top + 1, cardRect.Right - 1, cardRect.Top + 1);
     }
 
     private static void StyleToolButton(Button button, bool active)
@@ -2630,12 +2680,16 @@ public sealed class QuickEditForm : Form
         _cropButton.Enabled = !busy;
         _mergeButton.Enabled = !busy;
         _addCutButton.Enabled = !busy;
+        _overwriteCutButton.Enabled = !busy;
+        _undoEditButton.Enabled = !busy && _sequenceUndoStack.Count > 0;
         _exportSequenceButton.Enabled = !busy && _sequenceSegments.Count > 0;
         _splitPlayheadButton.Enabled = !busy && _sequenceList.SelectedIndex >= 0;
         _refreshPreviewButton.Enabled = !busy;
         _playPauseButton.Enabled = canControlPlayback;
         _jumpBackButton.Enabled = canControlPlayback;
         _jumpForwardButton.Enabled = canControlPlayback;
+        _selectToolButton.Enabled = !busy;
+        _razorToolButton.Enabled = !busy;
         _statusLabel.Text = status;
     }
 
