@@ -1,5 +1,10 @@
 # VELO Uploader - Changelog
 
+## Version 1.7.39 (2026-04-09)
+- UI: replace the flat uploader section dividers with distinct shaded cards (`#161616` with `#2d2d2d` borders) for a denser workstation-style hierarchy
+- UI: upgrade GPU/server/system status indicators to monospace LED-style labels
+- UI: compact the top chrome with a smaller monochrome logo aligned to the tab row for a high-density layout
+
 ## Version 1.7.38 (2026-04-09)
 - Fix: `Open Video Editor` now validates against the current token typed in `Settings`, even if it has not been saved yet
 - Fix: unauthorized editor gating now uses the live form state instead of the last persisted token

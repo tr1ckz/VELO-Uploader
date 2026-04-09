@@ -1,4 +1,5 @@
 using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 
 namespace VeloUploader;
 
@@ -277,7 +278,7 @@ public class SettingsForm : Form
         Font = new Font("Segoe UI", 9f);
         DoubleBuffered = true;
 
-        const int pageTop = 102;
+        const int pageTop = 58;
         const int footerHeight = 34;
         int pageHeight = ClientSize.Height - pageTop - footerHeight;
 
@@ -290,45 +291,47 @@ public class SettingsForm : Form
         catch { }
 
         // ── Header ──
-        var header = new Panel { Dock = DockStyle.Top, Height = 74, BackColor = C_PANEL };
+        var header = new Panel { Dock = DockStyle.Top, Height = 48, BackColor = C_PANEL };
         header.Paint += (_, e) =>
         {
             using var pen = new Pen(C_ACCENT, 2);
-            e.Graphics.DrawLine(pen, 0, header.Height - 1, Width, header.Height - 1);
+            e.Graphics.DrawLine(pen, 0, header.Height - 1, header.Width, header.Height - 1);
         };
         Controls.Add(header);
 
-        // Logo from embedded resource
+        var logoBox = new PictureBox
+        {
+            Bounds = new Rectangle(12, 9, 18, 18),
+            SizeMode = PictureBoxSizeMode.Zoom,
+            BackColor = Color.Transparent,
+        };
         try
         {
             var logoStream = typeof(SettingsForm).Assembly.GetManifestResourceStream("logo.png");
             if (logoStream != null)
             {
-                var img = Image.FromStream(logoStream);
-                header.Controls.Add(new PictureBox { Image = img, SizeMode = PictureBoxSizeMode.Zoom, Bounds = new Rectangle(14, 12, 40, 40), BackColor = Color.Transparent });
+                using var img = Image.FromStream(logoStream);
+                logoBox.Image = CreateMonochromeImage(img);
             }
         }
         catch { }
+        header.Controls.Add(logoBox);
 
-        var headerTitle = MkLabel("UPLOAD CONTROL CENTER", 60, 9, new Font("Segoe UI", 12.5f, FontStyle.Bold), C_T1);
-        var headerSubtitle = MkLabel("QUEUE • WATCHERS • UPDATES • LOCAL PROCESSING", 62, 37, new Font("Segoe UI", 8f, FontStyle.Bold), C_T3);
-        var headerVersion = MkLabel($"v{GitHubUpdater.GetCurrentVersion()}", 0, 11, new Font("Segoe UI", 8f, FontStyle.Bold), C_ACCENT);
+        var headerTitle = MkLabel("VELO", 36, 11, new Font("Segoe UI", 9.5f, FontStyle.Bold), C_T1);
+        var headerVersion = MkLabel($"v{GitHubUpdater.GetCurrentVersion()}", 0, 13, new Font("Consolas", 8f, FontStyle.Bold), C_ACCENT);
         headerVersion.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         header.Controls.Add(headerTitle);
-        header.Controls.Add(headerSubtitle);
         header.Controls.Add(headerVersion);
 
-        void LayoutHeader()
+        // ── Compact tab bar ──
+        var tabBar = new Panel
         {
-            headerVersion.Location = new Point(Math.Max(12, header.ClientSize.Width - headerVersion.PreferredWidth - 14), 11);
-        }
-
-        header.SizeChanged += (_, _) => LayoutHeader();
-        LayoutHeader();
-
-        // ── Custom tab bar ──
-        var tabBar = new Panel { Location = new Point(0, header.Height), Size = new Size(ClientSize.Width, 36), BackColor = C_PANEL, Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right };
-        Controls.Add(tabBar);
+            Location = new Point(116, 8),
+            Size = new Size(Math.Max(320, ClientSize.Width - 240), 30),
+            BackColor = Color.Transparent,
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+        };
+        header.Controls.Add(tabBar);
 
         _tabBtns = new Button[4];
         string[] tabNames = ["QUEUE", "SETTINGS", "LOGS", "STATUS"];
@@ -338,12 +341,12 @@ public class SettingsForm : Form
             var btn = new Button
             {
                 Text = tabNames[i],
-            Location = new Point(i * 120 + 20, 0),
-            Size = new Size(120, 36),
+                Location = new Point(i * 92 + 4, 0),
+                Size = new Size(88, 28),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.Transparent,
                 ForeColor = C_T3,
-                Font = new Font("Segoe UI", 9f),
+                Font = new Font("Segoe UI", 8f, FontStyle.Bold),
                 Cursor = Cursors.Hand,
                 TabStop = false,
             };
@@ -354,14 +357,23 @@ public class SettingsForm : Form
             _tabBtns[i] = btn;
         }
 
-        // Tab underline painted on tabBar
         tabBar.Paint += (_, e) =>
         {
             var tabIndex = Math.Clamp(_activeTab, 0, _tabBtns.Length - 1);
             var btn = _tabBtns[tabIndex];
             using var brush = new SolidBrush(C_ACCENT);
-            e.Graphics.FillRectangle(brush, btn.Left + 10, 33, btn.Width - 20, 3);
+            e.Graphics.FillRectangle(brush, btn.Left + 8, 26, btn.Width - 16, 2);
         };
+
+        void LayoutHeader()
+        {
+            tabBar.Location = new Point(116, 8);
+            tabBar.Width = Math.Max(320, header.ClientSize.Width - 240);
+            headerVersion.Location = new Point(Math.Max(12, header.ClientSize.Width - headerVersion.PreferredWidth - 14), 13);
+        }
+
+        header.SizeChanged += (_, _) => LayoutHeader();
+        LayoutHeader();
 
         // ── Pages ──
         _pages = new Panel[4];
@@ -435,10 +447,7 @@ public class SettingsForm : Form
 
         void LayoutShell()
         {
-            tabBar.Location = new Point(0, header.Height);
-            tabBar.Width = ClientSize.Width;
-
-            int dynamicPageTop = tabBar.Bottom;
+            int dynamicPageTop = header.Bottom;
             int dynamicPageHeight = Math.Max(120, ClientSize.Height - dynamicPageTop - footerHeight);
             for (int i = 0; i < _pages.Length; i++)
             {
@@ -460,9 +469,9 @@ public class SettingsForm : Form
         home.Controls.Add(MkLabel("This is the day-to-day dashboard: what is queued, what uploaded, and where to jump next.", lx, y, new Font("Segoe UI", 7.8f), C_T3));
         y += 24;
 
-        _queueModeLabel = MkLabel("Queue mode: Live upload", lx, y, new Font("Segoe UI", 8.5f, FontStyle.Bold), C_GREEN);
+        _queueModeLabel = MkLedLabel("LIVE UPLOAD", lx, y, C_GREEN);
         home.Controls.Add(_queueModeLabel);
-        _queueSummaryLabel = MkLabel("Pending local videos: 0", lx + 240, y, new Font("Segoe UI", 8.5f), C_T2);
+        _queueSummaryLabel = MkLabel("PENDING LOCAL VIDEOS: 0", lx + 210, y + 1, new Font("Consolas", 8f, FontStyle.Bold), C_T2);
         home.Controls.Add(_queueSummaryLabel);
         y += 28;
 
@@ -541,6 +550,10 @@ public class SettingsForm : Form
             historyHint.Text = $"{status} • {compression} • {FormatSize(entry.SourceSizeBytes)} -> {FormatSize(entry.UploadedSizeBytes)}";
         };
         UploadHistoryManager.Changed += OnHistoryChanged;
+
+        AddSectionCard(home, lx - 10, 8, w + 20, 120);
+        AddSectionCard(home, lx - 10, 138, w + 20, 188);
+        AddSectionCard(home, lx - 10, 334, w + 20, 306);
 
         // ═══════════════════════════════════════
         //  PAGE 1: SETTINGS
@@ -729,9 +742,9 @@ public class SettingsForm : Form
         g.Controls.Add(_presetBox);
 
         // Show GPU status label
-        var gpuStatus = gpuAvailable ? "GPU ready ✓" : "CPU only";
+        var gpuStatus = gpuAvailable ? "GPU READY" : "CPU ONLY";
         var gpuStatusColor = gpuAvailable ? C_GREEN : C_T3;
-        g.Controls.Add(MkLabel(gpuStatus, lx + w - 120, y + 5, new Font("Segoe UI", 7.5f, FontStyle.Bold), gpuStatusColor));
+        g.Controls.Add(MkLedLabel(gpuStatus, lx + w - 132, y + 4, gpuStatusColor));
 
         Lbl(g, "Retries:", lx + 340, y + 5);
         _retriesBox = new DarkNumeric(settings.MaxRetries, 1, 10, lx + 400, y, 60);
@@ -786,6 +799,14 @@ public class SettingsForm : Form
         _selfSignedBox.CheckedChanged += (_, _) => UpdateTlsUi();
         _certPathBox.Inner.TextChanged += (_, _) => UpdateTlsUi();
         UpdateTlsUi();
+
+        AddSectionCard(g, lx - 10, 8, w + 20, 88);
+        AddSectionCard(g, lx - 10, 102, w + 20, 92);
+        AddSectionCard(g, lx - 10, 198, w + 20, 92);
+        AddSectionCard(g, lx - 10, 294, w + 20, 190);
+        AddSectionCard(g, lx - 10, 488, w + 20, 78);
+        AddSectionCard(g, lx - 10, 570, w + 20, 74);
+        AddSectionCard(g, lx - 10, 648, w + 20, 92);
 
         // ═══════════════════════════════════════
         //  PAGE 1: SETTINGS — rules + filters
@@ -846,6 +867,10 @@ public class SettingsForm : Form
         saveFilt.Font = new Font("Segoe UI", 9f, FontStyle.Bold);
         saveFilt.Click += (_, _) => SaveFilters();
         f.Controls.Add(saveFilt);
+
+        AddSectionCard(f, lx - 10, y - 328, w + 20, 154);
+        AddSectionCard(f, lx - 10, y - 166, w + 20, 130);
+        AddSectionCard(f, lx - 10, y - 28, w + 20, 72);
 
         // ═══════════════════════════════════════
         //  PAGE 2: LOGS (activity + raw logs)
@@ -977,6 +1002,7 @@ public class SettingsForm : Form
         _currentTaskPanel.Controls.Add(_taskSpeedLabel);
 
         s.Controls.Add(_currentTaskPanel);
+        AddSectionCard(s, lx - 10, sy - 4, w + 20, 102);
         sy += 100;
 
         // Stats Section (compact - single line each)
@@ -991,29 +1017,31 @@ public class SettingsForm : Form
 
         _statsSizeLabel = MkLabel("📦 Total size: 0 MB", lx, sy, new Font("Segoe UI", 8.5f), C_T2);
         s.Controls.Add(_statsSizeLabel);
+        AddSectionCard(s, lx - 10, sy - 42, w + 20, 64);
         sy += 22;
 
         // System Status Section (2-column compact layout)
         MkSectionLabel(s, "SYSTEM STATUS", lx, sy); sy += 18;
 
-        _systemStatusLabel = MkLabel("● Watching", lx, sy, new Font("Segoe UI", 8.5f, FontStyle.Bold), C_GREEN);
+        _systemStatusLabel = MkLedLabel("WATCHING", lx, sy, C_GREEN);
         s.Controls.Add(_systemStatusLabel);
 
-        _gpuStatusLabel = MkLabel("GPU: Checking...", lx + 300, sy, new Font("Segoe UI", 8.5f), C_T2);
+        _gpuStatusLabel = MkLedLabel("GPU CHECKING", lx + 300, sy, C_T2);
         s.Controls.Add(_gpuStatusLabel);
         sy += 20;
 
-        var ffmpegStatus = LocalCompressor.IsAvailable() ? "✓ FFmpeg available" : "✗ FFmpeg not found";
+        var ffmpegStatus = LocalCompressor.IsAvailable() ? "FFMPEG READY" : "FFMPEG MISSING";
         var ffmpegColor = LocalCompressor.IsAvailable() ? C_GREEN : C_RED;
-        var ffmpegLabel = MkLabel(ffmpegStatus, lx, sy, new Font("Segoe UI", 8.5f), ffmpegColor);
+        var ffmpegLabel = MkLedLabel(ffmpegStatus, lx, sy, ffmpegColor);
         s.Controls.Add(ffmpegLabel);
 
-        _serverStatusLabel = MkLabel("Server: Checking...", lx + 300, sy, new Font("Segoe UI", 8.5f), C_T2);
+        _serverStatusLabel = MkLedLabel("SERVER CHECKING", lx + 300, sy, C_T2);
         s.Controls.Add(_serverStatusLabel);
         sy += 20;
 
-        _quotaStatusLabel = MkLabel("Storage: Checking...", lx, sy, new Font("Segoe UI", 8.5f), C_T2);
+        _quotaStatusLabel = MkLedLabel("STORAGE CHECKING", lx, sy, C_T2);
         s.Controls.Add(_quotaStatusLabel);
+        AddSectionCard(s, lx - 10, sy - 42, w + 20, 66);
         sy += 24;
 
         // Version Section
@@ -1207,6 +1235,60 @@ public class SettingsForm : Form
         return new Label { Text = text, Location = new Point(x, y), AutoSize = true, Font = font, ForeColor = color, BackColor = Color.Transparent };
     }
 
+    static Label MkLedLabel(string text, int x, int y, Color color)
+    {
+        return new Label
+        {
+            Text = $"● {text}",
+            Location = new Point(x, y),
+            AutoSize = true,
+            Font = new Font("Consolas", 8f, FontStyle.Bold),
+            ForeColor = color,
+            BackColor = Color.Transparent,
+        };
+    }
+
+    static void SetLedStatus(Label label, string text, Color color)
+    {
+        label.Text = $"● {text}";
+        label.ForeColor = color;
+    }
+
+    static Panel AddSectionCard(Control parent, int x, int y, int width, int height)
+    {
+        var card = new Panel
+        {
+            Location = new Point(x, y),
+            Size = new Size(width, height),
+            BackColor = Color.FromArgb(22, 22, 22),
+        };
+        card.Paint += (_, e) =>
+        {
+            using var pen = new Pen(Color.FromArgb(45, 45, 45), 1);
+            e.Graphics.DrawRectangle(pen, 0, 0, card.Width - 1, card.Height - 1);
+        };
+        parent.Controls.Add(card);
+        card.SendToBack();
+        return card;
+    }
+
+    static Image CreateMonochromeImage(Image source)
+    {
+        var bitmap = new Bitmap(source.Width, source.Height);
+        using var graphics = Graphics.FromImage(bitmap);
+        using var attributes = new ImageAttributes();
+        attributes.SetColorMatrix(new ColorMatrix(new[]
+        {
+            new[] { 0.30f, 0.30f, 0.30f, 0f, 0f },
+            new[] { 0.59f, 0.59f, 0.59f, 0f, 0f },
+            new[] { 0.11f, 0.11f, 0.11f, 0f, 0f },
+            new[] { 0f,    0f,    0f,    1f, 0f },
+            new[] { 0.08f, 0.08f, 0.08f, 0f, 1f },
+        }));
+        graphics.DrawImage(source, new Rectangle(0, 0, bitmap.Width, bitmap.Height), 0, 0, source.Width, source.Height, GraphicsUnit.Pixel, attributes);
+        return bitmap;
+    }
+
     static void Section(Control p, string text, int x, int y)
     {
         var lbl = new Label
@@ -1215,19 +1297,16 @@ public class SettingsForm : Form
             Location = new Point(x, y),
             AutoSize = true,
             ForeColor = C_ACCENT,
-            Font = new Font("Segoe UI", 7.5f, FontStyle.Bold),
+            Font = new Font("Consolas", 7.5f, FontStyle.Bold),
             UseMnemonic = false,
+            BackColor = Color.Transparent,
         };
         p.Controls.Add(lbl);
-        var lineX = x + lbl.PreferredWidth + 8;
-        var lineW = Math.Max(0, p.Width - lineX - x);
-        if (lineW > 0)
-            p.Controls.Add(new Panel { Location = new Point(lineX, y + 6), Size = new Size(lineW, 1), BackColor = C_BORDER });
     }
 
     static void Lbl(Control p, string text, int x, int y)
     {
-        p.Controls.Add(new Label { Text = text, Location = new Point(x, y), AutoSize = true, ForeColor = C_T2, Font = new Font("Segoe UI", 8f) });
+        p.Controls.Add(new Label { Text = text, Location = new Point(x, y), AutoSize = true, ForeColor = C_T2, Font = new Font("Segoe UI", 8f), BackColor = Color.Transparent });
     }
 
     static Button MkBtn(string text, int x, int y, int w, int h, Color bg, Color hover)
@@ -1271,16 +1350,12 @@ public class SettingsForm : Form
             Text = title,
             Location = new Point(x, y),
             AutoSize = true,
-            Font = new Font("Segoe UI", 7.5f, FontStyle.Bold),
+            Font = new Font("Consolas", 7.5f, FontStyle.Bold),
             ForeColor = C_ACCENT,
             BackColor = Color.Transparent,
             UseMnemonic = false,
         };
         parent.Controls.Add(lbl);
-        var lineX = x + lbl.PreferredWidth + 8;
-        var lineW = Math.Max(0, parent.Width - lineX - x);
-        if (lineW > 0)
-            parent.Controls.Add(new Panel { Location = new Point(lineX, y + 6), Size = new Size(lineW, 1), BackColor = C_BORDER });
     }
 
     private void CheckGPUStatus()
@@ -1290,8 +1365,7 @@ public class SettingsForm : Form
             var gpuAvail = LocalCompressor.IsGPUAvailable();
             InvokeIfNeeded(() =>
             {
-                _gpuStatusLabel.Text = gpuAvail ? "✓ GPU (NVIDIA NVENC) available" : "○ GPU not available (CPU mode)";
-                _gpuStatusLabel.ForeColor = gpuAvail ? C_GREEN : C_T3;
+                SetLedStatus(_gpuStatusLabel, gpuAvail ? "GPU READY" : "GPU OFFLINE", gpuAvail ? C_GREEN : C_T3);
             });
         });
     }
@@ -1303,8 +1377,7 @@ public class SettingsForm : Form
         {
             InvokeIfNeeded(() =>
             {
-                _serverStatusLabel.Text = "Server: Not configured";
-                _serverStatusLabel.ForeColor = C_T3;
+                SetLedStatus(_serverStatusLabel, "SERVER NOT CONFIGURED", C_T3);
             });
             return;
         }
@@ -1320,18 +1393,16 @@ public class SettingsForm : Form
             var ok = resp.IsSuccessStatusCode;
             InvokeIfNeeded(() =>
             {
-                _serverStatusLabel.Text = ok
-                    ? $"● Server online ({sw.ElapsedMilliseconds} ms)"
-                    : $"⚠ Server error ({(int)resp.StatusCode})";
-                _serverStatusLabel.ForeColor = ok ? C_GREEN : C_ORANGE;
+                SetLedStatus(_serverStatusLabel, ok
+                    ? $"SERVER ONLINE {sw.ElapsedMilliseconds}MS"
+                    : $"SERVER ERROR {(int)resp.StatusCode}", ok ? C_GREEN : C_ORANGE);
             });
         }
         catch
         {
             InvokeIfNeeded(() =>
             {
-                _serverStatusLabel.Text = "✗ Server unreachable";
-                _serverStatusLabel.ForeColor = C_ERR;
+                SetLedStatus(_serverStatusLabel, "SERVER UNREACHABLE", C_ERR);
             });
         }
     }
@@ -1353,30 +1424,27 @@ public class SettingsForm : Form
                 if (_quotaStatusLabel == null) return;
                 if (!quotaResult.Success)
                 {
-                    _quotaStatusLabel.Text = quotaResult.Status switch
+                    SetLedStatus(_quotaStatusLabel, quotaResult.Status switch
                     {
-                        QuotaFetchStatus.ServerOutdated => "Storage: server needs update",
-                        QuotaFetchStatus.Unauthorized => "Storage: API token unauthorized",
-                        QuotaFetchStatus.NotConfigured => "Storage: uploader not configured",
-                        _ => "Storage: unavailable",
-                    };
-                    _quotaStatusLabel.ForeColor = quotaResult.Status == QuotaFetchStatus.ServerOutdated || quotaResult.Status == QuotaFetchStatus.Unauthorized
+                        QuotaFetchStatus.ServerOutdated => "STORAGE SERVER NEEDS UPDATE",
+                        QuotaFetchStatus.Unauthorized => "STORAGE TOKEN UNAUTHORIZED",
+                        QuotaFetchStatus.NotConfigured => "STORAGE NOT CONFIGURED",
+                        _ => "STORAGE UNAVAILABLE",
+                    }, quotaResult.Status == QuotaFetchStatus.ServerOutdated || quotaResult.Status == QuotaFetchStatus.Unauthorized
                         ? C_ORANGE
-                        : C_T3;
+                        : C_T3);
                     return;
                 }
                 var quota = quotaResult.Quota!;
                 if (!quota.HasQuota)
                 {
-                    _quotaStatusLabel.Text = $"Storage: {quota.UsedFormatted} used (unlimited)";
-                    _quotaStatusLabel.ForeColor = C_T2;
+                    SetLedStatus(_quotaStatusLabel, $"STORAGE {quota.UsedFormatted} USED (UNLIMITED)", C_T2);
                     return;
                 }
                 var quotaBytes = quota.QuotaBytes!.Value;
                 var pct = (int)Math.Min(100, quota.UsedBytes * 100L / quotaBytes);
                 var color = pct >= 90 ? C_ERR : pct >= 75 ? C_ORANGE : C_GREEN;
-                _quotaStatusLabel.Text = $"Storage: {quota.UsedFormatted} / {quota.QuotaFormatted} ({pct}% used, {quota.FreeFormatted} free)";
-                _quotaStatusLabel.ForeColor = color;
+                SetLedStatus(_quotaStatusLabel, $"STORAGE {quota.UsedFormatted} / {quota.QuotaFormatted} ({pct}% USED, {quota.FreeFormatted} FREE)", color);
             });
         }
 
@@ -1433,13 +1501,11 @@ public class SettingsForm : Form
         {
             if (isWatching)
             {
-                _systemStatusLabel.Text = "● Watching";
-                _systemStatusLabel.ForeColor = C_GREEN;
+                SetLedStatus(_systemStatusLabel, "WATCHING", C_GREEN);
             }
             else
             {
-                _systemStatusLabel.Text = "⏸ Paused";
-                _systemStatusLabel.ForeColor = C_ORANGE;
+                SetLedStatus(_systemStatusLabel, "PAUSED", C_ORANGE);
             }
         });
     }
@@ -1454,11 +1520,8 @@ public class SettingsForm : Form
                 .OrderBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            _queueModeLabel.Text = autoProcessing
-                ? "Queue mode: Live upload"
-                : "Queue mode: Queue only (uploads paused)";
-            _queueModeLabel.ForeColor = autoProcessing ? C_GREEN : C_ORANGE;
-            _queueSummaryLabel.Text = $"Pending local videos: {files.Count}";
+            SetLedStatus(_queueModeLabel, autoProcessing ? "LIVE UPLOAD" : "QUEUE ONLY", autoProcessing ? C_GREEN : C_ORANGE);
+            _queueSummaryLabel.Text = $"PENDING LOCAL VIDEOS: {files.Count}";
             _queueToggleBtn.Text = autoProcessing ? "Pause Uploads (Queue Only)" : "Resume Upload Queue";
             _queueProcessNowBtn.Enabled = (_setQueueProcessing != null) && files.Count > 0;
 
