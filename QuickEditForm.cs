@@ -145,10 +145,11 @@ public sealed class QuickEditForm : Form
             BackColor = Color.Transparent,
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
         };
-        _workspaceBadgeStrip.Controls.Add(BuildHeaderBadge("SOURCE I/O", Color.FromArgb(33, 19, 54), Color.FromArgb(196, 181, 253)));
-        _workspaceBadgeStrip.Controls.Add(BuildHeaderBadge("INSERT / OVERWRITE", Color.FromArgb(18, 44, 66), Color.FromArgb(125, 211, 252)));
-        _workspaceBadgeStrip.Controls.Add(BuildHeaderBadge("RAZOR / TRIM", Color.FromArgb(59, 25, 25), Color.FromArgb(252, 165, 165)));
-        _workspaceBadgeStrip.Controls.Add(BuildHeaderBadge("EXPORT", Color.FromArgb(24, 50, 37), Color.FromArgb(134, 239, 172)));
+        _workspaceBadgeStrip.Controls.Add(BuildHeaderBadge("▣ PROJECT", Color.FromArgb(33, 19, 54), Color.FromArgb(196, 181, 253)));
+        _workspaceBadgeStrip.Controls.Add(BuildHeaderBadge("◴ SOURCE", Color.FromArgb(18, 44, 66), Color.FromArgb(125, 211, 252)));
+        _workspaceBadgeStrip.Controls.Add(BuildHeaderBadge("▶ PROGRAM", Color.FromArgb(24, 50, 37), Color.FromArgb(134, 239, 172)));
+        _workspaceBadgeStrip.Controls.Add(BuildHeaderBadge("✂ TIMELINE", Color.FromArgb(59, 25, 25), Color.FromArgb(252, 165, 165)));
+        _workspaceBadgeStrip.Controls.Add(BuildHeaderBadge("⇪ EXPORT", Color.FromArgb(44, 30, 18), Color.FromArgb(253, 224, 71)));
         Controls.Add(_workspaceBadgeStrip);
 
         var leftPanel = new Panel
@@ -296,19 +297,19 @@ public sealed class QuickEditForm : Form
         _refreshPreviewButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         centerPanel.Controls.Add(_refreshPreviewButton);
 
-        _playPauseButton = BuildActionButton("Play", 14, 468, 76, (_, _) => TogglePlayback());
+        _playPauseButton = BuildActionButton("▶ Play", 14, 468, 84, (_, _) => TogglePlayback());
         centerPanel.Controls.Add(_playPauseButton);
 
-        _jumpBackButton = BuildButton("« 5s", 98, 468, 58, (_, _) => SkipSeconds(-5));
+        _jumpBackButton = BuildButton("⏪ 5s", 98, 468, 64, (_, _) => SkipSeconds(-5));
         centerPanel.Controls.Add(_jumpBackButton);
 
-        _jumpForwardButton = BuildButton("5s »", 164, 468, 58, (_, _) => SkipSeconds(5));
+        _jumpForwardButton = BuildButton("5s ⏩", 170, 468, 64, (_, _) => SkipSeconds(5));
         centerPanel.Controls.Add(_jumpForwardButton);
 
-        _selectToolButton = BuildButton("Select (V)", 238, 468, 88, (_, _) => SetTimelineEditMode(TimelineEditMode.Select));
+        _selectToolButton = BuildButton("⌖ Select (V)", 238, 468, 100, (_, _) => SetTimelineEditMode(TimelineEditMode.Select));
         centerPanel.Controls.Add(_selectToolButton);
 
-        _razorToolButton = BuildButton("Razor (C)", 334, 468, 88, (_, _) => SetTimelineEditMode(TimelineEditMode.Razor));
+        _razorToolButton = BuildButton("✂ Razor (C)", 346, 468, 100, (_, _) => SetTimelineEditMode(TimelineEditMode.Razor));
         centerPanel.Controls.Add(_razorToolButton);
 
         _timelineModeLabel = BuildSmallLabel("Selection tool active — V Select, C Razor, Ctrl+K cut, Ctrl+Z undo.", 430, 466, 314);
@@ -397,15 +398,15 @@ public sealed class QuickEditForm : Form
         rightPanel.Controls.Add(_markerHintLabel);
         y += 42;
 
-        _addCutButton = BuildButton("Insert at playhead", 14, y, 124, (_, _) => AddCurrentCutToSequence(overwrite: false));
+        _addCutButton = BuildButton("⤶ Insert", 14, y, 124, (_, _) => AddCurrentCutToSequence(overwrite: false));
         rightPanel.Controls.Add(_addCutButton);
-        _overwriteCutButton = BuildButton("Overwrite", 150, y, 124, (_, _) => AddCurrentCutToSequence(overwrite: true));
+        _overwriteCutButton = BuildButton("⤼ Overwrite", 150, y, 124, (_, _) => AddCurrentCutToSequence(overwrite: true));
         rightPanel.Controls.Add(_overwriteCutButton);
         y += 36;
 
-        _splitPlayheadButton = BuildButton("Cut at playhead", 14, y, 124, (_, _) => SplitSelectedSegmentAtPlayhead());
+        _splitPlayheadButton = BuildButton("✂ Cut at playhead", 14, y, 124, (_, _) => SplitSelectedSegmentAtPlayhead());
         rightPanel.Controls.Add(_splitPlayheadButton);
-        _undoEditButton = BuildButton("Undo last edit", 150, y, 124, (_, _) => UndoLastSequenceEdit());
+        _undoEditButton = BuildButton("↶ Undo edit", 150, y, 124, (_, _) => UndoLastSequenceEdit());
         rightPanel.Controls.Add(_undoEditButton);
         y += 36;
 
@@ -977,7 +978,7 @@ public sealed class QuickEditForm : Form
         }
 
         _playerStatusLabel.Text = "Paused — drag the timeline or hit Play.";
-        _playPauseButton.Text = "Play";
+        _playPauseButton.Text = "▶ Play";
         _isPlaying = false;
         UpdatePlayerPositionFromPlayback();
     }
@@ -1000,7 +1001,7 @@ public sealed class QuickEditForm : Form
         {
             _mediaElement.Play();
             _isPlaying = true;
-            _playPauseButton.Text = "Pause";
+            _playPauseButton.Text = "❚❚ Pause";
             _playerStatusLabel.Text = "Playing…";
             _playerTimer.Start();
         }
@@ -1034,7 +1035,7 @@ public sealed class QuickEditForm : Form
 
         _isPlaying = false;
         _playerTimer.Stop();
-        _playPauseButton.Text = "Play";
+        _playPauseButton.Text = "▶ Play";
         _playerStatusLabel.Text = _mediaElement.Source == null
             ? "Load a clip to start playback."
             : "Paused — drag the timeline or hit Play.";
@@ -2708,6 +2709,7 @@ public sealed class QuickEditForm : Form
         private Image? _waveformImage;
         private DragMode _dragMode;
         private double _dragOffsetSeconds;
+        private double _snapIndicatorSeconds = double.NaN;
 
         public event Action<double>? SeekRequested;
         public event Action<double, double>? RangeChanged;
@@ -2776,8 +2778,8 @@ public sealed class QuickEditForm : Form
             var rail = GetRailRect();
             var startX = SecondsToX(_rangeStart, rail);
             var endX = SecondsToX(_rangeEnd, rail);
-            var startHandle = new Rectangle(startX - 5, rail.Top - 4, 10, rail.Height + 8);
-            var endHandle = new Rectangle(endX - 5, rail.Top - 4, 10, rail.Height + 8);
+            var startHandle = new Rectangle(startX - 6, rail.Top - 4, 12, rail.Height + 8);
+            var endHandle = new Rectangle(endX - 6, rail.Top - 4, 12, rail.Height + 8);
             var selectedRange = Rectangle.FromLTRB(startX, rail.Top, endX, rail.Bottom);
 
             if (startHandle.Contains(e.Location))
@@ -2813,7 +2815,9 @@ public sealed class QuickEditForm : Form
             if (_dragMode != DragMode.None)
                 HandleDrag(e.Location);
             _dragMode = DragMode.None;
+            _snapIndicatorSeconds = double.NaN;
             UpdateCursor(e.Location);
+            Invalidate();
         }
 
         protected override void OnMouseWheel(MouseEventArgs e)
@@ -2905,6 +2909,17 @@ public sealed class QuickEditForm : Form
             using var selectedBorder = new Pen(Color.FromArgb(221, 214, 254), 2);
             e.Graphics.DrawRectangle(selectedBorder, selectedRect);
 
+            if (!double.IsNaN(_snapIndicatorSeconds))
+            {
+                var snapX = SecondsToX(_snapIndicatorSeconds, rail);
+                using var snapPen = new Pen(Color.FromArgb(250, 251, 191, 36), 2);
+                using var snapBrush = new SolidBrush(Color.FromArgb(220, 251, 191, 36));
+                e.Graphics.DrawLine(snapPen, snapX, rail.Top - 10, snapX, rail.Bottom + 10);
+                var snapRect = new Rectangle(Math.Max(rail.Left, snapX - 26), 8, 52, 14);
+                e.Graphics.FillRectangle(snapBrush, snapRect);
+                TextRenderer.DrawText(e.Graphics, "SNAP", new Font("Segoe UI", 6.5f, FontStyle.Bold), snapRect, Color.FromArgb(17, 24, 39), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            }
+
             using var markerPen = new Pen(Color.FromArgb(251, 191, 36), 2);
             using var markerBrush = new SolidBrush(Color.FromArgb(251, 191, 36));
             foreach (var marker in _markers)
@@ -2919,15 +2934,21 @@ public sealed class QuickEditForm : Form
                 ]);
             }
 
-            var startHandle = new Rectangle(selectedRect.Left - 4, rail.Top - 3, 8, rail.Height + 6);
-            var endHandle = new Rectangle(selectedRect.Right - 4, rail.Top - 3, 8, rail.Height + 6);
-            e.Graphics.FillRectangle(handleBrush, startHandle);
-            e.Graphics.FillRectangle(handleBrush, endHandle);
-            e.Graphics.DrawRectangle(borderPen, startHandle);
-            e.Graphics.DrawRectangle(borderPen, endHandle);
+            var startHandle = new Rectangle(selectedRect.Left - 6, rail.Top - 4, 12, rail.Height + 8);
+            var endHandle = new Rectangle(selectedRect.Right - 6, rail.Top - 4, 12, rail.Height + 8);
+            DrawTrimHandle(e.Graphics, startHandle, "I", Color.FromArgb(59, 130, 246));
+            DrawTrimHandle(e.Graphics, endHandle, "O", Color.FromArgb(168, 85, 247));
 
             var playheadX = SecondsToX(_playhead, rail);
-            e.Graphics.DrawLine(playheadPen, playheadX, rail.Top - 6, playheadX, rail.Bottom + 6);
+            using var playheadBrush = new SolidBrush(Color.FromArgb(248, 113, 113));
+            e.Graphics.DrawLine(playheadPen, playheadX, rail.Top - 6, playheadX, rail.Bottom + 8);
+            e.Graphics.FillPolygon(playheadBrush,
+            [
+                new Point(playheadX, rail.Top - 10),
+                new Point(playheadX - 7, rail.Top - 1),
+                new Point(playheadX + 7, rail.Top - 1),
+            ]);
+            e.Graphics.FillEllipse(playheadBrush, playheadX - 4, rail.Bottom + 5, 8, 8);
 
             TextRenderer.DrawText(e.Graphics, $"IN {FormatTime(_rangeStart)}", new Font("Segoe UI", 7f), new Point(14, rail.Bottom + 6), Color.FromArgb(200, 200, 215));
             TextRenderer.DrawText(e.Graphics, $"OUT {FormatTime(_rangeEnd)}", new Font("Segoe UI", 7f), new Point(120, rail.Bottom + 6), Color.FromArgb(200, 200, 215));
@@ -2970,8 +2991,8 @@ public sealed class QuickEditForm : Form
             var rail = GetRailRect();
             var startX = SecondsToX(_rangeStart, rail);
             var endX = SecondsToX(_rangeEnd, rail);
-            var startHandle = new Rectangle(startX - 5, rail.Top - 4, 10, rail.Height + 8);
-            var endHandle = new Rectangle(endX - 5, rail.Top - 4, 10, rail.Height + 8);
+            var startHandle = new Rectangle(startX - 6, rail.Top - 4, 12, rail.Height + 8);
+            var endHandle = new Rectangle(endX - 6, rail.Top - 4, 12, rail.Height + 8);
             var selectedRange = Rectangle.FromLTRB(startX, rail.Top, endX, rail.Bottom);
 
             Cursor = startHandle.Contains(location) || endHandle.Contains(location)
@@ -3007,7 +3028,9 @@ public sealed class QuickEditForm : Form
             snapCandidates.AddRange(_markers);
             var threshold = Math.Max(0.05, visibleDuration * 0.02);
             var nearest = snapCandidates.OrderBy(value => Math.Abs(value - seconds)).FirstOrDefault();
-            return Math.Abs(nearest - seconds) <= threshold ? nearest : seconds;
+            var snapped = Math.Abs(nearest - seconds) <= threshold;
+            _snapIndicatorSeconds = snapped ? nearest : double.NaN;
+            return snapped ? nearest : seconds;
         }
 
         private int SecondsToX(double seconds, Rectangle rail)
@@ -3024,6 +3047,25 @@ public sealed class QuickEditForm : Form
             var (visibleStart, visibleDuration) = GetVisibleRange();
             var ratio = Math.Clamp((x - rail.Left) / (double)Math.Max(1, rail.Width), 0, 1);
             return visibleStart + (ratio * visibleDuration);
+        }
+
+        private static void DrawTrimHandle(Graphics graphics, Rectangle rect, string label, Color accent)
+        {
+            using var handleBrush = new SolidBrush(Color.FromArgb(245, 248, 250));
+            using var accentBrush = new SolidBrush(accent);
+            using var borderPen = new Pen(Color.FromArgb(30, 41, 59));
+            graphics.FillRectangle(handleBrush, rect);
+            graphics.DrawRectangle(borderPen, rect);
+            graphics.FillRectangle(accentBrush, new Rectangle(rect.Left, rect.Top, 3, rect.Height));
+
+            for (var grip = 0; grip < 3; grip++)
+            {
+                var gripX = rect.Left + 4 + (grip * 2);
+                graphics.DrawLine(borderPen, gripX, rect.Top + 5, gripX, rect.Bottom - 5);
+            }
+
+            var labelRect = new Rectangle(rect.Left - 1, rect.Top - 16, rect.Width + 2, 12);
+            TextRenderer.DrawText(graphics, label, new Font("Segoe UI", 6.5f, FontStyle.Bold), labelRect, accent, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
         }
     }
 
@@ -3048,6 +3090,8 @@ public sealed class QuickEditForm : Form
         private int _previewInsertIndex = -1;
         private int _previewTrack = 1;
         private bool _razorMode;
+        private double _snapIndicatorSeconds = double.NaN;
+        private string _snapIndicatorLabel = string.Empty;
 
         private Func<string, Image?>? _waveformProvider;
 
@@ -3158,7 +3202,10 @@ public sealed class QuickEditForm : Form
             var (visibleStart, visibleDuration) = GetVisibleRange(totalDuration);
             var absoluteSeconds = visibleStart + (((e.X - timelineLeft) / (double)Math.Max(1, timelineWidth)) * visibleDuration);
             var priorDuration = _segments.Take(_dragIndex).Sum(segment => segment.Duration);
+            absoluteSeconds = SnapToBoundary(absoluteSeconds, totalDuration, out var snapped);
             var localPosition = absoluteSeconds - priorDuration;
+            _snapIndicatorSeconds = snapped ? absoluteSeconds : double.NaN;
+            _snapIndicatorLabel = snapped ? (_dragMode == SegmentDragMode.Move ? "SNAP" : "TRIM") : string.Empty;
 
             if (_dragMode == SegmentDragMode.ResizeLeft)
             {
@@ -3174,7 +3221,8 @@ public sealed class QuickEditForm : Form
                 return;
             }
 
-            _previewInsertIndex = GetInsertIndex(e.X, timelineLeft, timelineWidth, totalDuration);
+            var snappedX = timelineLeft + (int)Math.Round(((absoluteSeconds - visibleStart) / Math.Max(0.001, visibleDuration)) * timelineWidth);
+            _previewInsertIndex = GetInsertIndex(snappedX, timelineLeft, timelineWidth, totalDuration);
             _previewTrack = GetTrackForY(e.Y);
             Invalidate();
         }
@@ -3189,6 +3237,8 @@ public sealed class QuickEditForm : Form
             _dragIndex = -1;
             _dragOriginSegment = null;
             _previewInsertIndex = -1;
+            _snapIndicatorSeconds = double.NaN;
+            _snapIndicatorLabel = string.Empty;
             Invalidate();
         }
 
@@ -3321,8 +3371,19 @@ public sealed class QuickEditForm : Form
 
                 if (index == _selectedIndex)
                 {
-                    e.Graphics.FillRectangle(handleBrush, new Rectangle(rect.Left - 3, rect.Top + 4, 6, rect.Height - 8));
-                    e.Graphics.FillRectangle(handleBrush, new Rectangle(rect.Right - 3, rect.Top + 4, 6, rect.Height - 8));
+                    var leftGrip = new Rectangle(rect.Left - 4, rect.Top + 3, 8, rect.Height - 6);
+                    var rightGrip = new Rectangle(rect.Right - 4, rect.Top + 3, 8, rect.Height - 6);
+                    e.Graphics.FillRectangle(handleBrush, leftGrip);
+                    e.Graphics.FillRectangle(handleBrush, rightGrip);
+                    e.Graphics.DrawRectangle(Pens.Black, leftGrip);
+                    e.Graphics.DrawRectangle(Pens.Black, rightGrip);
+                    for (var grip = 0; grip < 3; grip++)
+                    {
+                        var leftX = leftGrip.Left + 2 + (grip * 2);
+                        var rightX = rightGrip.Left + 2 + (grip * 2);
+                        e.Graphics.DrawLine(Pens.DimGray, leftX, leftGrip.Top + 4, leftX, leftGrip.Bottom - 4);
+                        e.Graphics.DrawLine(Pens.DimGray, rightX, rightGrip.Top + 4, rightX, rightGrip.Bottom - 4);
+                    }
                 }
 
                 var tagRect = new Rectangle(rect.Left + 6, rect.Top + 4, 34, 14);
@@ -3342,7 +3403,22 @@ public sealed class QuickEditForm : Form
                 var insertX = timelineLeft + (int)Math.Round(GetInsertRatio(_previewInsertIndex, totalDuration, visibleStart, visibleDuration) * timelineWidth);
                 var targetLane = _previewTrack == 2 ? v2 : v1;
                 using var insertPen = new Pen(Color.FromArgb(251, 191, 36), 2);
+                using var insertGlowPen = new Pen(Color.FromArgb(120, 251, 191, 36), 6);
+                e.Graphics.DrawLine(insertGlowPen, insertX, targetLane.Top - 4, insertX, a2.Bottom + 4);
                 e.Graphics.DrawLine(insertPen, insertX, targetLane.Top - 4, insertX, a2.Bottom + 4);
+            }
+
+            if (!double.IsNaN(_snapIndicatorSeconds))
+            {
+                var snapX = timelineLeft + (int)Math.Round(((Math.Clamp(_snapIndicatorSeconds, visibleStart, visibleStart + visibleDuration) - visibleStart) / visibleDuration) * timelineWidth);
+                using var snapPen = new Pen(Color.FromArgb(34, 211, 238), 2);
+                using var snapGlowPen = new Pen(Color.FromArgb(120, 34, 211, 238), 6);
+                using var snapBrush = new SolidBrush(Color.FromArgb(34, 211, 238));
+                e.Graphics.DrawLine(snapGlowPen, snapX, rulerTop + 10, snapX, a2.Bottom + 6);
+                e.Graphics.DrawLine(snapPen, snapX, rulerTop + 10, snapX, a2.Bottom + 6);
+                var snapRect = new Rectangle(Math.Max(timelineLeft, snapX - 24), rulerTop - 10, 48, 14);
+                e.Graphics.FillRectangle(snapBrush, snapRect);
+                TextRenderer.DrawText(e.Graphics, _snapIndicatorLabel, new Font("Segoe UI", 6.5f, FontStyle.Bold), snapRect, Color.FromArgb(15, 23, 42), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
             }
 
             var selectedOffset = Math.Clamp(_playheadSeconds, 0, totalDuration);
@@ -3356,7 +3432,15 @@ public sealed class QuickEditForm : Form
 
             var playheadX = timelineLeft + (int)Math.Round(((selectedOffset - visibleStart) / visibleDuration) * timelineWidth);
             using var playheadPen = new Pen(Color.FromArgb(248, 113, 113), 2);
+            using var playheadBrush = new SolidBrush(Color.FromArgb(248, 113, 113));
             e.Graphics.DrawLine(playheadPen, playheadX, rulerTop + 10, playheadX, a2.Bottom + 8);
+            e.Graphics.FillPolygon(playheadBrush,
+            [
+                new Point(playheadX, rulerTop + 6),
+                new Point(playheadX - 8, rulerTop - 4),
+                new Point(playheadX + 8, rulerTop - 4),
+            ]);
+            e.Graphics.FillEllipse(playheadBrush, playheadX - 4, a2.Bottom + 6, 8, 8);
         }
 
         private (double Start, double Duration) GetVisibleRange(double totalDuration)
@@ -3364,6 +3448,24 @@ public sealed class QuickEditForm : Form
             var visibleDuration = Math.Min(totalDuration, Math.Max(3, totalDuration / Math.Max(1, _zoom)));
             var start = Math.Clamp(_playheadSeconds - (visibleDuration / 2), 0, Math.Max(0, totalDuration - visibleDuration));
             return (start, Math.Max(0.001, visibleDuration));
+        }
+
+        private double SnapToBoundary(double absoluteSeconds, double totalDuration, out bool snapped)
+        {
+            var (visibleStart, visibleDuration) = GetVisibleRange(totalDuration);
+            var threshold = Math.Max(0.05, visibleDuration * 0.02);
+            var snapPoints = new List<double> { 0, totalDuration };
+            var cursor = 0d;
+            foreach (var segment in _segments)
+            {
+                snapPoints.Add(cursor);
+                cursor += segment.Duration;
+                snapPoints.Add(cursor);
+            }
+
+            var nearest = snapPoints.OrderBy(value => Math.Abs(value - absoluteSeconds)).FirstOrDefault();
+            snapped = Math.Abs(nearest - absoluteSeconds) <= threshold;
+            return snapped ? nearest : absoluteSeconds;
         }
 
         private int GetInsertIndex(int x, int timelineLeft, int timelineWidth, double totalDuration)
