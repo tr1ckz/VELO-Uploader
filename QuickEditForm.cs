@@ -43,6 +43,7 @@ public sealed class QuickEditForm : Form
     private readonly Label _markerHintLabel;
     private readonly Button _addMarkerButton;
     private readonly Button _splitPlayheadButton;
+    private readonly FlowLayoutPanel _workspaceBadgeStrip;
     private readonly Label _statusLabel;
     private readonly Button _trimButton;
     private readonly Button _cropButton;
@@ -96,7 +97,7 @@ public sealed class QuickEditForm : Form
             ? defaultOutputFolder
             : Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
 
-        Text = "VELO Video Editor";
+        Text = "VELO NLE Studio";
         ClientSize = new Size(1400, 860);
         MinimumSize = new Size(1180, 720);
         StartPosition = FormStartPosition.CenterScreen;
@@ -135,11 +136,26 @@ public sealed class QuickEditForm : Form
         };
         Controls.Add(hint);
 
+        _workspaceBadgeStrip = new FlowLayoutPanel
+        {
+            Location = new Point(20, 74),
+            Size = new Size(1320, 28),
+            AutoSize = false,
+            WrapContents = false,
+            BackColor = Color.Transparent,
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+        };
+        _workspaceBadgeStrip.Controls.Add(BuildHeaderBadge("SOURCE I/O", Color.FromArgb(33, 19, 54), Color.FromArgb(196, 181, 253)));
+        _workspaceBadgeStrip.Controls.Add(BuildHeaderBadge("INSERT / OVERWRITE", Color.FromArgb(18, 44, 66), Color.FromArgb(125, 211, 252)));
+        _workspaceBadgeStrip.Controls.Add(BuildHeaderBadge("RAZOR / TRIM", Color.FromArgb(59, 25, 25), Color.FromArgb(252, 165, 165)));
+        _workspaceBadgeStrip.Controls.Add(BuildHeaderBadge("EXPORT", Color.FromArgb(24, 50, 37), Color.FromArgb(134, 239, 172)));
+        Controls.Add(_workspaceBadgeStrip);
+
         var leftPanel = new Panel
         {
             Location = new Point(20, 92),
             Size = new Size(260, 680),
-            BackColor = Color.FromArgb(18, 18, 22),
+            BackColor = Color.FromArgb(16, 18, 22),
             BorderStyle = BorderStyle.FixedSingle,
             Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left,
         };
@@ -189,7 +205,7 @@ public sealed class QuickEditForm : Form
         {
             Location = new Point(296, 92),
             Size = new Size(760, 680),
-            BackColor = Color.FromArgb(18, 18, 22),
+            BackColor = Color.FromArgb(15, 17, 20),
             BorderStyle = BorderStyle.FixedSingle,
             Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
         };
@@ -239,9 +255,13 @@ public sealed class QuickEditForm : Form
         centerPanel.Controls.Add(_playerHost);
 
         _previewTimeLabel = BuildSmallLabel("Playhead: 00:00.000", 14, 274, 220);
+        _previewTimeLabel.Font = new Font("Consolas", 10f, FontStyle.Bold);
+        _previewTimeLabel.ForeColor = Color.FromArgb(226, 232, 240);
         centerPanel.Controls.Add(_previewTimeLabel);
 
         _playerStatusLabel = BuildSmallLabel("Load a clip to start playback.", 390, 274, 354);
+        _playerStatusLabel.Font = new Font("Segoe UI Semibold", 8.5f);
+        _playerStatusLabel.ForeColor = Color.FromArgb(191, 219, 254);
         centerPanel.Controls.Add(_playerStatusLabel);
 
         var trimSectionLabel = BuildSectionLabel("Source trim / insert", 14, 302);
@@ -317,7 +337,7 @@ public sealed class QuickEditForm : Form
         {
             Location = new Point(1072, 92),
             Size = new Size(300, 680),
-            BackColor = Color.FromArgb(18, 18, 22),
+            BackColor = Color.FromArgb(16, 18, 22),
             BorderStyle = BorderStyle.FixedSingle,
             Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Right,
             AutoScroll = true,
@@ -495,6 +515,8 @@ public sealed class QuickEditForm : Form
         y += 38;
 
         _sequenceSummaryLabel = BuildSmallLabel("Timeline empty — insert a range to start cutting.", 14, y, 260);
+        _sequenceSummaryLabel.Font = new Font("Consolas", 8.5f, FontStyle.Bold);
+        _sequenceSummaryLabel.ForeColor = Color.FromArgb(226, 232, 240);
         rightPanel.Controls.Add(_sequenceSummaryLabel);
         y += 36;
 
@@ -515,7 +537,10 @@ public sealed class QuickEditForm : Form
             AutoSize = false,
             Size = new Size(1240, 36),
             Location = new Point(20, 726),
-            ForeColor = Color.FromArgb(155, 155, 165),
+            ForeColor = Color.FromArgb(226, 232, 240),
+            BackColor = Color.FromArgb(10, 12, 15),
+            Font = new Font("Consolas", 9f, FontStyle.Bold),
+            Padding = new Padding(8, 5, 0, 0),
             Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom,
         };
         Controls.Add(_statusLabel);
@@ -523,8 +548,10 @@ public sealed class QuickEditForm : Form
         void LayoutWorkspace()
         {
             const int outerMargin = 20;
-            const int top = 92;
+            const int top = 112;
             const int gap = 14;
+             _workspaceBadgeStrip.Location = new Point(20, 74);
+            _workspaceBadgeStrip.Size = new Size(ClientSize.Width - 40, 28);
             var panelHeight = Math.Max(600, ClientSize.Height - top - 88);
             var leftWidth = Math.Clamp((int)Math.Round(ClientSize.Width * 0.19), 246, 280);
             var rightWidth = Math.Clamp((int)Math.Round(ClientSize.Width * 0.21), 284, 320);
@@ -617,6 +644,29 @@ public sealed class QuickEditForm : Form
             _statusLabel.Size = new Size(ClientSize.Width - 40, 24);
         }
 
+        leftPanel.Paint += (_, e) =>
+        {
+            DrawWorkspaceCard(e.Graphics, Rectangle.FromLTRB(8, 8, leftPanel.ClientSize.Width - 8, _mediaThumbStrip.Bottom + 8), "PROJECT BIN", "media + thumbnails", Color.FromArgb(124, 58, 237));
+            DrawWorkspaceCard(e.Graphics, Rectangle.FromLTRB(8, _filesList.Top - 28, leftPanel.ClientSize.Width - 8, _filesList.Bottom + 8), "BROWSER", "source clips", Color.FromArgb(59, 130, 246));
+        };
+
+        centerPanel.Paint += (_, e) =>
+        {
+            DrawWorkspaceCard(e.Graphics, Rectangle.FromLTRB(_sourcePreview.Left - 8, sourceMonitorLabel.Top - 6, _sourcePreview.Right + 8, _sourcePreview.Bottom + 8), "SOURCE", "mark in / out", Color.FromArgb(124, 58, 237));
+            DrawWorkspaceCard(e.Graphics, Rectangle.FromLTRB(_playerHost.Left - 8, programMonitorLabel.Top - 6, _playerHost.Right + 8, _playerHost.Bottom + 8), "PROGRAM", "review output", Color.FromArgb(59, 130, 246));
+            DrawWorkspaceCard(e.Graphics, Rectangle.FromLTRB(_trimTimelineView.Left - 8, trimSectionLabel.Top - 6, _trimTimelineView.Right + 8, _timelineBar.Bottom + 10), "SOURCE PATCH", "insert / overwrite range", Color.FromArgb(20, 184, 166));
+            DrawWorkspaceCard(e.Graphics, Rectangle.FromLTRB(_playPauseButton.Left - 8, _playPauseButton.Top - 8, _timelineModeLabel.Right + 8, Math.Max(_playPauseButton.Bottom, Math.Max(_selectToolButton.Bottom, _timelineModeLabel.Bottom)) + 8), "TOOLS", "transport + edit mode", Color.FromArgb(251, 191, 36));
+            DrawWorkspaceCard(e.Graphics, Rectangle.FromLTRB(_sequenceTimelineView.Left - 8, sequenceSectionLabel.Top - 6, _sequenceTimelineView.Right + 8, _sequenceTimelineView.Bottom + 8), "TIMELINE", "ripple / razor / reorder", Color.FromArgb(139, 92, 246));
+        };
+
+        rightPanel.Paint += (_, e) =>
+        {
+            DrawWorkspaceCard(e.Graphics, Rectangle.FromLTRB(8, 8, rightPanel.ClientSize.Width - 8, _outputPreview.Bottom + 10), "INSPECTOR", "preview + export", Color.FromArgb(34, 197, 94));
+            DrawWorkspaceCard(e.Graphics, Rectangle.FromLTRB(8, _startBox.Top - 34, rightPanel.ClientSize.Width - 8, _markerList.Bottom + 8), "EDIT CONTROLS", "insert / overwrite / cut", Color.FromArgb(59, 130, 246));
+            DrawWorkspaceCard(e.Graphics, Rectangle.FromLTRB(8, _enableCropBox.Top - 26, rightPanel.ClientSize.Width - 8, _cropButton.Bottom + 8), "CROP", "optional framing", Color.FromArgb(236, 72, 153));
+            DrawWorkspaceCard(e.Graphics, Rectangle.FromLTRB(8, _sequenceList.Top - 34, rightPanel.ClientSize.Width - 8, _mergeButton.Bottom + 8), "SEQUENCE", "timeline operations", Color.FromArgb(124, 58, 237));
+        };
+
         SizeChanged += (_, _) => LayoutWorkspace();
         centerPanel.SizeChanged += (_, _) => LayoutWorkspace();
         KeyDown += OnEditorKeyDown;
@@ -668,11 +718,23 @@ public sealed class QuickEditForm : Form
 
     private static Label BuildSectionLabel(string text, int x, int y) => new()
     {
-        Text = text,
+        Text = text.ToUpperInvariant(),
         AutoSize = true,
         Location = new Point(x, y),
-        Font = new Font("Segoe UI", 8f, FontStyle.Bold),
-        ForeColor = Color.FromArgb(124, 58, 237),
+        Font = new Font("Segoe UI Semibold", 8.5f, FontStyle.Bold),
+        ForeColor = Color.FromArgb(196, 181, 253),
+    };
+
+    private static Label BuildHeaderBadge(string text, Color background, Color foreground) => new()
+    {
+        Text = text,
+        AutoSize = true,
+        Margin = new Padding(0, 0, 8, 0),
+        Padding = new Padding(10, 4, 10, 4),
+        BackColor = background,
+        ForeColor = foreground,
+        Font = new Font("Segoe UI Semibold", 8f, FontStyle.Bold),
+        BorderStyle = BorderStyle.FixedSingle,
     };
 
     private static Label BuildLabel(string text, int x, int y) => new()
@@ -688,7 +750,8 @@ public sealed class QuickEditForm : Form
         Text = text,
         Location = new Point(x, y),
         Size = new Size(width, 34),
-        ForeColor = Color.FromArgb(150, 150, 160),
+        Font = new Font("Segoe UI", 8.25f),
+        ForeColor = Color.FromArgb(163, 172, 185),
     };
 
     private static TextBox BuildTextBox(string text, int x, int y, int width) => new()
@@ -726,12 +789,15 @@ public sealed class QuickEditForm : Form
         {
             Text = text,
             Location = new Point(x, y),
-            Size = new Size(width, 30),
+            Size = new Size(width, 32),
             FlatStyle = FlatStyle.Flat,
-            BackColor = Color.FromArgb(38, 38, 46),
-            ForeColor = Color.White,
+            BackColor = Color.FromArgb(28, 32, 38),
+            ForeColor = Color.FromArgb(241, 245, 249),
+            Font = new Font("Segoe UI Semibold", 8.5f),
         };
-        button.FlatAppearance.BorderColor = Color.FromArgb(70, 70, 82);
+        button.FlatAppearance.BorderColor = Color.FromArgb(71, 85, 105);
+        button.FlatAppearance.MouseOverBackColor = Color.FromArgb(39, 46, 56);
+        button.FlatAppearance.MouseDownBackColor = Color.FromArgb(51, 65, 85);
         button.Click += onClick;
         return button;
     }
@@ -739,9 +805,35 @@ public sealed class QuickEditForm : Form
     private static Button BuildActionButton(string text, int x, int y, int width, EventHandler onClick)
     {
         var button = BuildButton(text, x, y, width, onClick);
-        button.BackColor = Color.FromArgb(124, 58, 237);
-        button.FlatAppearance.BorderColor = Color.FromArgb(154, 92, 255);
+        button.BackColor = Color.FromArgb(109, 40, 217);
+        button.FlatAppearance.BorderColor = Color.FromArgb(167, 139, 250);
+        button.FlatAppearance.MouseOverBackColor = Color.FromArgb(124, 58, 237);
+        button.FlatAppearance.MouseDownBackColor = Color.FromArgb(91, 33, 182);
         return button;
+    }
+
+    private static void DrawWorkspaceCard(Graphics graphics, Rectangle rect, string title, string subtitle, Color accent)
+    {
+        if (rect.Width <= 4 || rect.Height <= 4)
+            return;
+
+        var cardRect = Rectangle.Inflate(rect, 2, 2);
+        using var shadowBrush = new SolidBrush(Color.FromArgb(34, 0, 0, 0));
+        using var backgroundBrush = new SolidBrush(Color.FromArgb(11, 13, 17));
+        using var headerBrush = new SolidBrush(Color.FromArgb(18, 22, 28));
+        using var borderPen = new Pen(Color.FromArgb(52, 62, 76));
+        using var accentBrush = new SolidBrush(accent);
+
+        graphics.FillRectangle(shadowBrush, cardRect.X + 2, cardRect.Y + 2, cardRect.Width, cardRect.Height);
+        graphics.FillRectangle(backgroundBrush, cardRect);
+        graphics.DrawRectangle(borderPen, cardRect);
+
+        var headerRect = new Rectangle(cardRect.Left + 1, cardRect.Top + 1, cardRect.Width - 2, 22);
+        graphics.FillRectangle(headerBrush, headerRect);
+        graphics.FillRectangle(accentBrush, new Rectangle(cardRect.Left + 1, cardRect.Top + 1, 4, 22));
+
+        TextRenderer.DrawText(graphics, title, new Font("Segoe UI Semibold", 8f, FontStyle.Bold), new Rectangle(cardRect.Left + 10, cardRect.Top + 3, cardRect.Width - 20, 10), Color.White, TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
+        TextRenderer.DrawText(graphics, subtitle, new Font("Segoe UI", 7f), new Rectangle(cardRect.Left + 10, cardRect.Top + 11, cardRect.Width - 20, 10), Color.FromArgb(148, 163, 184), TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
     }
 
     private static void StyleToolButton(Button button, bool active)
@@ -2758,7 +2850,18 @@ public sealed class QuickEditForm : Form
             e.Graphics.FillRectangle(railBrush, rail);
             e.Graphics.DrawRectangle(borderPen, rail);
 
+            var badgeRect = new Rectangle(Math.Max(Width - 86, 14), 6, 72, 16);
+            using var badgeBrush = new SolidBrush(Color.FromArgb(32, 45, 55));
+            e.Graphics.FillRectangle(badgeBrush, badgeRect);
+            TextRenderer.DrawText(e.Graphics, "SOURCE", new Font("Segoe UI", 7f, FontStyle.Bold), badgeRect, Color.FromArgb(191, 219, 254), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+
             var (visibleStart, visibleDuration) = GetVisibleRange();
+            using var tickPen = new Pen(Color.FromArgb(48, 71, 85));
+            for (var tick = 0; tick <= 6; tick++)
+            {
+                var tickX = rail.Left + (int)Math.Round((tick / 6d) * rail.Width);
+                e.Graphics.DrawLine(tickPen, tickX, rail.Top + 1, tickX, rail.Bottom - 1);
+            }
 
             if (_thumbnails.Count > 0)
             {
@@ -3134,10 +3237,24 @@ public sealed class QuickEditForm : Form
             var a1 = new Rectangle(timelineLeft, v2.Bottom + laneGap, timelineWidth, audioLaneHeight);
             var a2 = new Rectangle(timelineLeft, a1.Bottom + laneGap, timelineWidth, audioLaneHeight);
 
-            TextRenderer.DrawText(e.Graphics, "V1", Font, new Point(18, v1.Top + 8), Color.FromArgb(180, 180, 195));
-            TextRenderer.DrawText(e.Graphics, "V2", Font, new Point(18, v2.Top + 8), Color.FromArgb(180, 180, 195));
-            TextRenderer.DrawText(e.Graphics, "A1", Font, new Point(18, a1.Top + 1), Color.FromArgb(180, 180, 195));
-            TextRenderer.DrawText(e.Graphics, "A2", Font, new Point(18, a2.Top + 1), Color.FromArgb(180, 180, 195));
+            var rulerRect = new Rectangle(timelineLeft, 10, timelineWidth, 18);
+            using var rulerBrush = new SolidBrush(Color.FromArgb(15, 21, 28));
+            using var labelBadgeBrush = new SolidBrush(Color.FromArgb(25, 30, 39));
+            e.Graphics.FillRectangle(rulerBrush, rulerRect);
+            e.Graphics.DrawRectangle(borderPen, rulerRect);
+
+            var v1Badge = new Rectangle(10, v1.Top + 6, 42, 18);
+            var v2Badge = new Rectangle(10, v2.Top + 6, 42, 18);
+            var a1Badge = new Rectangle(10, a1.Top, 42, 16);
+            var a2Badge = new Rectangle(10, a2.Top, 42, 16);
+            e.Graphics.FillRectangle(labelBadgeBrush, v1Badge);
+            e.Graphics.FillRectangle(labelBadgeBrush, v2Badge);
+            e.Graphics.FillRectangle(labelBadgeBrush, a1Badge);
+            e.Graphics.FillRectangle(labelBadgeBrush, a2Badge);
+            TextRenderer.DrawText(e.Graphics, "V1", Font, v1Badge, Color.FromArgb(191, 219, 254), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            TextRenderer.DrawText(e.Graphics, "V2", Font, v2Badge, Color.FromArgb(191, 219, 254), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            TextRenderer.DrawText(e.Graphics, "A1", Font, a1Badge, Color.FromArgb(191, 219, 254), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            TextRenderer.DrawText(e.Graphics, "A2", Font, a2Badge, Color.FromArgb(191, 219, 254), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
 
             e.Graphics.FillRectangle(railBrush, v1);
             e.Graphics.FillRectangle(railBrush, v2);
@@ -3188,11 +3305,13 @@ public sealed class QuickEditForm : Form
                 var audioBlock = new Rectangle(rect.Left, audioLane.Top + 2, rect.Width, audioLane.Height - 4);
 
                 var fill = index == _selectedIndex ? Color.FromArgb(145, 88, 255) : (segment.SafeTrack == 2 ? Color.FromArgb(20, 184, 220) : Color.FromArgb(59, 130, 246));
-                using var blockBrush = new SolidBrush(fill);
+                using var shadowBrush = new SolidBrush(Color.FromArgb(46, 0, 0, 0));
+                using var blockBrush = new System.Drawing.Drawing2D.LinearGradientBrush(rect, ControlPaint.Light(fill, 0.05f), fill, 90f);
                 using var audioBrush = new SolidBrush(Color.FromArgb(Math.Max(0, fill.R - 24), Math.Max(0, fill.G - 24), Math.Max(0, fill.B - 24)));
                 using var activePen = new Pen(index == _selectedIndex ? Color.FromArgb(221, 214, 254) : Color.FromArgb(120, 120, 150), index == _selectedIndex ? 2 : 1);
                 using var handleBrush = new SolidBrush(Color.FromArgb(245, 245, 250));
 
+                e.Graphics.FillRectangle(shadowBrush, new Rectangle(rect.Left + 2, rect.Top + 2, rect.Width, rect.Height));
                 e.Graphics.FillRectangle(blockBrush, rect);
                 e.Graphics.FillRectangle(audioBrush, audioBlock);
                 if (_waveformProvider?.Invoke(segment.SourceFile) is Image waveform)
@@ -3206,8 +3325,14 @@ public sealed class QuickEditForm : Form
                     e.Graphics.FillRectangle(handleBrush, new Rectangle(rect.Right - 3, rect.Top + 4, 6, rect.Height - 8));
                 }
 
-                var label = $"{index + 1}. {Path.GetFileNameWithoutExtension(segment.SourceFile)}";
-                TextRenderer.DrawText(e.Graphics, label, Font, rect, Color.White, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine);
+                var tagRect = new Rectangle(rect.Left + 6, rect.Top + 4, 34, 14);
+                using var tagBrush = new SolidBrush(Color.FromArgb(96, 15, 23, 42));
+                e.Graphics.FillRectangle(tagBrush, tagRect);
+                TextRenderer.DrawText(e.Graphics, $"{segment.SafeTrack}:{index + 1}", new Font("Segoe UI", 6.5f, FontStyle.Bold), tagRect, Color.FromArgb(226, 232, 240), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+
+                var label = $"{Path.GetFileNameWithoutExtension(segment.SourceFile)}";
+                var labelRect = new Rectangle(rect.Left + 44, rect.Top, Math.Max(18, rect.Width - 48), rect.Height);
+                TextRenderer.DrawText(e.Graphics, label, Font, labelRect, Color.White, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine);
                 _hitTargets.Add((rect, index));
                 cursorSeconds += segment.Duration;
             }
