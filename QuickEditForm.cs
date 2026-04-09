@@ -21,6 +21,7 @@ public sealed class QuickEditForm : Form
     private readonly Button _jumpBackButton;
     private readonly Button _jumpForwardButton;
     private readonly Button _selectToolButton;
+    private readonly Button _rippleToolButton;
     private readonly Button _razorToolButton;
     private readonly Label _timelineModeLabel;
     private readonly Label _previewTimeLabel;
@@ -33,6 +34,7 @@ public sealed class QuickEditForm : Form
     private readonly NumericUpDown _cropWBox;
     private readonly NumericUpDown _cropHBox;
     private readonly Label _cropInfoLabel;
+    private readonly TextBox _projectSearchBox;
     private readonly TextBox _outputNameBox;
     private readonly TextBox _outputFolderBox;
     private readonly ListBox _sequenceList;
@@ -44,6 +46,8 @@ public sealed class QuickEditForm : Form
     private readonly Button _addMarkerButton;
     private readonly Button _splitPlayheadButton;
     private readonly FlowLayoutPanel _workspaceBadgeStrip;
+    private readonly Label _inspectorHeaderLabel;
+    private readonly Label _inspectorHintLabel;
     private readonly Label _statusLabel;
     private readonly Button _trimButton;
     private readonly Button _cropButton;
@@ -88,6 +92,7 @@ public sealed class QuickEditForm : Form
     private enum TimelineEditMode
     {
         Select,
+        Ripple,
         Razor,
     }
 
@@ -172,12 +177,20 @@ public sealed class QuickEditForm : Form
         Controls.Add(leftSplitter);
 
         leftPanel.Controls.Add(BuildSectionLabel("Project / media bin", 12, 12));
-        leftPanel.Controls.Add(BuildSmallLabel("Import clips, preview their thumbnails, then mark ranges to send into the timeline.", 12, 34, 248));
+        leftPanel.Controls.Add(BuildSmallLabel("Import clips, search fast, then patch ranges into the timeline.", 12, 34, 248));
+
+        _projectSearchBox = BuildTextBox(string.Empty, 12, 68, 144);
+        _projectSearchBox.PlaceholderText = "Search clips...";
+        _projectSearchBox.TextChanged += (_, _) => ApplyProjectBinSearch();
+        leftPanel.Controls.Add(_projectSearchBox);
+
+        var projectImportButton = BuildButton("Import", 160, 66, 88, (_, _) => AddFiles());
+        leftPanel.Controls.Add(projectImportButton);
 
         _mediaThumbStrip = new FlowLayoutPanel
         {
-            Location = new Point(12, 64),
-            Size = new Size(236, 92),
+            Location = new Point(12, 104),
+            Size = new Size(236, 76),
             BackColor = Color.FromArgb(14, 14, 18),
             BorderStyle = BorderStyle.FixedSingle,
             WrapContents = true,
@@ -189,8 +202,8 @@ public sealed class QuickEditForm : Form
 
         _filesList = new ListBox
         {
-            Location = new Point(12, 166),
-            Size = new Size(236, 406),
+            Location = new Point(12, 190),
+            Size = new Size(236, 382),
             HorizontalScrollbar = true,
             SelectionMode = SelectionMode.MultiExtended,
             AllowDrop = true,
@@ -214,12 +227,22 @@ public sealed class QuickEditForm : Form
         var centerPanel = new Panel
         {
             Location = new Point(296, 92),
-            Size = new Size(760, 680),
+            Size = new Size(760, 340),
+            BackColor = Color.FromArgb(15, 17, 20),
+            BorderStyle = BorderStyle.FixedSingle,
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+        };
+        Controls.Add(centerPanel);
+
+        var timelinePanel = new Panel
+        {
+            Location = new Point(20, 448),
+            Size = new Size(1036, 324),
             BackColor = Color.FromArgb(15, 17, 20),
             BorderStyle = BorderStyle.FixedSingle,
             Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
         };
-        Controls.Add(centerPanel);
+        Controls.Add(timelinePanel);
 
         var rightSplitter = new Panel
         {
@@ -327,10 +350,13 @@ public sealed class QuickEditForm : Form
         _selectToolButton = BuildButton("⌖ Select (V)", 238, 468, 100, (_, _) => SetTimelineEditMode(TimelineEditMode.Select));
         centerPanel.Controls.Add(_selectToolButton);
 
-        _razorToolButton = BuildButton("✂ Razor (C)", 346, 468, 100, (_, _) => SetTimelineEditMode(TimelineEditMode.Razor));
+        _rippleToolButton = BuildButton("⇄ Ripple (R)", 346, 468, 106, (_, _) => SetTimelineEditMode(TimelineEditMode.Ripple));
+        centerPanel.Controls.Add(_rippleToolButton);
+
+        _razorToolButton = BuildButton("✂ Razor (C)", 460, 468, 100, (_, _) => SetTimelineEditMode(TimelineEditMode.Razor));
         centerPanel.Controls.Add(_razorToolButton);
 
-        _timelineModeLabel = BuildSmallLabel("Selection tool active — V Select, C Razor, Ctrl+K cut, Ctrl+Z undo.", 430, 466, 314);
+        _timelineModeLabel = BuildSmallLabel("Selection tool active — V Select, R Ripple, C Razor, Ctrl+K cut, Ctrl+Z undo.", 570, 466, 314);
         centerPanel.Controls.Add(_timelineModeLabel);
 
         var sequenceSectionLabel = BuildSectionLabel("Sequence timeline", 14, 512);
@@ -352,6 +378,22 @@ public sealed class QuickEditForm : Form
         _sequenceTimelineView.SetWaveformProvider(file => _waveformCache.TryGetValue(file, out var waveform) ? waveform : null);
         centerPanel.Controls.Add(_sequenceTimelineView);
 
+        timelinePanel.Controls.Add(trimSectionLabel);
+        timelinePanel.Controls.Add(trimHint);
+        timelinePanel.Controls.Add(_trimTimelineView);
+        timelinePanel.Controls.Add(_timelineBar);
+        timelinePanel.Controls.Add(_refreshPreviewButton);
+        timelinePanel.Controls.Add(_playPauseButton);
+        timelinePanel.Controls.Add(_jumpBackButton);
+        timelinePanel.Controls.Add(_jumpForwardButton);
+        timelinePanel.Controls.Add(_selectToolButton);
+        timelinePanel.Controls.Add(_rippleToolButton);
+        timelinePanel.Controls.Add(_razorToolButton);
+        timelinePanel.Controls.Add(_timelineModeLabel);
+        timelinePanel.Controls.Add(sequenceSectionLabel);
+        timelinePanel.Controls.Add(timelineHint);
+        timelinePanel.Controls.Add(_sequenceTimelineView);
+
         var rightPanel = new Panel
         {
             Location = new Point(1072, 92),
@@ -364,9 +406,11 @@ public sealed class QuickEditForm : Form
         Controls.Add(rightPanel);
 
         int y = 12;
-        rightPanel.Controls.Add(BuildSectionLabel("Inspector / export", 14, y));
+        _inspectorHeaderLabel = BuildSectionLabel("Inspector / export", 14, y);
+        rightPanel.Controls.Add(_inspectorHeaderLabel);
         y += 22;
-        rightPanel.Controls.Add(BuildSmallLabel("This panel mirrors the program output and gives you the trim, crop, and export controls.", 14, y, 260));
+        _inspectorHintLabel = BuildSmallLabel("Select a clip to see its properties here, or leave nothing selected to use export settings.", 14, y, 260);
+        rightPanel.Controls.Add(_inspectorHintLabel);
         y += 38;
 
         _outputPreview = new PictureBox
@@ -616,92 +660,66 @@ public sealed class QuickEditForm : Form
             var panelHeight = Math.Max(600, ClientSize.Height - top - 88);
             var leftWidth = Math.Clamp(leftPanelWidth, 220, Math.Min(420, Math.Max(220, ClientSize.Width / 3)));
             var rightWidth = Math.Clamp(rightPanelWidth, 250, Math.Min(420, Math.Max(250, ClientSize.Width / 3)));
+            var topRowHeight = Math.Clamp((int)Math.Round(panelHeight * 0.40), 280, 360);
+            var timelineTop = top + topRowHeight + 12;
+            var timelineHeight = Math.Max(240, panelHeight - topRowHeight - 12);
 
-            leftPanel.Bounds = new Rectangle(outerMargin, top, leftWidth, panelHeight);
-            leftSplitter.Bounds = new Rectangle(leftPanel.Right + 4, top, 5, panelHeight);
+            leftPanel.Bounds = new Rectangle(outerMargin, top, leftWidth, topRowHeight);
+            leftSplitter.Bounds = new Rectangle(leftPanel.Right + 4, top, 5, topRowHeight);
             rightPanel.Bounds = new Rectangle(ClientSize.Width - outerMargin - rightWidth, top, rightWidth, panelHeight);
             rightSplitter.Bounds = new Rectangle(rightPanel.Left - 9, top, 5, panelHeight);
-            centerPanel.Bounds = new Rectangle(leftSplitter.Right + gap, top, Math.Max(560, rightSplitter.Left - gap - (leftSplitter.Right + gap)), panelHeight);
+            centerPanel.Bounds = new Rectangle(leftSplitter.Right + gap, top, Math.Max(560, rightSplitter.Left - gap - (leftSplitter.Right + gap)), topRowHeight);
+            timelinePanel.Bounds = new Rectangle(outerMargin, timelineTop, rightSplitter.Left - outerMargin - gap, timelineHeight);
 
-            _mediaThumbStrip.Size = new Size(leftPanel.ClientSize.Width - 24, 92);
-            _filesList.Size = new Size(leftPanel.ClientSize.Width - 24, Math.Max(220, leftPanel.ClientSize.Height - 274));
+            _projectSearchBox.Bounds = new Rectangle(12, 68, Math.Max(120, leftPanel.ClientSize.Width - 112), 26);
+            projectImportButton.Location = new Point(leftPanel.ClientSize.Width - 92, 66);
+            _mediaThumbStrip.Bounds = new Rectangle(12, 104, leftPanel.ClientSize.Width - 24, 76);
+            _filesList.Bounds = new Rectangle(12, 190, leftPanel.ClientSize.Width - 24, Math.Max(86, leftPanel.ClientSize.Height - 264));
 
             const int margin = 16;
             const int monitorGap = 12;
             var availableWidth = Math.Max(320, centerPanel.ClientSize.Width - (margin * 2));
-            var stackMonitors = availableWidth < 760;
-            var sourceWidth = stackMonitors
-                ? availableWidth
-                : Math.Clamp((int)Math.Round(availableWidth * 0.33), 220, 320);
-            var programX = stackMonitors ? margin : margin + sourceWidth + monitorGap;
-            var programWidth = stackMonitors
-                ? availableWidth
-                : Math.Max(320, availableWidth - sourceWidth - monitorGap);
-            var sourceHeight = stackMonitors
-                ? Math.Clamp((int)Math.Round(Math.Min(centerPanel.ClientSize.Height * 0.19, availableWidth / 2.1)), 170, 220)
-                : Math.Clamp((int)Math.Round(Math.Min(centerPanel.ClientSize.Height * 0.32, sourceWidth / 1.45)), 210, 280);
-            var programHeight = stackMonitors
-                ? Math.Clamp(sourceHeight + 22, 200, 260)
-                : Math.Clamp((int)Math.Round(Math.Min(centerPanel.ClientSize.Height * 0.34, programWidth / 1.65)), 220, 300);
+            var sourceWidth = Math.Clamp((int)Math.Round(availableWidth * 0.34), 220, 340);
+            var programX = margin + sourceWidth + monitorGap;
+            var programWidth = Math.Max(320, availableWidth - sourceWidth - monitorGap);
+            var monitorHeight = Math.Max(160, centerPanel.ClientSize.Height - 114);
 
             sourceMonitorLabel.Location = new Point(margin, 14);
+            programMonitorLabel.Location = new Point(programX, 14);
             _videoInfoLabel.Location = new Point(margin, 36);
-            _videoInfoLabel.Size = new Size(centerPanel.ClientSize.Width - (margin * 2), 30);
+            _videoInfoLabel.Size = new Size(centerPanel.ClientSize.Width - (margin * 2), 26);
 
-            _sourcePreview.Bounds = new Rectangle(margin, 68, sourceWidth, sourceHeight);
+            _sourcePreview.Bounds = new Rectangle(margin, 64, sourceWidth, monitorHeight);
+            _playerHost.Bounds = new Rectangle(programX, 64, programWidth, monitorHeight);
 
-            if (stackMonitors)
-            {
-                programMonitorLabel.Location = new Point(margin, _sourcePreview.Bottom + 12);
-                _playerHost.Bounds = new Rectangle(margin, programMonitorLabel.Bottom + 10, programWidth, programHeight);
-            }
-            else
-            {
-                programMonitorLabel.Location = new Point(programX, 14);
-                _playerHost.Bounds = new Rectangle(programX, 68, programWidth, programHeight);
-            }
+            _previewTimeLabel.Location = new Point(margin, _sourcePreview.Bottom + 6);
+            _previewTimeLabel.Size = new Size(sourceWidth, 22);
+            _playerStatusLabel.Location = new Point(programX, _playerHost.Bottom + 6);
+            _playerStatusLabel.Size = new Size(programWidth, 22);
 
-            _previewTimeLabel.Location = new Point(margin, _playerHost.Bottom + 10);
-            _previewTimeLabel.Size = new Size(Math.Max(220, sourceWidth + 40), 24);
-            _playerStatusLabel.Location = new Point(stackMonitors ? margin + 232 : programX, _playerHost.Bottom + 10);
-            _playerStatusLabel.Size = new Size(stackMonitors ? Math.Max(180, availableWidth - 232) : programWidth, 24);
+            trimSectionLabel.Location = new Point(margin, 12);
+            trimHint.Location = new Point(margin, 32);
+            trimHint.Size = new Size(timelinePanel.ClientSize.Width - (margin * 2), 24);
 
-            var trimHeaderY = _playerHost.Bottom + 38;
-            trimSectionLabel.Location = new Point(margin, trimHeaderY);
-            trimHint.Location = new Point(margin, trimHeaderY + 20);
-            trimHint.Size = new Size(centerPanel.ClientSize.Width - (margin * 2), 30);
+            _trimTimelineView.Bounds = new Rectangle(margin, 60, timelinePanel.ClientSize.Width - (margin * 2), 92);
+            _refreshPreviewButton.Location = new Point(timelinePanel.ClientSize.Width - margin - _refreshPreviewButton.Width, _trimTimelineView.Bottom + 8);
+            _timelineBar.Bounds = new Rectangle(margin, _trimTimelineView.Bottom + 10, Math.Max(240, _refreshPreviewButton.Left - margin - 8), 26);
 
-            _trimTimelineView.Bounds = new Rectangle(margin, trimHint.Bottom + 6, centerPanel.ClientSize.Width - (margin * 2), Math.Clamp((int)Math.Round(centerPanel.ClientSize.Height * 0.14), 92, 116));
-            _refreshPreviewButton.Location = new Point(centerPanel.ClientSize.Width - margin - _refreshPreviewButton.Width, _trimTimelineView.Bottom + 10);
-            _timelineBar.Bounds = new Rectangle(margin, _trimTimelineView.Bottom + 12, Math.Max(240, _refreshPreviewButton.Left - margin - 8), 28);
-
-            var transportY = _timelineBar.Bottom + 10;
+            var transportY = _timelineBar.Bottom + 8;
             _playPauseButton.Location = new Point(margin, transportY);
-            _jumpBackButton.Location = new Point(_playPauseButton.Right + 10, transportY);
-            _jumpForwardButton.Location = new Point(_jumpBackButton.Right + 10, transportY);
+            _jumpBackButton.Location = new Point(_playPauseButton.Right + 8, transportY);
+            _jumpForwardButton.Location = new Point(_jumpBackButton.Right + 8, transportY);
+            _selectToolButton.Location = new Point(_jumpForwardButton.Right + 14, transportY);
+            _rippleToolButton.Location = new Point(_selectToolButton.Right + 8, transportY);
+            _razorToolButton.Location = new Point(_rippleToolButton.Right + 8, transportY);
+            _timelineModeLabel.Location = new Point(_razorToolButton.Right + 10, transportY - 1);
+            _timelineModeLabel.Size = new Size(Math.Max(160, timelinePanel.ClientSize.Width - _timelineModeLabel.Left - margin), 28);
 
-            var compactToolRow = centerPanel.ClientSize.Width < 760;
-            if (compactToolRow)
-            {
-                _selectToolButton.Location = new Point(margin, _playPauseButton.Bottom + 8);
-                _razorToolButton.Location = new Point(_selectToolButton.Right + 8, _selectToolButton.Top);
-                _timelineModeLabel.Location = new Point(_razorToolButton.Right + 10, _selectToolButton.Top - 2);
-                _timelineModeLabel.Size = new Size(Math.Max(140, centerPanel.ClientSize.Width - _timelineModeLabel.Left - margin), 34);
-            }
-            else
-            {
-                _selectToolButton.Location = new Point(_jumpForwardButton.Right + 18, transportY);
-                _razorToolButton.Location = new Point(_selectToolButton.Right + 8, transportY);
-                _timelineModeLabel.Location = new Point(_razorToolButton.Right + 12, transportY - 2);
-                _timelineModeLabel.Size = new Size(Math.Max(160, centerPanel.ClientSize.Width - _timelineModeLabel.Left - margin), 34);
-            }
-
-            var toolRowBottom = Math.Max(_playPauseButton.Bottom, Math.Max(_selectToolButton.Bottom, _timelineModeLabel.Bottom));
-            var sequenceHeaderY = toolRowBottom + 22;
-            sequenceSectionLabel.Location = new Point(margin, sequenceHeaderY);
-            timelineHint.Location = new Point(margin, sequenceHeaderY + 20);
-            timelineHint.Size = new Size(centerPanel.ClientSize.Width - (margin * 2), 30);
-            _sequenceTimelineView.Bounds = new Rectangle(margin, timelineHint.Bottom + 6, centerPanel.ClientSize.Width - (margin * 2), Math.Max(178, centerPanel.ClientSize.Height - timelineHint.Bottom - 20));
+            var toolRowBottom = Math.Max(_playPauseButton.Bottom, Math.Max(_rippleToolButton.Bottom, _timelineModeLabel.Bottom));
+            sequenceSectionLabel.Location = new Point(margin, toolRowBottom + 14);
+            timelineHint.Location = new Point(margin, sequenceSectionLabel.Bottom + 2);
+            timelineHint.Size = new Size(timelinePanel.ClientSize.Width - (margin * 2), 24);
+            _sequenceTimelineView.Bounds = new Rectangle(margin, timelineHint.Bottom + 4, timelinePanel.ClientSize.Width - (margin * 2), Math.Max(120, timelinePanel.ClientSize.Height - timelineHint.Bottom - 14));
 
             _statusLabel.Location = new Point(20, ClientSize.Height - 48);
             _statusLabel.Size = new Size(ClientSize.Width - 40, 24);
@@ -717,8 +735,12 @@ public sealed class QuickEditForm : Form
         {
             DrawWorkspaceCard(e.Graphics, Rectangle.FromLTRB(_sourcePreview.Left - 8, sourceMonitorLabel.Top - 6, _sourcePreview.Right + 8, _sourcePreview.Bottom + 8), "SOURCE", "mark in / out", Color.FromArgb(124, 58, 237));
             DrawWorkspaceCard(e.Graphics, Rectangle.FromLTRB(_playerHost.Left - 8, programMonitorLabel.Top - 6, _playerHost.Right + 8, _playerHost.Bottom + 8), "PROGRAM", "review output", Color.FromArgb(59, 130, 246));
-            DrawWorkspaceCard(e.Graphics, Rectangle.FromLTRB(_trimTimelineView.Left - 8, trimSectionLabel.Top - 6, _trimTimelineView.Right + 8, _timelineBar.Bottom + 10), "SOURCE PATCH", "insert / overwrite range", Color.FromArgb(20, 184, 166));
-            DrawWorkspaceCard(e.Graphics, Rectangle.FromLTRB(_playPauseButton.Left - 8, _playPauseButton.Top - 8, _timelineModeLabel.Right + 8, Math.Max(_playPauseButton.Bottom, Math.Max(_selectToolButton.Bottom, _timelineModeLabel.Bottom)) + 8), "TOOLS", "transport + edit mode", Color.FromArgb(251, 191, 36));
+        };
+
+        timelinePanel.Paint += (_, e) =>
+        {
+            DrawWorkspaceCard(e.Graphics, Rectangle.FromLTRB(_trimTimelineView.Left - 8, trimSectionLabel.Top - 6, _trimTimelineView.Right + 8, _timelineBar.Bottom + 8), "SOURCE PATCH", "insert / overwrite range", Color.FromArgb(20, 184, 166));
+            DrawWorkspaceCard(e.Graphics, Rectangle.FromLTRB(_playPauseButton.Left - 8, _playPauseButton.Top - 8, _timelineModeLabel.Right + 8, Math.Max(_playPauseButton.Bottom, Math.Max(_rippleToolButton.Bottom, _timelineModeLabel.Bottom)) + 8), "TOOLS", "transport + edit mode", Color.FromArgb(251, 191, 36));
             DrawWorkspaceCard(e.Graphics, Rectangle.FromLTRB(_sequenceTimelineView.Left - 8, sequenceSectionLabel.Top - 6, _sequenceTimelineView.Right + 8, _sequenceTimelineView.Bottom + 8), "TIMELINE", "ripple / razor / reorder", Color.FromArgb(139, 92, 246));
         };
 
@@ -732,6 +754,7 @@ public sealed class QuickEditForm : Form
 
         SizeChanged += (_, _) => LayoutWorkspace();
         centerPanel.SizeChanged += (_, _) => LayoutWorkspace();
+        timelinePanel.SizeChanged += (_, _) => LayoutWorkspace();
         KeyDown += OnEditorKeyDown;
         LayoutWorkspace();
         UpdateTimelineZoom();
@@ -749,6 +772,7 @@ public sealed class QuickEditForm : Form
 
         UpdateSequenceUi();
         UpdateMarkerUi();
+        UpdateInspectorModeUi();
         LoadExistingClipsFromFolder(outputFolder);
     }
 
@@ -924,6 +948,35 @@ public sealed class QuickEditForm : Form
             }
         }
         return added;
+    }
+
+    private void ApplyProjectBinSearch()
+    {
+        var query = _projectSearchBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(query))
+            return;
+
+        var matchIndex = _filesList.FindString(query);
+        if (matchIndex >= 0)
+        {
+            _filesList.SelectedIndex = matchIndex;
+            _filesList.TopIndex = matchIndex;
+        }
+    }
+
+    private void UpdateInspectorModeUi()
+    {
+        var hasClipSelection = !string.IsNullOrWhiteSpace(_selectedFile) || (_sequenceList?.SelectedIndex ?? -1) >= 0;
+        if (hasClipSelection)
+        {
+            _inspectorHeaderLabel.Text = "Clip inspector".ToUpperInvariant();
+            _inspectorHintLabel.Text = "Transform, crop, and source-linked audio details for the selected clip live here. Export remains below.";
+        }
+        else
+        {
+            _inspectorHeaderLabel.Text = "Export inspector".ToUpperInvariant();
+            _inspectorHintLabel.Text = "No clip selected — set your output name, folder, and render/export controls here.";
+        }
     }
 
     private async Task RefreshMediaBinThumbnailsAsync()
@@ -1268,6 +1321,7 @@ public sealed class QuickEditForm : Form
             _trimTimelineView.SetThumbnails(Array.Empty<Image>());
             _trimTimelineView.SetWaveform(null);
             UpdateMarkerUi();
+            UpdateInspectorModeUi();
             _ = RefreshMediaBinThumbnailsAsync();
             _sourcePreview.ClearPreview();
             ReplacePicture(_outputPreview, null);
@@ -1285,6 +1339,7 @@ public sealed class QuickEditForm : Form
             _trimTimelineView.SetThumbnails(Array.Empty<Image>());
             _trimTimelineView.SetWaveform(null);
             UpdateMarkerUi();
+            UpdateInspectorModeUi();
             _ = RefreshMediaBinThumbnailsAsync();
             _sourcePreview.ClearPreview();
             ReplacePicture(_outputPreview, null);
@@ -1318,6 +1373,7 @@ public sealed class QuickEditForm : Form
             _timelineBar.Value = 0;
             UpdateTrimTimelineUi();
             UpdateMarkerUi();
+            UpdateInspectorModeUi();
             _ = RefreshMediaBinThumbnailsAsync();
             await RefreshTrimTimelineFramesAsync();
             await RefreshWaveformAsync();
@@ -1757,12 +1813,17 @@ public sealed class QuickEditForm : Form
     {
         _timelineEditMode = mode;
         var razorActive = mode == TimelineEditMode.Razor;
+        var rippleActive = mode == TimelineEditMode.Ripple;
         _sequenceTimelineView.SetRazorMode(razorActive);
-        StyleToolButton(_selectToolButton, !razorActive);
+        StyleToolButton(_selectToolButton, mode == TimelineEditMode.Select);
+        StyleToolButton(_rippleToolButton, rippleActive);
         StyleToolButton(_razorToolButton, razorActive);
-        _timelineModeLabel.Text = razorActive
-            ? "Razor tool active — click any timeline cut to slice it instantly."
-            : "Selection tool active — Insert/Overwrite at the playhead, drag clips, or press C for Razor.";
+        _timelineModeLabel.Text = mode switch
+        {
+            TimelineEditMode.Razor => "Razor tool active — click any timeline cut to slice it instantly.",
+            TimelineEditMode.Ripple => "Ripple tool active — drag edit edges and the sequence will flow around the trim.",
+            _ => "Selection tool active — Insert/Overwrite at the playhead, drag clips, or press C for Razor.",
+        };
         _statusLabel.Text = _timelineModeLabel.Text;
     }
 
@@ -2352,6 +2413,7 @@ public sealed class QuickEditForm : Form
         _splitPlayheadButton.Enabled = _sequenceSegments.Count > 0 && _sequenceList.SelectedIndex >= 0;
         _undoEditButton.Enabled = _sequenceUndoStack.Count > 0;
         _exportSequenceButton.Enabled = _sequenceSegments.Count > 0;
+        UpdateInspectorModeUi();
     }
 
     private async Task ExportSequenceAsync()
@@ -2565,6 +2627,13 @@ public sealed class QuickEditForm : Form
             return;
         }
 
+        if (e.KeyCode == Keys.R && !e.Control && !e.Alt)
+        {
+            SetTimelineEditMode(TimelineEditMode.Ripple);
+            e.SuppressKeyPress = true;
+            return;
+        }
+
         if (e.KeyCode == Keys.V && !e.Control && !e.Alt)
         {
             SetTimelineEditMode(TimelineEditMode.Select);
@@ -2689,6 +2758,7 @@ public sealed class QuickEditForm : Form
         _jumpBackButton.Enabled = canControlPlayback;
         _jumpForwardButton.Enabled = canControlPlayback;
         _selectToolButton.Enabled = !busy;
+        _rippleToolButton.Enabled = !busy;
         _razorToolButton.Enabled = !busy;
         _statusLabel.Text = status;
     }
@@ -2877,7 +2947,8 @@ public sealed class QuickEditForm : Form
         protected override void OnMouseWheel(MouseEventArgs e)
         {
             base.OnMouseWheel(e);
-            ZoomDeltaRequested?.Invoke(e.Delta > 0 ? 0.25 : -0.25);
+            if ((ModifierKeys & Keys.Alt) == Keys.Alt)
+                ZoomDeltaRequested?.Invoke(e.Delta > 0 ? 0.25 : -0.25);
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -3299,7 +3370,8 @@ public sealed class QuickEditForm : Form
         protected override void OnMouseWheel(MouseEventArgs e)
         {
             base.OnMouseWheel(e);
-            ZoomDeltaRequested?.Invoke(e.Delta > 0 ? 0.25 : -0.25);
+            if ((ModifierKeys & Keys.Alt) == Keys.Alt)
+                ZoomDeltaRequested?.Invoke(e.Delta > 0 ? 0.25 : -0.25);
         }
 
         protected override void OnPaint(PaintEventArgs e)
