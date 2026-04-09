@@ -967,12 +967,14 @@ public class TrayContext : ApplicationContext
 
     private void ShowSettings() => ShowSettingsOnTab(0);
 
-    private async void ShowQuickEditor()
+    private async void ShowQuickEditor(AppSettings? probeSettings = null)
     {
+        var effectiveSettings = probeSettings ?? _settings;
+
         if (_editorLicenseCheckInProgress)
             return;
 
-        if (string.IsNullOrWhiteSpace(_settings.ServerUrl) || string.IsNullOrWhiteSpace(_settings.ApiToken))
+        if (string.IsNullOrWhiteSpace(effectiveSettings.ServerUrl) || string.IsNullOrWhiteSpace(effectiveSettings.ApiToken))
         {
             MessageBox.Show(
                 "Unauthorized: configure a valid API token before opening the video editor.",
@@ -987,7 +989,7 @@ public class TrayContext : ApplicationContext
         try
         {
             SetTrayText("VELO Uploader — Verifying editor license");
-            var validation = await UploadService.ValidateApiTokenAsync(_settings, _cts.Token);
+            var validation = await UploadService.ValidateApiTokenAsync(effectiveSettings, _cts.Token);
             if (!validation.IsValid)
             {
                 Logger.Warn($"Video editor access denied: {validation.Message}");
@@ -1028,7 +1030,7 @@ public class TrayContext : ApplicationContext
                 return;
             }
 
-            _quickEditForm = new QuickEditForm(_settings.WatchFolder);
+            _quickEditForm = new QuickEditForm(effectiveSettings.WatchFolder);
             _quickEditForm.FormClosed += (_, _) => _quickEditForm = null;
             _quickEditForm.Show();
         }

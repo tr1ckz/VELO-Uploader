@@ -239,7 +239,7 @@ public class SettingsForm : Form
     private Button _queueProcessNowBtn;
     private Button _quickEditorBtn;
     private readonly Action<bool, bool>? _setQueueProcessing;
-    private readonly Action? _openQuickEditor;
+    private readonly Action<AppSettings?>? _openQuickEditor;
 
     // Palette
     static readonly Color C_BG = Color.FromArgb(12, 12, 15);
@@ -258,7 +258,7 @@ public class SettingsForm : Form
     static readonly Color C_ORANGE = Color.FromArgb(251, 146, 60);
     static readonly Color C_ERR = Color.FromArgb(248, 113, 113);
 
-    public SettingsForm(AppSettings settings, int initialTab = 0, Action<bool, bool>? setQueueProcessing = null, Action? openQuickEditor = null)
+    public SettingsForm(AppSettings settings, int initialTab = 0, Action<bool, bool>? setQueueProcessing = null, Action<AppSettings?>? openQuickEditor = null)
     {
         _settings = settings;
         _activeTab = Math.Clamp(initialTab, 0, 3);
@@ -468,7 +468,7 @@ public class SettingsForm : Form
 
         _quickEditorBtn = MkBtn("Open Video Editor", lx, y, 136, 32, C_ACCENT, C_ACCENT_H);
         _quickEditorBtn.Enabled = _openQuickEditor != null;
-        _quickEditorBtn.Click += (_, _) => _openQuickEditor?.Invoke();
+        _quickEditorBtn.Click += (_, _) => OpenQuickEditorFromCurrentSettings();
         home.Controls.Add(_quickEditorBtn);
 
         _queueProcessNowBtn = MkBtn("Process Queue", lx + 146, y, 118, 32, C_BTN, C_BTN_H);
@@ -557,7 +557,7 @@ public class SettingsForm : Form
         y += 22;
 
         var openEditorBtn = MkBtn("Open Video Editor", lx, y, 128, 30, C_ACCENT, C_ACCENT_H);
-        openEditorBtn.Click += (_, _) => _openQuickEditor?.Invoke();
+        openEditorBtn.Click += (_, _) => OpenQuickEditorFromCurrentSettings();
         openEditorBtn.Enabled = _openQuickEditor != null;
         g.Controls.Add(openEditorBtn);
 
@@ -1501,6 +1501,26 @@ public class SettingsForm : Form
             _taskStatusLabel.Text = "";
             _taskSpeedLabel.Text = "";
         });
+    }
+
+    AppSettings BuildEditorProbeSettings() => new()
+    {
+        ServerUrl = _urlBox.Text.Trim(),
+        ApiToken = _tokenBox.Text.Trim(),
+        WatchFolder = string.IsNullOrWhiteSpace(_watchBox.Text) ? _settings.WatchFolder : _watchBox.Text.Trim(),
+        AllowSelfSignedCerts = _selfSignedBox.Checked,
+        TrustedCertPath = _certPathBox.Text.Trim(),
+    };
+
+    void OpenQuickEditorFromCurrentSettings()
+    {
+        if (_openQuickEditor == null)
+            return;
+
+        if (!ValidatePinnedCertPath())
+            return;
+
+        _openQuickEditor(BuildEditorProbeSettings());
     }
 
     // ── Logging ──
