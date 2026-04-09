@@ -67,6 +67,7 @@ public class TrayContext : ApplicationContext
     private readonly CancellationTokenSource _cts = new();
     private readonly Control _uiDispatcher = new();
     private bool _updateCheckInProgress;
+    private bool _editorLicenseCheckInProgress;
     private readonly ClipProcessingQueue _processingQueue = new();
     private readonly ConcurrentQueue<string> _pendingQueue = new();
     private readonly SemaphoreSlim _queueSignal = new(0);
@@ -966,28 +967,77 @@ public class TrayContext : ApplicationContext
 
     private void ShowSettings() => ShowSettingsOnTab(0);
 
-    private void ShowQuickEditor()
+    private async void ShowQuickEditor()
     {
-        if (!FFmpegHelper.IsFFmpegAvailable())
-        {
-            CheckFFmpegInstallation();
-            if (!FFmpegHelper.IsFFmpegAvailable())
-            {
-                MessageBox.Show(FFmpegHelper.GetFFmpegNotFoundMessage(), "VELO Uploader", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-        }
+        if (_editorLicenseCheckInProgress)
+            return;
 
-        if (_quickEditForm != null && !_quickEditForm.IsDisposed)
+        if (string.IsNullOrWhiteSpace(_settings.ServerUrl) || string.IsNullOrWhiteSpace(_settings.ApiToken))
         {
-            _quickEditForm.BringToFront();
-            _quickEditForm.Focus();
+            MessageBox.Show(
+                "The video editor is locked until a valid API token is configured.",
+                "Video editor locked",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+            ShowSettingsOnTab(1);
             return;
         }
 
-        _quickEditForm = new QuickEditForm(_settings.WatchFolder);
-        _quickEditForm.FormClosed += (_, _) => _quickEditForm = null;
-        _quickEditForm.Show();
+        _editorLicenseCheckInProgress = true;
+        try
+        {
+            SetTrayText("VELO Uploader — Verifying editor license");
+            var validation = await UploadService.ValidateApiTokenAsync(_settings, _cts.Token);
+            if (!validation.IsValid)
+            {
+                Logger.Warn($"Video editor access denied: {validation.Message}");
+                if (_quickEditForm != null && !_quickEditForm.IsDisposed)
+                {
+                    _quickEditForm.Close();
+                    _quickEditForm = null;
+                }
+
+                MessageBox.Show(
+                    "The video editor requires a valid VELO API token before it can open.\n\n" + validation.Message,
+                    "Video editor locked",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                ShowSettingsOnTab(1);
+                return;
+            }
+
+            if (!FFmpegHelper.IsFFmpegAvailable())
+            {
+                CheckFFmpegInstallation();
+                if (!FFmpegHelper.IsFFmpegAvailable())
+                {
+                    MessageBox.Show(FFmpegHelper.GetFFmpegNotFoundMessage(), "VELO Uploader", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+            }
+
+            if (_settingsForm != null && !_settingsForm.IsDisposed)
+                _settingsForm.AddEventLog("✓ Video editor license verified", Color.FromArgb(74, 222, 128));
+
+            if (_quickEditForm != null && !_quickEditForm.IsDisposed)
+            {
+                _quickEditForm.BringToFront();
+                _quickEditForm.Focus();
+                return;
+            }
+
+            _quickEditForm = new QuickEditForm(_settings.WatchFolder);
+            _quickEditForm.FormClosed += (_, _) => _quickEditForm = null;
+            _quickEditForm.Show();
+        }
+        finally
+        {
+            _editorLicenseCheckInProgress = false;
+            if (_queueProcessingEnabled)
+                SetTrayText(_watcher?.IsWatching == true ? $"VELO Uploader — Watching {_settings.WatchFolder}" : "VELO Uploader — Ready");
+            else
+                SetTrayText("VELO Uploader — Queue-only mode");
+        }
     }
 
     private void ShowSettingsOnTab(int tabIndex)

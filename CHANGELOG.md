@@ -1,5 +1,9 @@
 # VELO Uploader - Changelog
 
+## Version 1.7.36 (2026-04-09)
+- Feature: lock the video editor behind live API-token validation so it only opens when the VELO token is accepted by the server
+- Improvement: reuse the same server-side token validation flow in the Settings `Test API` action and the editor launch gate
+
 ## Version 1.7.35 (2026-04-09)
 - Fix: harden tray/menu/status updates onto the WinForms UI thread to reduce intermittent crash-and-restart behavior
 - Fix: make persisted queue restore startup-safe so a bad queued item cannot take down launch

@@ -1629,9 +1629,8 @@ public class SettingsForm : Form
     async Task TestConnection()
     {
         var baseUrl = _urlBox.Text.Trim();
-        var url = baseUrl.TrimEnd('/') + "/api/videos";
         var token = _tokenBox.Text.Trim();
-        if (url.Length < 10 || token.Length == 0) { Status("Fill URL + token first", true); return; }
+        if (baseUrl.Length < 10 || token.Length == 0) { Status("Fill URL + token first", true); return; }
         if (!ValidatePinnedCertPath()) return;
 
         _testBtn.Enabled = false;
@@ -1639,32 +1638,13 @@ public class SettingsForm : Form
         Status("Testing API token against authenticated upload endpoint...", false);
         try
         {
-            using var handler = TlsCertHelper.CreateHandler(BuildTlsProbeSettings());
-            using var h = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) };
-            h.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
-            using var content = new ByteArrayContent([]);
-            content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
+            var probeSettings = BuildTlsProbeSettings();
+            probeSettings.ServerUrl = baseUrl;
+            probeSettings.ApiToken = token;
 
-            var r = await h.PostAsync(url, content);
-            var body = await r.Content.ReadAsStringAsync();
-
-            if (r.StatusCode == System.Net.HttpStatusCode.Unauthorized || r.StatusCode == System.Net.HttpStatusCode.Forbidden)
-            {
-                Status("API token rejected by server", true);
-                return;
-            }
-
-            // This endpoint is authenticated first, then validates the upload payload.
-            // Any non-auth response proves the token was accepted.
-            if ((int)r.StatusCode >= 400 && (int)r.StatusCode < 500)
-            {
-                Status($"API token OK • Server auth passed ({(int)r.StatusCode})", false);
-                return;
-            }
-
-            Status($"API token OK • HTTP {(int)r.StatusCode}", false);
+            var validation = await UploadService.ValidateApiTokenAsync(probeSettings);
+            Status(validation.Message, !validation.IsValid);
         }
-        catch (Exception ex) { Status($"API test failed: {ex.Message}", true); }
         finally { _testBtn.Enabled = true; _testTlsBtn.Enabled = true; }
     }
 

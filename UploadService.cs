@@ -45,7 +45,53 @@ public class UploadService
         bool Retryable = false,
         TimeSpan? RetryAfter = null);
 
+    public record ApiTokenValidationResult(bool IsValid, string Message);
+
     private sealed record ChunkInitResult(string UploadId, string? Error = null, bool Retryable = false, TimeSpan? RetryAfter = null);
+
+    public static async Task<ApiTokenValidationResult> ValidateApiTokenAsync(AppSettings settings, CancellationToken ct = default)
+    {
+        var baseUrl = settings.ServerUrl?.Trim() ?? string.Empty;
+        var token = settings.ApiToken?.Trim() ?? string.Empty;
+
+        if (baseUrl.Length < 10 || token.Length == 0)
+            return new ApiTokenValidationResult(false, "Server URL and API token are required.");
+
+        try
+        {
+            using var handler = TlsCertHelper.CreateHandler(settings);
+            using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) };
+            using var request = new HttpRequestMessage(HttpMethod.Post, baseUrl.TrimEnd('/') + "/api/videos");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            using var content = new ByteArrayContent([]);
+            content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+            request.Content = content;
+
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseContentRead, ct);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.Forbidden)
+                return new ApiTokenValidationResult(false, "API token rejected by server.");
+
+            // The upload endpoint authenticates first, then validates payload shape.
+            // Any non-auth 4xx response means the token itself was accepted.
+            if ((int)response.StatusCode >= 400 && (int)response.StatusCode < 500)
+                return new ApiTokenValidationResult(true, $"API token OK • server auth passed ({(int)response.StatusCode})");
+
+            if (response.IsSuccessStatusCode)
+                return new ApiTokenValidationResult(true, $"API token OK • HTTP {(int)response.StatusCode}");
+
+            return new ApiTokenValidationResult(false, $"Could not verify API token • server returned {(int)response.StatusCode}.");
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return new ApiTokenValidationResult(false, "API validation timed out.");
+        }
+        catch (Exception ex)
+        {
+            return new ApiTokenValidationResult(false, $"Could not verify API token: {ex.Message}");
+        }
+    }
 
     public static async Task<UploadResult> UploadAsync(
         string serverUrl, string apiToken, string filePath,
