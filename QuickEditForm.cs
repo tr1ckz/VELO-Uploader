@@ -48,6 +48,8 @@ public sealed class QuickEditForm : Form
     private readonly Button _cropButton;
     private readonly Button _mergeButton;
     private readonly Button _addCutButton;
+    private readonly Button _overwriteCutButton;
+    private readonly Button _undoEditButton;
     private readonly Button _exportSequenceButton;
     private readonly Button _refreshPreviewButton;
     private readonly CheckBox _enableCropBox;
@@ -69,6 +71,7 @@ public sealed class QuickEditForm : Form
     private readonly Dictionary<string, List<Image>> _trimThumbCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Image> _waveformCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, List<double>> _clipMarkers = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Stack<List<TimelineSegment>> _sequenceUndoStack = [];
     private double _timelineZoom = 1;
 
     private static readonly string[] SupportedExtensions = [".mp4", ".mkv", ".mov", ".avi", ".webm"];
@@ -124,7 +127,7 @@ public sealed class QuickEditForm : Form
 
         var hint = new Label
         {
-            Text = "Import footage, mark an IN / OUT range, insert it into the timeline, and switch between Select and Razor tools like a real editor.",
+            Text = "Import footage, set IN / OUT in the Source monitor, then Insert or Overwrite at the playhead just like a real NLE timeline.",
             AutoSize = false,
             Size = new Size(1320, 40),
             Location = new Point(20, 42),
@@ -288,12 +291,12 @@ public sealed class QuickEditForm : Form
         _razorToolButton = BuildButton("Razor (C)", 334, 468, 88, (_, _) => SetTimelineEditMode(TimelineEditMode.Razor));
         centerPanel.Controls.Add(_razorToolButton);
 
-        _timelineModeLabel = BuildSmallLabel("Selection tool active — press C for Razor or Ctrl+K to cut at the playhead.", 430, 466, 314);
+        _timelineModeLabel = BuildSmallLabel("Selection tool active — V Select, C Razor, Ctrl+K cut, Ctrl+Z undo.", 430, 466, 314);
         centerPanel.Controls.Add(_timelineModeLabel);
 
         var sequenceSectionLabel = BuildSectionLabel("Sequence timeline", 14, 512);
         centerPanel.Controls.Add(sequenceSectionLabel);
-        var timelineHint = BuildSmallLabel("Use Select to move or trim clips, switch to Razor to click-cut them instantly, and scroll the mouse wheel to zoom the timeline.", 14, 534, 720);
+        var timelineHint = BuildSmallLabel("Premiere-style flow: Insert or Overwrite from the Source monitor, drag to reorder, Razor to cut, and use Ctrl+Left/Right for fine trims.", 14, 534, 720);
         centerPanel.Controls.Add(timelineHint);
 
         _sequenceTimelineView = new SequenceTimelineView
@@ -370,14 +373,20 @@ public sealed class QuickEditForm : Form
         rightPanel.Controls.Add(_trimButton);
         y += 36;
 
-        _markerHintLabel = BuildSmallLabel("Single clip: Save clip from IN/OUT range. Full edit: Save full timeline as video.", 14, y, 260);
+        _markerHintLabel = BuildSmallLabel("Source first: mark IN/OUT, then Insert or Overwrite at the playhead. C = Razor, V = Select, Ctrl+Z = undo.", 14, y, 260);
         rightPanel.Controls.Add(_markerHintLabel);
-        y += 34;
+        y += 42;
 
-        _addCutButton = BuildButton("Insert range into timeline", 14, y, 170, (_, _) => AddCurrentCutToSequence());
+        _addCutButton = BuildButton("Insert at playhead", 14, y, 124, (_, _) => AddCurrentCutToSequence(overwrite: false));
         rightPanel.Controls.Add(_addCutButton);
-        _splitPlayheadButton = BuildButton("Cut at playhead", 192, y, 82, (_, _) => SplitSelectedSegmentAtPlayhead());
+        _overwriteCutButton = BuildButton("Overwrite", 150, y, 124, (_, _) => AddCurrentCutToSequence(overwrite: true));
+        rightPanel.Controls.Add(_overwriteCutButton);
+        y += 36;
+
+        _splitPlayheadButton = BuildButton("Cut at playhead", 14, y, 124, (_, _) => SplitSelectedSegmentAtPlayhead());
         rightPanel.Controls.Add(_splitPlayheadButton);
+        _undoEditButton = BuildButton("Undo last edit", 150, y, 124, (_, _) => UndoLastSequenceEdit());
+        rightPanel.Controls.Add(_undoEditButton);
         y += 36;
 
         _addMarkerButton = BuildButton("Add marker at playhead", 14, y, 180, (_, _) => AddMarkerAtPlayhead());
@@ -457,7 +466,7 @@ public sealed class QuickEditForm : Form
 
         rightPanel.Controls.Add(BuildSectionLabel("Timeline / sequence", 14, y));
         y += 22;
-        _sequenceHintLabel = BuildSmallLabel("Insert cuts here, then move them with Select or slice them with Razor. Double-click any cut to reload it in the monitors.", 14, y, 260);
+        _sequenceHintLabel = BuildSmallLabel("Insert or Overwrite into the timeline here, then move with Select, cut with Razor, and fine-trim with Ctrl+Left/Right.", 14, y, 260);
         rightPanel.Controls.Add(_sequenceHintLabel);
         y += 34;
 
@@ -479,10 +488,10 @@ public sealed class QuickEditForm : Form
         rightPanel.Controls.Add(_sequenceList);
         y += 128;
 
-        rightPanel.Controls.Add(BuildButton("Remove", 14, y, 70, (_, _) => RemoveSelectedSequenceSegment()));
+        rightPanel.Controls.Add(BuildButton("Ripple", 14, y, 70, (_, _) => RemoveSelectedSequenceSegment()));
         rightPanel.Controls.Add(BuildButton("Up", 92, y, 42, (_, _) => MoveSelectedSequenceSegment(-1)));
         rightPanel.Controls.Add(BuildButton("Down", 142, y, 52, (_, _) => MoveSelectedSequenceSegment(1)));
-        rightPanel.Controls.Add(BuildButton("Clear", 202, y, 72, (_, _) => ClearSequence()));
+        rightPanel.Controls.Add(BuildButton("Clear all", 202, y, 72, (_, _) => ClearSequence()));
         y += 38;
 
         _sequenceSummaryLabel = BuildSmallLabel("Timeline empty — insert a range to start cutting.", 14, y, 260);
@@ -1582,6 +1591,8 @@ public sealed class QuickEditForm : Form
 
         var hasClip = !string.IsNullOrWhiteSpace(_selectedFile);
         _addMarkerButton.Enabled = hasClip;
+        _addCutButton.Enabled = hasClip;
+        _overwriteCutButton.Enabled = hasClip;
         _splitPlayheadButton.Enabled = _sequenceList.SelectedIndex >= 0;
         _trimTimelineView.SetMarkers(markers);
     }
@@ -1607,9 +1618,69 @@ public sealed class QuickEditForm : Form
         StyleToolButton(_selectToolButton, !razorActive);
         StyleToolButton(_razorToolButton, razorActive);
         _timelineModeLabel.Text = razorActive
-            ? "Razor tool active — click any timeline clip to cut it instantly."
-            : "Selection tool active — drag clips, trim edges, or press C for Razor.";
+            ? "Razor tool active — click any timeline cut to slice it instantly."
+            : "Selection tool active — Insert/Overwrite at the playhead, drag clips, or press C for Razor.";
         _statusLabel.Text = _timelineModeLabel.Text;
+    }
+
+    private void NudgeNearestTrimHandle(double deltaSeconds)
+    {
+        if (_sequenceList.SelectedIndex >= 0 && _sequenceList.SelectedIndex < _sequenceSegments.Count)
+        {
+            var index = _sequenceList.SelectedIndex;
+            var segment = _sequenceSegments[index];
+            var playhead = GetCurrentPreviewTime();
+            var adjustStart = Math.Abs(playhead - segment.StartSec) <= Math.Abs(playhead - segment.EndSec);
+            var newStart = segment.StartSec;
+            var newEnd = segment.EndSec;
+
+            if (adjustStart)
+                newStart = Math.Clamp(segment.StartSec + deltaSeconds, 0, segment.EndSec - 0.05);
+            else
+                newEnd = Math.Max(segment.StartSec + 0.05, segment.EndSec + deltaSeconds);
+
+            PushSequenceUndoState();
+            _sequenceSegments[index] = segment with { StartSec = newStart, EndSec = newEnd };
+            UpdateSequenceUi(index);
+
+            if (string.Equals(_selectedFile, segment.SourceFile, StringComparison.OrdinalIgnoreCase))
+            {
+                _updatingTrimRange = true;
+                try
+                {
+                    _startBox.Value = Math.Clamp((decimal)newStart, _startBox.Minimum, _startBox.Maximum);
+                    _endBox.Value = Math.Clamp((decimal)newEnd, _endBox.Minimum, _endBox.Maximum);
+                }
+                finally
+                {
+                    _updatingTrimRange = false;
+                }
+                UpdateTrimTimelineUi();
+            }
+
+            _statusLabel.Text = adjustStart
+                ? $"Nudged the IN point to {FormatTime(newStart)}."
+                : $"Nudged the OUT point to {FormatTime(newEnd)}.";
+            return;
+        }
+
+        var current = GetCurrentPreviewTime();
+        var adjustSourceStart = Math.Abs(current - (double)_startBox.Value) <= Math.Abs(current - (double)_endBox.Value);
+        _updatingTrimRange = true;
+        try
+        {
+            if (adjustSourceStart)
+                _startBox.Value = Math.Clamp(_startBox.Value + (decimal)deltaSeconds, _startBox.Minimum, _endBox.Value - 0.05M);
+            else
+                _endBox.Value = Math.Clamp(_endBox.Value + (decimal)deltaSeconds, _startBox.Value + 0.05M, _endBox.Maximum);
+        }
+        finally
+        {
+            _updatingTrimRange = false;
+        }
+
+        UpdateTrimTimelineUi();
+        _statusLabel.Text = adjustSourceStart ? "Nudged the source IN point." : "Nudged the source OUT point.";
     }
 
     private async Task RefreshTrimTimelineFramesAsync()
@@ -1771,6 +1842,161 @@ public sealed class QuickEditForm : Form
         SeekToTime(markers[index], refreshPreview: true);
     }
 
+    private void PushSequenceUndoState()
+    {
+        _sequenceUndoStack.Push([.. _sequenceSegments]);
+    }
+
+    private void UndoLastSequenceEdit()
+    {
+        if (_sequenceUndoStack.Count == 0)
+        {
+            _statusLabel.Text = "Nothing to undo in the timeline.";
+            return;
+        }
+
+        var snapshot = _sequenceUndoStack.Pop();
+        _sequenceSegments.Clear();
+        _sequenceSegments.AddRange(snapshot);
+        UpdateSequenceUi(selectedIndex: Math.Min(_sequenceList.SelectedIndex, _sequenceSegments.Count - 1));
+        _statusLabel.Text = "Undid the last timeline edit.";
+    }
+
+    private double GetCurrentSequencePlayhead()
+    {
+        if (_sequenceSegments.Count == 0)
+            return 0;
+
+        var selectedIndex = _sequenceList.SelectedIndex;
+        if (selectedIndex >= 0 && selectedIndex < _sequenceSegments.Count)
+        {
+            var segment = _sequenceSegments[selectedIndex];
+            var localOffset = Math.Clamp(GetCurrentPreviewTime() - segment.StartSec, 0, segment.Duration);
+            return _sequenceSegments.Take(selectedIndex).Sum(item => item.Duration) + localOffset;
+        }
+
+        return _sequenceSegments.Sum(item => item.Duration);
+    }
+
+    private int InsertCutAtSequenceTime(TimelineSegment newSegment, double sequenceTime)
+    {
+        if (_sequenceSegments.Count == 0)
+        {
+            _sequenceSegments.Add(newSegment);
+            return 0;
+        }
+
+        var totalDuration = _sequenceSegments.Sum(segment => segment.Duration);
+        var clampedTime = Math.Clamp(sequenceTime, 0, totalDuration);
+        var updated = new List<TimelineSegment>();
+        var cursor = 0d;
+        var inserted = false;
+
+        foreach (var segment in _sequenceSegments)
+        {
+            var segStart = cursor;
+            var segEnd = cursor + segment.Duration;
+
+            if (!inserted && clampedTime <= segStart + 0.0001)
+            {
+                updated.Add(newSegment);
+                inserted = true;
+            }
+
+            if (!inserted && clampedTime > segStart + 0.05 && clampedTime < segEnd - 0.05)
+            {
+                var splitPoint = segment.StartSec + (clampedTime - segStart);
+                var left = segment with { EndSec = splitPoint };
+                var right = segment with { StartSec = splitPoint };
+                if (left.Duration > 0.05)
+                    updated.Add(left);
+                updated.Add(newSegment);
+                if (right.Duration > 0.05)
+                    updated.Add(right);
+                inserted = true;
+            }
+            else
+            {
+                updated.Add(segment);
+            }
+
+            cursor = segEnd;
+        }
+
+        if (!inserted)
+            updated.Add(newSegment);
+
+        _sequenceSegments.Clear();
+        _sequenceSegments.AddRange(updated);
+        return Math.Max(0, updated.IndexOf(newSegment));
+    }
+
+    private int OverwriteCutAtSequenceTime(TimelineSegment newSegment, double sequenceTime)
+    {
+        if (_sequenceSegments.Count == 0)
+        {
+            _sequenceSegments.Add(newSegment);
+            return 0;
+        }
+
+        var totalDuration = _sequenceSegments.Sum(segment => segment.Duration);
+        var clampedTime = Math.Clamp(sequenceTime, 0, totalDuration);
+        var overwriteEnd = clampedTime + newSegment.Duration;
+        var updated = new List<TimelineSegment>();
+        var cursor = 0d;
+        var inserted = false;
+
+        foreach (var segment in _sequenceSegments)
+        {
+            var segStart = cursor;
+            var segEnd = cursor + segment.Duration;
+
+            if (segEnd <= clampedTime + 0.0001 || segStart >= overwriteEnd - 0.0001)
+            {
+                if (!inserted && segStart >= overwriteEnd - 0.0001)
+                {
+                    updated.Add(newSegment);
+                    inserted = true;
+                }
+
+                updated.Add(segment);
+            }
+            else
+            {
+                if (segStart < clampedTime - 0.0001)
+                {
+                    var leftKeep = clampedTime - segStart;
+                    var left = segment with { EndSec = segment.StartSec + leftKeep };
+                    if (left.Duration > 0.05)
+                        updated.Add(left);
+                }
+
+                if (!inserted)
+                {
+                    updated.Add(newSegment);
+                    inserted = true;
+                }
+
+                if (segEnd > overwriteEnd + 0.0001)
+                {
+                    var rightKeepOffset = overwriteEnd - segStart;
+                    var right = segment with { StartSec = segment.StartSec + rightKeepOffset };
+                    if (right.Duration > 0.05)
+                        updated.Add(right);
+                }
+            }
+
+            cursor = segEnd;
+        }
+
+        if (!inserted)
+            updated.Add(newSegment);
+
+        _sequenceSegments.Clear();
+        _sequenceSegments.AddRange(updated);
+        return Math.Max(0, updated.IndexOf(newSegment));
+    }
+
     private void SplitSelectedSegmentAtPlayhead(int? requestedIndex = null, double? requestedTime = null)
     {
         var selectedIndex = requestedIndex ?? _sequenceList.SelectedIndex;
@@ -1794,6 +2020,7 @@ public sealed class QuickEditForm : Form
             return;
         }
 
+        PushSequenceUndoState();
         var left = segment with { EndSec = playhead };
         var right = segment with { StartSec = playhead };
         _sequenceSegments[selectedIndex] = left;
@@ -1807,6 +2034,7 @@ public sealed class QuickEditForm : Form
         if (index < 0 || index >= _sequenceSegments.Count)
             return;
 
+        PushSequenceUndoState();
         var segment = _sequenceSegments[index];
         var safeStart = Math.Max(0, Math.Min(start, end - 0.05));
         var safeEnd = Math.Max(safeStart + 0.05, end);
@@ -1829,7 +2057,7 @@ public sealed class QuickEditForm : Form
         }
     }
 
-    private void AddCurrentCutToSequence()
+    private void AddCurrentCutToSequence(bool overwrite = false)
     {
         if (!TryGetSingleSelectedFile(out var input, out var error))
         {
@@ -1841,20 +2069,26 @@ public sealed class QuickEditForm : Form
         var end = (double)_endBox.Value;
         if (end <= start)
         {
-            MessageBox.Show(this, "End time must be greater than start time before adding a cut.", "VELO Video Editor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, "End time must be greater than start time before inserting into the timeline.", "VELO Video Editor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
-        var insertIndex = _sequenceList.SelectedIndex >= 0 && _sequenceList.SelectedIndex < _sequenceSegments.Count
-            ? _sequenceList.SelectedIndex + 1
-            : _sequenceSegments.Count;
-        var targetTrack = insertIndex > 0 && insertIndex - 1 < _sequenceSegments.Count
-            ? _sequenceSegments[insertIndex - 1].SafeTrack
+        var sequencePlayhead = GetCurrentSequencePlayhead();
+        var selectedIndex = _sequenceList.SelectedIndex;
+        var targetTrack = selectedIndex >= 0 && selectedIndex < _sequenceSegments.Count
+            ? _sequenceSegments[selectedIndex].SafeTrack
             : ((_sequenceSegments.Count % 2) + 1);
 
-        _sequenceSegments.Insert(insertIndex, new TimelineSegment(input, start, end, targetTrack));
-        UpdateSequenceUi(selectedIndex: insertIndex);
-        _statusLabel.Text = $"Inserted cut {insertIndex + 1} on V{targetTrack} from {Path.GetFileName(input)}.";
+        var newSegment = new TimelineSegment(input, start, end, targetTrack);
+        PushSequenceUndoState();
+        var insertedIndex = overwrite
+            ? OverwriteCutAtSequenceTime(newSegment, sequencePlayhead)
+            : InsertCutAtSequenceTime(newSegment, sequencePlayhead);
+
+        UpdateSequenceUi(selectedIndex: insertedIndex);
+        _statusLabel.Text = overwrite
+            ? $"Overwrite edit placed on V{targetTrack} at {FormatTime(sequencePlayhead)}."
+            : $"Insert edit placed on V{targetTrack} at {FormatTime(sequencePlayhead)}.";
     }
 
     private void RemoveSelectedSequenceSegment()
@@ -1862,9 +2096,11 @@ public sealed class QuickEditForm : Form
         if (_sequenceList.SelectedIndex < 0 || _sequenceList.SelectedIndex >= _sequenceSegments.Count)
             return;
 
+        PushSequenceUndoState();
         var index = _sequenceList.SelectedIndex;
         _sequenceSegments.RemoveAt(index);
         UpdateSequenceUi(selectedIndex: Math.Min(index, _sequenceSegments.Count - 1));
+        _statusLabel.Text = "Ripple deleted the selected timeline cut.";
     }
 
     private void MoveSelectedSequenceSegment(int direction)
@@ -1877,6 +2113,7 @@ public sealed class QuickEditForm : Form
         if (newIndex < 0 || newIndex >= _sequenceSegments.Count)
             return;
 
+        PushSequenceUndoState();
         var segment = _sequenceSegments[index];
         _sequenceSegments.RemoveAt(index);
         _sequenceSegments.Insert(newIndex, segment);
@@ -1885,8 +2122,13 @@ public sealed class QuickEditForm : Form
 
     private void ClearSequence()
     {
+        if (_sequenceSegments.Count == 0)
+            return;
+
+        PushSequenceUndoState();
         _sequenceSegments.Clear();
         UpdateSequenceUi();
+        _statusLabel.Text = "Cleared the timeline.";
     }
 
     private void MoveSequenceSegmentTo(int fromIndex, int targetIndex, int targetTrack)
@@ -1894,6 +2136,7 @@ public sealed class QuickEditForm : Form
         if (fromIndex < 0 || fromIndex >= _sequenceSegments.Count)
             return;
 
+        PushSequenceUndoState();
         var clampedTrack = Math.Clamp(targetTrack, 1, 2);
         var segment = _sequenceSegments[fromIndex] with { Track = clampedTrack };
         _sequenceSegments.RemoveAt(fromIndex);
@@ -1959,11 +2202,12 @@ public sealed class QuickEditForm : Form
         }
         else
         {
-            _sequenceSummaryLabel.Text = "Timeline empty — insert a range to start cutting.";
+            _sequenceSummaryLabel.Text = "Timeline empty — mark IN/OUT, then Insert or Overwrite at the playhead.";
             _sequenceTimelineView.SetSegments(Array.Empty<TimelineSegment>(), -1);
         }
 
         _splitPlayheadButton.Enabled = _sequenceSegments.Count > 0 && _sequenceList.SelectedIndex >= 0;
+        _undoEditButton.Enabled = _sequenceUndoStack.Count > 0;
         _exportSequenceButton.Enabled = _sequenceSegments.Count > 0;
     }
 
@@ -2134,9 +2378,25 @@ public sealed class QuickEditForm : Form
             return;
         }
 
+        if (e.Control && e.KeyCode == Keys.Z)
+        {
+            UndoLastSequenceEdit();
+            e.SuppressKeyPress = true;
+            return;
+        }
+
         if (e.Control && (e.KeyCode == Keys.B || e.KeyCode == Keys.K))
         {
             SplitSelectedSegmentAtPlayhead();
+            e.SuppressKeyPress = true;
+            return;
+        }
+
+        if (e.Control && (e.KeyCode == Keys.Left || e.KeyCode == Keys.Right))
+        {
+            var direction = e.KeyCode == Keys.Right ? 1 : -1;
+            var frameStep = e.Shift ? (5d / 30d) : (1d / 30d);
+            NudgeNearestTrimHandle(direction * frameStep);
             e.SuppressKeyPress = true;
             return;
         }
@@ -2165,6 +2425,28 @@ public sealed class QuickEditForm : Form
         if (e.KeyCode == Keys.V && !e.Control && !e.Alt)
         {
             SetTimelineEditMode(TimelineEditMode.Select);
+            e.SuppressKeyPress = true;
+            return;
+        }
+
+        if (e.KeyCode == Keys.J && !e.Control && !e.Alt)
+        {
+            SkipSeconds(-1);
+            e.SuppressKeyPress = true;
+            return;
+        }
+
+        if (e.KeyCode == Keys.K && !e.Control && !e.Alt)
+        {
+            if (_isPlaying)
+                StopPlayback(resetToStart: false);
+            e.SuppressKeyPress = true;
+            return;
+        }
+
+        if (e.KeyCode == Keys.L && !e.Control && !e.Alt)
+        {
+            SkipSeconds(1);
             e.SuppressKeyPress = true;
             return;
         }
