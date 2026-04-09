@@ -1,5 +1,10 @@
 # VELO Uploader - Changelog
 
+## Version 1.7.35 (2026-04-09)
+- Fix: harden tray/menu/status updates onto the WinForms UI thread to reduce intermittent crash-and-restart behavior
+- Fix: make persisted queue restore startup-safe so a bad queued item cannot take down launch
+- UI: match the uploader shell, tray menu, and helper dialogs to the dark pro-NLE editor styling
+
 ## Version 1.7.10 (2026-04-02)
 - Fix: automatically re-queue clips after transient server outages during chunk init, chunk upload, and chunk completion
 - Fix: keep the original source clip until upload success so local compression no longer makes retries unrecoverable

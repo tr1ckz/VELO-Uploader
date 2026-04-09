@@ -57,6 +57,8 @@ class DarkListBox : Panel
     static readonly Color C_BG = Color.FromArgb(14, 14, 18);
     static readonly Color C_BORDER = Color.FromArgb(40, 40, 50);
     static readonly Color C_FG = Color.FromArgb(240, 240, 245);
+    static readonly Color C_SEL = Color.FromArgb(34, 31, 48);
+    static readonly Color C_ACCENT = Color.FromArgb(124, 58, 237);
 
     public DarkListBox(int x, int y, int w, int h)
     {
@@ -71,7 +73,37 @@ class DarkListBox : Panel
             BackColor = C_BG,
             ForeColor = C_FG,
             BorderStyle = BorderStyle.None,
-            Font = new Font("Segoe UI", 8.5f),
+            Font = new Font("Segoe UI", 8.5f, FontStyle.Bold),
+            IntegralHeight = false,
+            DrawMode = DrawMode.OwnerDrawFixed,
+            ItemHeight = 20,
+        };
+        Inner.DrawItem += (_, e) =>
+        {
+            if (e.Index < 0 || e.Index >= Inner.Items.Count)
+                return;
+
+            var isSelected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
+            using var fillBrush = new SolidBrush(isSelected ? C_SEL : C_BG);
+            e.Graphics.FillRectangle(fillBrush, e.Bounds);
+
+            if (isSelected)
+            {
+                using var accentBrush = new SolidBrush(C_ACCENT);
+                e.Graphics.FillRectangle(accentBrush, e.Bounds.X, e.Bounds.Y + 1, 3, Math.Max(0, e.Bounds.Height - 2));
+            }
+
+            var textBounds = Rectangle.Inflate(e.Bounds, -8, 0);
+            TextRenderer.DrawText(
+                e.Graphics,
+                Inner.Items[e.Index]?.ToString() ?? string.Empty,
+                Inner.Font,
+                textBounds,
+                C_FG,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+
+            if (isSelected)
+                e.DrawFocusRectangle();
         };
         Controls.Add(Inner);
     }
@@ -202,7 +234,7 @@ public class SettingsForm : Form
     private System.Windows.Forms.Timer _statusRefreshTimer;
     private Label _queueModeLabel;
     private Label _queueSummaryLabel;
-    private ListBox _pendingQueueList;
+    private DarkListBox _pendingQueueList;
     private Button _queueToggleBtn;
     private Button _queueProcessNowBtn;
     private Button _quickEditorBtn;
@@ -234,7 +266,7 @@ public class SettingsForm : Form
         _openQuickEditor = openQuickEditor;
         SuspendLayout();
 
-        Text = "VELO Uploader";
+        Text = "VELO Uploader Control Center";
         ClientSize = new Size(680, 900);
         MinimumSize = new Size(700, 760);
         FormBorderStyle = FormBorderStyle.Sizable;
@@ -278,8 +310,8 @@ public class SettingsForm : Form
         }
         catch { }
 
-        var headerTitle = MkLabel("VELO Uploader", 60, 9, new Font("Segoe UI", 14f, FontStyle.Bold), C_T1);
-        var headerSubtitle = MkLabel("Auto-upload your game clips", 62, 39, new Font("Segoe UI", 10f, FontStyle.Bold), C_T3);
+        var headerTitle = MkLabel("UPLOAD CONTROL CENTER", 60, 9, new Font("Segoe UI", 12.5f, FontStyle.Bold), C_T1);
+        var headerSubtitle = MkLabel("QUEUE • WATCHERS • UPDATES • LOCAL PROCESSING", 62, 37, new Font("Segoe UI", 8f, FontStyle.Bold), C_T3);
         var headerVersion = MkLabel($"v{GitHubUpdater.GetCurrentVersion()}", 0, 11, new Font("Segoe UI", 8f, FontStyle.Bold), C_ACCENT);
         headerVersion.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         header.Controls.Add(headerTitle);
@@ -299,7 +331,7 @@ public class SettingsForm : Form
         Controls.Add(tabBar);
 
         _tabBtns = new Button[4];
-        string[] tabNames = ["General", "Settings", "Logs", "Status"];
+        string[] tabNames = ["QUEUE", "SETTINGS", "LOGS", "STATUS"];
         for (int i = 0; i < _tabBtns.Length; i++)
         {
             int idx = i;
@@ -459,16 +491,9 @@ public class SettingsForm : Form
         y += 46;
 
         MkSectionLabel(home, "PENDING QUEUE", lx, y); y += 18;
-        _pendingQueueList = new ListBox
-        {
-            Location = new Point(lx, y),
-            Size = new Size(w, 160),
-            BackColor = C_PANEL,
-            ForeColor = C_T1,
-            BorderStyle = BorderStyle.FixedSingle,
-            HorizontalScrollbar = true,
-        };
-        _pendingQueueList.Items.Add("No pending local videos.");
+        _pendingQueueList = new DarkListBox(lx, y, w, 160);
+        _pendingQueueList.Inner.HorizontalScrollbar = true;
+        _pendingQueueList.Inner.Items.Add("No pending local videos.");
         home.Controls.Add(_pendingQueueList);
         y += 176;
 
@@ -1215,10 +1240,12 @@ public class SettingsForm : Form
             FlatStyle = FlatStyle.Flat,
             BackColor = bg,
             ForeColor = Color.White,
-            Font = new Font("Segoe UI", 8f),
+            Font = new Font("Segoe UI", 8f, FontStyle.Bold),
             Cursor = Cursors.Hand,
+            TextAlign = ContentAlignment.MiddleCenter,
         };
-        b.FlatAppearance.BorderSize = 0;
+        b.FlatAppearance.BorderSize = 1;
+        b.FlatAppearance.BorderColor = C_BORDER;
         b.FlatAppearance.MouseOverBackColor = hover;
         return b;
     }
@@ -1435,20 +1462,20 @@ public class SettingsForm : Form
             _queueToggleBtn.Text = autoProcessing ? "Pause Uploads (Queue Only)" : "Resume Upload Queue";
             _queueProcessNowBtn.Enabled = (_setQueueProcessing != null) && files.Count > 0;
 
-            _pendingQueueList.BeginUpdate();
-            _pendingQueueList.Items.Clear();
+            _pendingQueueList.Inner.BeginUpdate();
+            _pendingQueueList.Inner.Items.Clear();
             if (files.Count == 0)
             {
-                _pendingQueueList.Items.Add("No pending local videos.");
+                _pendingQueueList.Inner.Items.Add("No pending local videos.");
             }
             else
             {
                 foreach (var file in files)
                 {
-                    _pendingQueueList.Items.Add($"{Path.GetFileName(file)}   —   {file}");
+                    _pendingQueueList.Inner.Items.Add($"{Path.GetFileName(file)}   —   {file}");
                 }
             }
-            _pendingQueueList.EndUpdate();
+            _pendingQueueList.Inner.EndUpdate();
         });
     }
 

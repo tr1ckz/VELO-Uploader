@@ -42,7 +42,7 @@ public static class Logger
     public static void Info(string message) => Log(LogLevel.Info, message);
     public static void Warn(string message) => Log(LogLevel.Warning, message);
     public static void Error(string message) => Log(LogLevel.Error, message);
-    public static void Error(string message, Exception ex) => Log(LogLevel.Error, $"{message}: {ex.Message}");
+    public static void Error(string message, Exception ex) => Log(LogLevel.Error, $"{message}: {ex}");
 
     private static void Log(LogLevel level, string message)
     {

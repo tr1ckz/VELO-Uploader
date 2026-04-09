@@ -3,6 +3,59 @@ namespace VeloUploader;
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 
+internal sealed class ObsidianMenuColorTable : ProfessionalColorTable
+{
+    private static readonly Color Background = Color.FromArgb(18, 18, 22);
+    private static readonly Color Surface = Color.FromArgb(24, 24, 30);
+    private static readonly Color Accent = Color.FromArgb(124, 58, 237);
+    private static readonly Color Border = Color.FromArgb(40, 40, 50);
+
+    public override Color ToolStripDropDownBackground => Background;
+    public override Color ImageMarginGradientBegin => Background;
+    public override Color ImageMarginGradientMiddle => Background;
+    public override Color ImageMarginGradientEnd => Background;
+    public override Color MenuBorder => Border;
+    public override Color MenuItemBorder => Accent;
+    public override Color MenuItemSelected => Surface;
+    public override Color MenuItemSelectedGradientBegin => Surface;
+    public override Color MenuItemSelectedGradientEnd => Surface;
+    public override Color MenuItemPressedGradientBegin => Surface;
+    public override Color MenuItemPressedGradientEnd => Surface;
+    public override Color SeparatorDark => Border;
+    public override Color SeparatorLight => Border;
+}
+
+internal sealed class ObsidianMenuRenderer : ToolStripProfessionalRenderer
+{
+    private static readonly Color Foreground = Color.FromArgb(240, 240, 245);
+    private static readonly Color Accent = Color.FromArgb(124, 58, 237);
+    private static readonly Color Border = Color.FromArgb(40, 40, 50);
+
+    public ObsidianMenuRenderer() : base(new ObsidianMenuColorTable())
+    {
+        RoundedEdges = false;
+    }
+
+    protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
+    {
+        e.TextColor = e.Item.Enabled ? Foreground : Color.FromArgb(110, 110, 120);
+        base.OnRenderItemText(e);
+    }
+
+    protected override void OnRenderArrow(ToolStripArrowRenderEventArgs e)
+    {
+        e.ArrowColor = Accent;
+        base.OnRenderArrow(e);
+    }
+
+    protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e)
+    {
+        var y = e.Item.ContentRectangle.Top + (e.Item.ContentRectangle.Height / 2);
+        using var pen = new Pen(Border, 1);
+        e.Graphics.DrawLine(pen, e.Item.ContentRectangle.Left + 8, y, e.Item.ContentRectangle.Right - 8, y);
+    }
+}
+
 public class TrayContext : ApplicationContext
 {
     private readonly NotifyIcon _trayIcon;
@@ -12,6 +65,7 @@ public class TrayContext : ApplicationContext
     private int _successCount;
     private long _totalBytes;
     private readonly CancellationTokenSource _cts = new();
+    private readonly Control _uiDispatcher = new();
     private bool _updateCheckInProgress;
     private readonly ClipProcessingQueue _processingQueue = new();
     private readonly ConcurrentQueue<string> _pendingQueue = new();
@@ -43,6 +97,9 @@ public class TrayContext : ApplicationContext
             ContextMenuStrip = BuildMenu()
         };
 
+        _uiDispatcher.CreateControl();
+        _ = _uiDispatcher.Handle;
+
         for (var workerIndex = 0; workerIndex < QueueWorkerCount; workerIndex++)
             _queueWorkers.Add(Task.Run(() => ProcessPendingQueueLoop(_cts.Token)));
 
@@ -50,7 +107,16 @@ public class TrayContext : ApplicationContext
         {
             var persisted = PendingUploadQueueStore.Load();
             foreach (var item in persisted)
-                EnqueueClip(item, fromPersistence: true);
+            {
+                try
+                {
+                    EnqueueClip(item, fromPersistence: true);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error($"Failed to restore queued item: {Path.GetFileName(item)}", ex);
+                }
+            }
             if (persisted.Count > 0)
                 Logger.Info($"Recovered {persisted.Count} pending upload(s) from previous session.");
         }
@@ -132,7 +198,15 @@ public class TrayContext : ApplicationContext
 
     private ContextMenuStrip BuildMenu()
     {
-        var menu = new ContextMenuStrip();
+        var menu = new ContextMenuStrip
+        {
+            ShowImageMargin = false,
+            Renderer = new ObsidianMenuRenderer(),
+            BackColor = Color.FromArgb(18, 18, 22),
+            ForeColor = Color.FromArgb(240, 240, 245),
+            Font = new Font("Segoe UI", 8.5f, FontStyle.Bold),
+            Padding = new Padding(4, 6, 4, 6),
+        };
 
         var statusItem = new ToolStripMenuItem(_watcher?.IsWatching == true ? "● Watching" : "○ Not watching")
         { Enabled = false };
@@ -208,13 +282,34 @@ public class TrayContext : ApplicationContext
         return menu;
     }
 
+    private void RunOnUiThread(Action action)
+    {
+        try
+        {
+            if (_uiDispatcher.IsDisposed)
+                return;
+
+            if (_uiDispatcher.IsHandleCreated && _uiDispatcher.InvokeRequired)
+                _uiDispatcher.BeginInvoke(action);
+            else
+                action();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+        catch (InvalidOperationException)
+        {
+        }
+    }
+
     private void RefreshMenu()
     {
-        if (_trayIcon == null)
-            return;
-
-        _trayIcon.ContextMenuStrip?.Dispose();
-        _trayIcon.ContextMenuStrip = BuildMenu();
+        RunOnUiThread(() =>
+        {
+            var previousMenu = _trayIcon.ContextMenuStrip;
+            _trayIcon.ContextMenuStrip = BuildMenu();
+            previousMenu?.Dispose();
+        });
     }
 
     private bool _initialLaunch = true;
@@ -396,11 +491,11 @@ public class TrayContext : ApplicationContext
     /// Safely set tray icon tooltip — Windows limits this to 63 characters.
     private void SetTrayText(string text)
     {
-        if (_trayIcon == null)
-            return;
-
-        const int maxLen = 63;
-        _trayIcon.Text = text.Length <= maxLen ? text : text[..maxLen];
+        RunOnUiThread(() =>
+        {
+            const int maxLen = 63;
+            _trayIcon.Text = text.Length <= maxLen ? text : text[..maxLen];
+        });
     }
 
     private void OnNewClip(string filePath)
@@ -857,12 +952,12 @@ public class TrayContext : ApplicationContext
         }
         catch
         {
-            if (_trayIcon == null)
-                return;
-
-            _trayIcon.BalloonTipTitle = title;
-            _trayIcon.BalloonTipText = body;
-            _trayIcon.ShowBalloonTip(3000);
+            RunOnUiThread(() =>
+            {
+                _trayIcon.BalloonTipTitle = title;
+                _trayIcon.BalloonTipText = body;
+                _trayIcon.ShowBalloonTip(3000);
+            });
         }
     }
 
@@ -975,6 +1070,7 @@ public class TrayContext : ApplicationContext
             LocalCompressor.KillAll();
             _watcher?.Dispose();
             _trayIcon.Dispose();
+            _uiDispatcher.Dispose();
         }
         base.Dispose(disposing);
     }

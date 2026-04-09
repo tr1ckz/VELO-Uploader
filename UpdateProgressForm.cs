@@ -30,7 +30,7 @@ public class UpdateProgressForm : Form
         _cts = cts;
         SuspendLayout();
 
-        Text = "Updating VELO Uploader";
+        Text = "VELO Uploader • Applying Update";
         ClientSize = new Size(480, 220);
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
@@ -63,11 +63,20 @@ public class UpdateProgressForm : Form
         };
         header.Controls.Add(new Label
         {
-            Text = "⬇ Downloading update...",
-            Location = new Point(16, 14),
+            Text = "APPLICATION UPDATE",
+            Location = new Point(16, 10),
             AutoSize = true,
             ForeColor = C_T1,
-            Font = new Font("Segoe UI", 11f, FontStyle.Bold),
+            Font = new Font("Segoe UI", 10.5f, FontStyle.Bold),
+            BackColor = Color.Transparent,
+        });
+        header.Controls.Add(new Label
+        {
+            Text = "DOWNLOADING AND APPLYING THE LATEST BUILD PACKAGE",
+            Location = new Point(16, 28),
+            AutoSize = true,
+            ForeColor = C_T3,
+            Font = new Font("Segoe UI", 7.5f, FontStyle.Bold),
             BackColor = Color.Transparent,
         });
         Controls.Add(header);
@@ -143,6 +152,12 @@ public class UpdateProgressForm : Form
         Controls.Add(_cancelBtn);
 
         ResumeLayout();
+    }
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        WindowDarkMode.ApplyForSystemTheme(Handle);
     }
 
     public void SetFileName(string filename)
