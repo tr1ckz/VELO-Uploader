@@ -35,6 +35,14 @@ public class TrayContext : ApplicationContext
         Logger.Info("VELO Uploader started.");
         UploadService.Reconfigure(_settings);
 
+        _trayIcon = new NotifyIcon
+        {
+            Icon = LoadAppIcon(),
+            Text = "VELO Uploader",
+            Visible = true,
+            ContextMenuStrip = BuildMenu()
+        };
+
         for (var workerIndex = 0; workerIndex < QueueWorkerCount; workerIndex++)
             _queueWorkers.Add(Task.Run(() => ProcessPendingQueueLoop(_cts.Token)));
 
@@ -54,14 +62,6 @@ public class TrayContext : ApplicationContext
         {
             CheckFFmpegInstallation();
         }
-
-        _trayIcon = new NotifyIcon
-        {
-            Icon = LoadAppIcon(),
-            Text = "VELO Uploader",
-            Visible = true,
-            ContextMenuStrip = BuildMenu()
-        };
 
         _trayIcon.DoubleClick += (_, _) => ShowSettings();
 
@@ -210,6 +210,9 @@ public class TrayContext : ApplicationContext
 
     private void RefreshMenu()
     {
+        if (_trayIcon == null)
+            return;
+
         _trayIcon.ContextMenuStrip?.Dispose();
         _trayIcon.ContextMenuStrip = BuildMenu();
     }
@@ -393,6 +396,9 @@ public class TrayContext : ApplicationContext
     /// Safely set tray icon tooltip — Windows limits this to 63 characters.
     private void SetTrayText(string text)
     {
+        if (_trayIcon == null)
+            return;
+
         const int maxLen = 63;
         _trayIcon.Text = text.Length <= maxLen ? text : text[..maxLen];
     }
@@ -845,8 +851,19 @@ public class TrayContext : ApplicationContext
     private void ShowToast(string title, string body, string? subtitle = null, string? copyToClipboard = null, int durationMs = 4000)
     {
         if (!_settings.ShowNotifications) return;
-        try { ToastNotification.Show(title, body, subtitle, copyToClipboard, durationMs); }
-        catch { /* fallback to balloon */ _trayIcon.BalloonTipTitle = title; _trayIcon.BalloonTipText = body; _trayIcon.ShowBalloonTip(3000); }
+        try
+        {
+            ToastNotification.Show(title, body, subtitle, copyToClipboard, durationMs);
+        }
+        catch
+        {
+            if (_trayIcon == null)
+                return;
+
+            _trayIcon.BalloonTipTitle = title;
+            _trayIcon.BalloonTipText = body;
+            _trayIcon.ShowBalloonTip(3000);
+        }
     }
 
     private SettingsForm? _settingsForm;
