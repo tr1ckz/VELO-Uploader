@@ -14,6 +14,22 @@ internal static class WindowDarkMode
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
 
     /// <summary>
+    /// Forces dark mode on the window title bar regardless of system theme.
+    /// </summary>
+    public static void ApplyDarkMode(IntPtr hwnd)
+    {
+        try
+        {
+            int value = 1;
+            DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ref value, sizeof(int));
+        }
+        catch
+        {
+            // Silently fail on older Windows versions or if API not available
+        }
+    }
+
+    /// <summary>
     /// Applies Windows system light/dark preference to this window title bar.
     /// </summary>
     public static void ApplyForSystemTheme(IntPtr hwnd)

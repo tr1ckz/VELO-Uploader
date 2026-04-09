@@ -110,10 +110,12 @@ public sealed class QuickEditForm : Form
         MinimumSize = new Size(1180, 720);
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.Sizable;
-        BackColor = Color.FromArgb(12, 12, 15);
+        BackColor = Color.FromArgb(12, 12, 12);
         ForeColor = Color.FromArgb(240, 240, 245);
         Font = new Font("Segoe UI", 9f);
         KeyPreview = true;
+
+        HandleCreated += (_, _) => WindowDarkMode.ApplyDarkMode(Handle);
 
         try
         {

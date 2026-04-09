@@ -1,5 +1,11 @@
 # VELO Uploader - Changelog
 
+## Version 1.7.44 (2026-04-09)
+- UI: sync both apps to exact `#0c0c0c` background and `#2d2d2d` border palette for pixel-matched Pro-Suite theming
+- UI: force dark Windows title bar on both Uploader and NLE Studio regardless of system theme
+- UI: add 4px internal padding to Rules + Filters section for better readability while keeping buttons flush-right
+- UI: add tactile button press feedback — darkened pressed state with 1px text shift on mouse down
+
 ## Version 1.7.43 (2026-04-09)
 - UI: adopt dual-column inspector layout for the Settings page — labels sit inline on the left with inputs and attached buttons filling the right column
 - UI: remove per-row section card borders across all pages for a clean flat `#111` background with minimal `#222` section dividers

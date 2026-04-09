@@ -15,7 +15,7 @@ class DarkTextBox : Panel
     public bool DrawRightBorder { get; set; } = true;
 
     static readonly Color C_BG = Color.FromArgb(26, 26, 26);
-    static readonly Color C_BORDER = Color.FromArgb(51, 51, 51);
+    static readonly Color C_BORDER = Color.FromArgb(45, 45, 45);
     static readonly Color C_FOCUS = Color.FromArgb(139, 92, 246);
     static readonly Color C_FG = Color.FromArgb(240, 240, 245);
 
@@ -65,7 +65,7 @@ class DarkListBox : Panel
     public readonly ListBox Inner;
 
     static readonly Color C_BG = Color.FromArgb(26, 26, 26);
-    static readonly Color C_BORDER = Color.FromArgb(51, 51, 51);
+    static readonly Color C_BORDER = Color.FromArgb(45, 45, 45);
     static readonly Color C_FG = Color.FromArgb(240, 240, 245);
     static readonly Color C_SEL = Color.FromArgb(34, 31, 48);
     static readonly Color C_ACCENT = Color.FromArgb(139, 92, 246);
@@ -132,7 +132,7 @@ class DarkNumeric : Panel
     public readonly NumericUpDown Inner;
 
     static readonly Color C_BG = Color.FromArgb(26, 26, 26);
-    static readonly Color C_BORDER = Color.FromArgb(51, 51, 51);
+    static readonly Color C_BORDER = Color.FromArgb(45, 45, 45);
     static readonly Color C_FG = Color.FromArgb(240, 240, 245);
 
     public DarkNumeric(int val, int min, int max, int x, int y, int w)
@@ -169,7 +169,7 @@ class DarkComboBox : Panel
     public readonly ComboBox Inner;
 
     static readonly Color C_BG = Color.FromArgb(26, 26, 26);
-    static readonly Color C_BORDER = Color.FromArgb(51, 51, 51);
+    static readonly Color C_BORDER = Color.FromArgb(45, 45, 45);
     static readonly Color C_FG = Color.FromArgb(240, 240, 245);
 
     public DarkComboBox(int x, int y, int w, IEnumerable<string> items, string selected)
@@ -299,10 +299,10 @@ public class SettingsForm : Form
     private readonly Action<AppSettings?>? _openQuickEditor;
 
     // Palette
-    static readonly Color C_BG = Color.FromArgb(17, 17, 17);
-    static readonly Color C_PANEL = Color.FromArgb(22, 22, 22);
+    static readonly Color C_BG = Color.FromArgb(12, 12, 12);
+    static readonly Color C_PANEL = Color.FromArgb(18, 18, 18);
     static readonly Color C_INPUT = Color.FromArgb(26, 26, 26);
-    static readonly Color C_BORDER = Color.FromArgb(51, 51, 51);
+    static readonly Color C_BORDER = Color.FromArgb(45, 45, 45);
     static readonly Color C_T1 = Color.FromArgb(240, 240, 245);
     static readonly Color C_T2 = Color.FromArgb(155, 155, 165);
     static readonly Color C_T3 = Color.FromArgb(105, 105, 112);
@@ -827,11 +827,11 @@ public class SettingsForm : Form
         UpdateTlsUi();
 
         // ─── RULES + FILTERS ───
-        Section(g, "RULES + FILTERS", lx, y); y += 18;
+        Section(g, "RULES + FILTERS", lx, y); y += 22;
 
         Section(g, "IGNORED FOLDERS", lx, y);
         g.Controls.Add(MkLabel("Clips in these folder names are skipped", lx + 130, y + 1, new Font("Segoe UI", 7.5f), C_T3));
-        y += 18;
+        y += 22;
 
         _foldersList = new DarkListBox(lx, y, w - 82, 78);
         _foldersList.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
@@ -841,7 +841,7 @@ public class SettingsForm : Form
         rmF.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         rmF.Click += (_, _) => { if (_foldersList.Inner.SelectedIndex >= 0) _foldersList.Inner.Items.RemoveAt(_foldersList.Inner.SelectedIndex); };
         g.Controls.Add(rmF);
-        y += 84;
+        y += 88;
 
         _addFolderBox = new DarkTextBox("", "Folder name (e.g. Desktop)", lx, y, w - 120);
         _addFolderBox.DrawRightBorder = false;
@@ -855,11 +855,11 @@ public class SettingsForm : Form
         brF.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         brF.Click += (_, _) => { using var d = new FolderBrowserDialog(); if (d.ShowDialog() == DialogResult.OK) { var n = new DirectoryInfo(d.SelectedPath).Name; if (!_foldersList.Inner.Items.Contains(n)) _foldersList.Inner.Items.Add(n); } };
         g.Controls.Add(brF);
-        y += 38;
+        y += 42;
 
         Section(g, "IGNORED PATTERNS", lx, y);
         g.Controls.Add(MkLabel("Wildcards: * any, ? single", lx + 140, y + 1, new Font("Segoe UI", 7.5f), C_T3));
-        y += 18;
+        y += 22;
 
         _patternsList = new DarkListBox(lx, y, w - 82, 68);
         _patternsList.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
@@ -869,7 +869,7 @@ public class SettingsForm : Form
         rmP.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         rmP.Click += (_, _) => { if (_patternsList.Inner.SelectedIndex >= 0) _patternsList.Inner.Items.RemoveAt(_patternsList.Inner.SelectedIndex); };
         g.Controls.Add(rmP);
-        y += 74;
+        y += 78;
 
         _addPatternBox = new DarkTextBox("", "e.g. *_temp.mp4", lx, y, w - 56);
         _addPatternBox.DrawRightBorder = false;
@@ -879,7 +879,7 @@ public class SettingsForm : Form
         addP.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         addP.Click += (_, _) => { var t = _addPatternBox.Text.Trim(); if (t.Length > 0 && !_patternsList.Inner.Items.Contains(t)) { _patternsList.Inner.Items.Add(t); _addPatternBox.Text = ""; } };
         g.Controls.Add(addP);
-        y += 32;
+        y += 36;
 
         Lbl(g, "Max File Size", lx, y);
         _maxSizeBox = new DarkNumeric(settings.MaxFileSizeMB, 0, 99999, colB, y, 80);
@@ -1201,7 +1201,7 @@ public class SettingsForm : Form
         // Defer server status check until after handle is created and start refresh timer
         Load += async (_, _) =>
         {
-            WindowDarkMode.ApplyForSystemTheme(Handle);
+            WindowDarkMode.ApplyDarkMode(Handle);
             await CheckServerStatusAsync();
             await RefreshQuotaAsync();
             _statusRefreshTimer.Start();
@@ -1223,14 +1223,14 @@ public class SettingsForm : Form
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
-        WindowDarkMode.ApplyForSystemTheme(Handle);
+        WindowDarkMode.ApplyDarkMode(Handle);
     }
 
     protected override void WndProc(ref Message m)
     {
         base.WndProc(ref m);
         if ((m.Msg == WM_SETTINGCHANGE || m.Msg == WM_THEMECHANGED) && IsHandleCreated)
-            WindowDarkMode.ApplyForSystemTheme(Handle);
+            WindowDarkMode.ApplyDarkMode(Handle);
     }
 
     // ── Tab switching ──
@@ -1364,6 +1364,10 @@ public class SettingsForm : Form
 
     static Button MkBtn(string text, int x, int y, int w, int h, Color bg, Color hover, bool joinLeft = false)
     {
+        var pressedBg = Color.FromArgb(
+            Math.Max(0, bg.R - 18),
+            Math.Max(0, bg.G - 18),
+            Math.Max(0, bg.B - 18));
         var b = new Button
         {
             Text = text,
@@ -1381,7 +1385,10 @@ public class SettingsForm : Form
         };
         b.FlatAppearance.BorderSize = 0;
         b.FlatAppearance.MouseOverBackColor = hover;
-        b.FlatAppearance.MouseDownBackColor = hover;
+        b.FlatAppearance.MouseDownBackColor = pressedBg;
+        b.MouseDown += (_, _) => b.Padding = new Padding(0, 1, 0, 0);
+        b.MouseUp += (_, _) => b.Padding = Padding.Empty;
+        b.MouseLeave += (_, _) => b.Padding = Padding.Empty;
         b.Paint += (_, e) =>
         {
             using var pen = new Pen(C_BORDER, 1);
