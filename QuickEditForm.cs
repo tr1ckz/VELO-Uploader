@@ -1,7 +1,9 @@
 namespace VeloUploader;
 
 using System.Diagnostics;
+using System.Drawing.Imaging;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Forms.Integration;
 using WpfControls = System.Windows.Controls;
@@ -78,6 +80,7 @@ public sealed class QuickEditForm : Form
     private readonly Dictionary<string, List<double>> _clipMarkers = new(StringComparer.OrdinalIgnoreCase);
     private readonly Stack<List<TimelineSegment>> _sequenceUndoStack = [];
     private double _timelineZoom = 1;
+    private bool _snappingEnabled = true;
 
     private static readonly string[] SupportedExtensions = [".mp4", ".mkv", ".mov", ".avi", ".webm"];
 
@@ -193,12 +196,14 @@ public sealed class QuickEditForm : Form
         {
             Location = new Point(12, 104),
             Size = new Size(236, 76),
-            BackColor = Color.FromArgb(14, 14, 18),
+            BackColor = Color.FromArgb(17, 17, 17),
             BorderStyle = BorderStyle.FixedSingle,
             WrapContents = true,
-            AutoScroll = false,
-            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-            Padding = new Padding(4),
+            AutoScroll = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
+            Padding = new Padding(2),
+            Margin = Padding.Empty,
         };
         leftPanel.Controls.Add(_mediaThumbStrip);
 
@@ -387,6 +392,14 @@ public sealed class QuickEditForm : Form
         _sequenceTimelineView.SeekRequested += async seconds => await ScrubSequenceToTimeAsync(seconds);
         _sequenceTimelineView.ZoomDeltaRequested += AdjustTimelineZoom;
         _sequenceTimelineView.SetWaveformProvider(file => _waveformCache.TryGetValue(file, out var waveform) ? waveform : null);
+        _sequenceTimelineView.SetThumbnailProvider(file =>
+        {
+            if (_trimThumbCache.TryGetValue(file, out var thumbs) && thumbs.Count > 0)
+                return thumbs;
+            if (_mediaThumbCache.TryGetValue(file, out var thumb))
+                return [thumb];
+            return [];
+        });
         centerPanel.Controls.Add(_sequenceTimelineView);
 
         timelinePanel.Controls.Add(trimSectionLabel);
@@ -689,8 +702,9 @@ public sealed class QuickEditForm : Form
             _projectSearchBox.Bounds = new Rectangle(8, 64, Math.Max(120, leftPanel.ClientSize.Width - 84), 24);
             projectImportButton.Location = new Point(leftPanel.ClientSize.Width - 68, 64);
             projectImportButton.Size = new Size(60, 24);
-            _mediaThumbStrip.Bounds = new Rectangle(8, 96, leftPanel.ClientSize.Width - 16, 64);
-            _filesList.Bounds = new Rectangle(8, 168, leftPanel.ClientSize.Width - 16, Math.Max(180, Math.Min(400, leftPanel.ClientSize.Height - 244)));
+            _mediaThumbStrip.Bounds = new Rectangle(8, 96, leftPanel.ClientSize.Width - 16, Math.Max(140, leftPanel.ClientSize.Height - 180));
+            _filesList.Bounds = new Rectangle(-2000, -2000, 1, 1);
+            _filesList.Visible = false;
 
             const int margin = 8;
             const int monitorGap = 8;
@@ -743,8 +757,7 @@ public sealed class QuickEditForm : Form
 
         leftPanel.Paint += (_, e) =>
         {
-            DrawWorkspaceCard(e.Graphics, Rectangle.FromLTRB(8, 8, leftPanel.ClientSize.Width - 8, _mediaThumbStrip.Bottom + 8), "PROJECT BIN", "media + thumbnails", Color.FromArgb(124, 58, 237));
-            DrawWorkspaceCard(e.Graphics, Rectangle.FromLTRB(8, _filesList.Top - 28, leftPanel.ClientSize.Width - 8, _filesList.Bottom + 8), "BROWSER", "source clips", Color.FromArgb(59, 130, 246));
+            DrawWorkspaceCard(e.Graphics, Rectangle.FromLTRB(8, 8, leftPanel.ClientSize.Width - 8, _mediaThumbStrip.Bottom + 8), "PROJECT BIN", "media gallery", Color.FromArgb(124, 58, 237));
         };
 
         centerPanel.Paint += (_, e) =>
@@ -774,6 +787,10 @@ public sealed class QuickEditForm : Form
         KeyDown += OnEditorKeyDown;
         LayoutWorkspace();
         UpdateTimelineZoom();
+        ApplyObsidianScrollbarTheme(_mediaThumbStrip);
+        ApplyObsidianScrollbarTheme(_sequenceList);
+        ApplyObsidianScrollbarTheme(_markerList);
+        ApplyObsidianScrollbarTheme(rightPanel);
         SetTimelineEditMode(TimelineEditMode.Select);
 
         _previewDebounceTimer = new System.Windows.Forms.Timer { Interval = 280 };
@@ -930,6 +947,48 @@ public sealed class QuickEditForm : Form
         button.FlatAppearance.BorderColor = active ? Color.FromArgb(104, 104, 112) : Color.FromArgb(51, 51, 51);
     }
 
+    private void SelectMediaBinFile(string file, Keys modifiers)
+    {
+        var index = _filesList.Items.IndexOf(file);
+        if (index < 0)
+            return;
+
+        if ((modifiers & Keys.Control) == Keys.Control)
+            _filesList.SetSelected(index, !_filesList.GetSelected(index));
+        else
+        {
+            _filesList.ClearSelected();
+            _filesList.SelectedIndex = index;
+        }
+
+        if (_filesList.SelectedIndices.Count > 0)
+            _filesList.TopIndex = Math.Max(0, _filesList.SelectedIndices[0]);
+    }
+
+    private void ApplyObsidianScrollbarTheme(Control control)
+    {
+        void ApplyTheme()
+        {
+            try
+            {
+                if (control.IsHandleCreated)
+                    SetWindowTheme(control.Handle, "DarkMode_Explorer", null);
+            }
+            catch
+            {
+            }
+        }
+
+        control.HandleCreated += (_, _) => ApplyTheme();
+        ApplyTheme();
+    }
+
+    [DllImport("uxtheme.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern int SetWindowTheme(IntPtr hWnd, string? pszSubAppName, string? pszSubIdList);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool DestroyIcon(IntPtr hIcon);
+
     private void DrawMediaBinItem(object? sender, DrawItemEventArgs e)
     {
         using var surfaceBrush = new SolidBrush(Color.FromArgb(17, 17, 17));
@@ -1049,30 +1108,46 @@ public sealed class QuickEditForm : Form
         if (!string.IsNullOrWhiteSpace(_selectedFile) && files.Remove(_selectedFile))
             files.Insert(0, _selectedFile);
 
-        var previewFiles = files.Take(12).ToList();
-        foreach (var file in previewFiles)
+        foreach (var file in files.Take(24))
         {
-            if (_mediaThumbCache.ContainsKey(file))
-                continue;
-
-            try
+            if (!_mediaThumbCache.ContainsKey(file))
             {
-                using var thumb = await ExtractPreviewImageAsync(file, 0, CancellationToken.None);
-                _mediaThumbCache[file] = new Bitmap(thumb, new Size(96, 54));
+                try
+                {
+                    using var thumb = await ExtractPreviewImageAsync(file, 0, CancellationToken.None);
+                    _mediaThumbCache[file] = new Bitmap(thumb, new Size(192, 108));
+                }
+                catch
+                {
+                    var fallback = new Bitmap(192, 108);
+                    using var g = Graphics.FromImage(fallback);
+                    g.Clear(Color.Black);
+                    TextRenderer.DrawText(g, "VIDEO", new Font("Segoe UI", 8f, FontStyle.Bold), new Rectangle(0, 40, 192, 20), Color.FromArgb(190, 190, 205), TextFormatFlags.HorizontalCenter);
+                    _mediaThumbCache[file] = fallback;
+                }
             }
-            catch
+
+            if (!_trimThumbCache.ContainsKey(file))
             {
-                var fallback = new Bitmap(96, 54);
-                using var g = Graphics.FromImage(fallback);
-                g.Clear(Color.Black);
-                TextRenderer.DrawText(g, "VIDEO", new Font("Segoe UI", 7f, FontStyle.Bold), new Rectangle(0, 16, 96, 18), Color.FromArgb(190, 190, 205), TextFormatFlags.HorizontalCenter);
-                _mediaThumbCache[file] = fallback;
+                var strip = new List<Image>();
+                foreach (var sampleTime in new[] { 0d, 5d, 10d })
+                {
+                    try
+                    {
+                        using var frame = await ExtractPreviewImageAsync(file, sampleTime, CancellationToken.None);
+                        strip.Add(new Bitmap(frame, new Size(96, 54)));
+                    }
+                    catch
+                    {
+                    }
+                }
+
+                if (strip.Count > 0)
+                    _trimThumbCache[file] = strip;
             }
         }
+
         _filesList.Invalidate();
-
-        files = previewFiles.Take(4).ToList();
-
         _mediaThumbStrip.SuspendLayout();
         try
         {
@@ -1085,47 +1160,76 @@ public sealed class QuickEditForm : Form
                 _mediaThumbStrip.Controls.Add(new Label
                 {
                     AutoSize = false,
-                    Size = new Size(_mediaThumbStrip.Width - 12, 72),
-                    Text = "Import clips or load your watch folder to populate the media bin with preview thumbnails.",
+                    Size = new Size(Math.Max(120, _mediaThumbStrip.ClientSize.Width - 12), 72),
+                    Text = "IMPORT CLIPS OR LOAD YOUR WATCH FOLDER TO POPULATE THE MEDIA BIN.",
                     ForeColor = Color.FromArgb(150, 150, 160),
                     BackColor = Color.Transparent,
+                    Font = new Font("Segoe UI", 8.25f, FontStyle.Bold),
                 });
                 return;
             }
 
+            var selectedCard = default(Control);
+            var gap = 4;
+            var tileWidth = Math.Max(108, ((_mediaThumbStrip.ClientSize.Width - 12) / 2) - gap);
+            var thumbHeight = Math.Max(60, (int)Math.Round(tileWidth * 9d / 16d));
+
             foreach (var file in files)
             {
+                var isSelected = string.Equals(file, _selectedFile, StringComparison.OrdinalIgnoreCase);
                 var card = new Panel
                 {
-                    Size = new Size(106, 74),
-                    Margin = new Padding(4),
-                    BackColor = Color.FromArgb(18, 18, 22),
-                    BorderStyle = BorderStyle.FixedSingle,
+                    Size = new Size(tileWidth, thumbHeight + 28),
+                    Margin = new Padding(2),
+                    BackColor = Color.FromArgb(17, 17, 17),
+                    Tag = file,
+                };
+
+                card.Paint += (_, e) =>
+                {
+                    using var borderPen = new Pen(isSelected ? Color.FromArgb(59, 130, 246) : Color.FromArgb(51, 51, 51), 1);
+                    e.Graphics.DrawRectangle(borderPen, 0, 0, card.Width - 1, card.Height - 1);
                 };
 
                 var thumbBox = new PictureBox
                 {
-                    Location = new Point(4, 4),
-                    Size = new Size(96, 44),
-                    BackColor = Color.FromArgb(8, 8, 10),
+                    Location = new Point(1, 1),
+                    Size = new Size(tileWidth - 2, thumbHeight),
+                    BackColor = Color.Black,
                     SizeMode = PictureBoxSizeMode.Zoom,
+                    Tag = file,
                 };
-                card.Controls.Add(thumbBox);
 
-                card.Controls.Add(new Label
+                var nameLabel = new Label
                 {
-                    Location = new Point(4, 52),
-                    Size = new Size(96, 18),
-                    Text = Path.GetFileNameWithoutExtension(file),
+                    Location = new Point(4, thumbHeight + 4),
+                    Size = new Size(tileWidth - 8, 18),
+                    Text = Path.GetFileName(file),
                     ForeColor = Color.White,
+                    Font = new Font("Segoe UI", 7.5f, FontStyle.Bold),
                     AutoEllipsis = true,
-                });
+                    Tag = file,
+                    TextAlign = ContentAlignment.TopCenter,
+                };
 
-                _mediaThumbStrip.Controls.Add(card);
+                void SelectCard(object? _, EventArgs __) => SelectMediaBinFile(file, ModifierKeys);
+                card.Click += SelectCard;
+                thumbBox.Click += SelectCard;
+                nameLabel.Click += SelectCard;
 
                 if (_mediaThumbCache.TryGetValue(file, out var cachedThumb))
                     thumbBox.Image = cachedThumb;
+
+                card.Controls.Add(thumbBox);
+                card.Controls.Add(nameLabel);
+                _mediaThumbStrip.Controls.Add(card);
+
+                if (isSelected)
+                    selectedCard = card;
             }
+
+            if (selectedCard != null)
+                _mediaThumbStrip.ScrollControlIntoView(selectedCard);
         }
         finally
         {
@@ -1863,6 +1967,8 @@ public sealed class QuickEditForm : Form
         _timelineZoom = Math.Clamp(_timelineZoom, 1, 6);
         _trimTimelineView.SetZoom(_timelineZoom);
         _sequenceTimelineView.SetZoom(_timelineZoom);
+        _trimTimelineView.SetSnappingEnabled(_snappingEnabled);
+        _sequenceTimelineView.SetSnappingEnabled(_snappingEnabled);
     }
 
     private void AdjustTimelineZoom(double delta)
@@ -2860,6 +2966,17 @@ public sealed class QuickEditForm : Form
             return;
         }
 
+        if (e.KeyCode == Keys.S && !e.Control && !e.Alt)
+        {
+            _snappingEnabled = !_snappingEnabled;
+            UpdateTimelineZoom();
+            _statusLabel.Text = _snappingEnabled
+                ? "SNAPPING ENABLED — PLAYHEAD AND EDITS SNAP TO TIME TICKS AND CUT BOUNDARIES."
+                : "SNAPPING DISABLED — TIMELINES NOW MOVE FREELY.";
+            e.SuppressKeyPress = true;
+            return;
+        }
+
         if (e.KeyCode == Keys.Space)
         {
             TogglePlayback();
@@ -3030,6 +3147,7 @@ public sealed class QuickEditForm : Form
         private double _rangeEnd;
         private double _playhead;
         private double _zoom = 1;
+        private bool _snappingEnabled = true;
         private string _clipLabel = "No clip selected";
         private readonly List<double> _markers = [];
         private readonly List<Image> _thumbnails = [];
@@ -3092,6 +3210,12 @@ public sealed class QuickEditForm : Form
         public void SetZoom(double zoom)
         {
             _zoom = Math.Clamp(zoom, 1, 6);
+            Invalidate();
+        }
+
+        public void SetSnappingEnabled(bool enabled)
+        {
+            _snappingEnabled = enabled;
             Invalidate();
         }
 
@@ -3350,14 +3474,23 @@ public sealed class QuickEditForm : Form
             if (_duration <= 0)
                 return 0;
 
+            if (!_snappingEnabled)
+            {
+                _snapIndicatorSeconds = double.NaN;
+                return SnapToFrame(seconds);
+            }
+
             var (visibleStart, visibleDuration) = GetVisibleRange();
             var snapCandidates = new List<double> { 0, _duration, _playhead, _rangeStart, _rangeEnd };
             snapCandidates.AddRange(_markers);
+            for (var tick = Math.Ceiling(visibleStart); tick <= visibleStart + visibleDuration; tick += 1d)
+                snapCandidates.Add(tick);
+
             var threshold = Math.Max(0.05, visibleDuration * 0.02);
             var nearest = snapCandidates.OrderBy(value => Math.Abs(value - seconds)).FirstOrDefault();
             var snapped = Math.Abs(nearest - seconds) <= threshold;
             _snapIndicatorSeconds = snapped ? nearest : double.NaN;
-            return snapped ? nearest : seconds;
+            return SnapToFrame(snapped ? nearest : seconds);
         }
 
         private int SecondsToX(double seconds, Rectangle rail)
@@ -3407,6 +3540,8 @@ public sealed class QuickEditForm : Form
             ResizeRight,
         }
 
+        private static readonly Cursor RazorCursor = CreateRazorCursor();
+
         private readonly List<TimelineSegment> _segments = [];
         private readonly List<(Rectangle Rect, int Index)> _hitTargets = [];
         private int _selectedIndex = -1;
@@ -3419,6 +3554,7 @@ public sealed class QuickEditForm : Form
         private int _previewTrack = 1;
         private bool _razorMode;
         private bool _rippleMoveMode;
+        private bool _snappingEnabled = true;
         private double _snapIndicatorSeconds = double.NaN;
         private string _snapIndicatorLabel = string.Empty;
         private readonly ContextMenuStrip _gapContextMenu = new();
@@ -3426,6 +3562,7 @@ public sealed class QuickEditForm : Form
         private int _gapContextTrack = 1;
 
         private Func<string, Image?>? _waveformProvider;
+        private Func<string, IReadOnlyList<Image>>? _thumbnailProvider;
 
         public event Action<int>? SegmentClicked;
         public event Action<int, double, double>? SegmentTrimChanged;
@@ -3479,16 +3616,28 @@ public sealed class QuickEditForm : Form
             Invalidate();
         }
 
+        public void SetThumbnailProvider(Func<string, IReadOnlyList<Image>>? provider)
+        {
+            _thumbnailProvider = provider;
+            Invalidate();
+        }
+
         public void SetZoom(double zoom)
         {
             _zoom = Math.Clamp(zoom, 1, 6);
             Invalidate();
         }
 
+        public void SetSnappingEnabled(bool enabled)
+        {
+            _snappingEnabled = enabled;
+            Invalidate();
+        }
+
         public void SetRazorMode(bool enabled)
         {
             _razorMode = enabled;
-            Cursor = enabled ? Cursors.Cross : Cursors.Hand;
+            Cursor = enabled ? RazorCursor : Cursors.Hand;
             Invalidate();
         }
 
@@ -3668,8 +3817,9 @@ public sealed class QuickEditForm : Form
             var a2 = new Rectangle(timelineLeft, a1.Bottom + laneGap, timelineWidth, audioLaneHeight);
 
             var rulerRect = new Rectangle(timelineLeft, 10, timelineWidth, 18);
-            using var rulerBrush = new SolidBrush(Color.FromArgb(15, 21, 28));
-            using var labelBadgeBrush = new SolidBrush(Color.FromArgb(25, 30, 39));
+            using var rulerBrush = new SolidBrush(Color.FromArgb(17, 17, 17));
+            using var labelBadgeBrush = new SolidBrush(Color.FromArgb(17, 17, 17));
+            using var labelBorderPen = new Pen(Color.FromArgb(51, 51, 51));
             e.Graphics.FillRectangle(rulerBrush, rulerRect);
             e.Graphics.DrawRectangle(borderPen, rulerRect);
 
@@ -3681,6 +3831,10 @@ public sealed class QuickEditForm : Form
             e.Graphics.FillRectangle(labelBadgeBrush, v2Badge);
             e.Graphics.FillRectangle(labelBadgeBrush, a1Badge);
             e.Graphics.FillRectangle(labelBadgeBrush, a2Badge);
+            e.Graphics.DrawRectangle(labelBorderPen, v1Badge);
+            e.Graphics.DrawRectangle(labelBorderPen, v2Badge);
+            e.Graphics.DrawRectangle(labelBorderPen, a1Badge);
+            e.Graphics.DrawRectangle(labelBorderPen, a2Badge);
             TextRenderer.DrawText(e.Graphics, "V1", Font, v1Badge, Color.FromArgb(191, 219, 254), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
             TextRenderer.DrawText(e.Graphics, "V2", Font, v2Badge, Color.FromArgb(191, 219, 254), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
             TextRenderer.DrawText(e.Graphics, "A1", Font, a1Badge, Color.FromArgb(191, 219, 254), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
@@ -3695,13 +3849,25 @@ public sealed class QuickEditForm : Form
             e.Graphics.DrawRectangle(borderPen, a1);
             e.Graphics.DrawRectangle(borderPen, a2);
 
-            for (var mark = 0; mark <= 8; mark++)
+            using var secondPen = new Pen(Color.FromArgb(38, 38, 42));
+            using var majorPen = new Pen(Color.FromArgb(64, 64, 72));
+            var tickStart = Math.Floor(visibleStart);
+            var tickEnd = Math.Ceiling(visibleStart + visibleDuration);
+            for (var second = tickStart; second <= tickEnd; second += 1d)
             {
-                var x = timelineLeft + (int)Math.Round(mark * (timelineWidth / 8d));
-                using var gridPen = new Pen(Color.FromArgb(32, 32, 40));
-                e.Graphics.DrawLine(gridPen, x, rulerTop + 10, x, a2.Bottom);
-                var stamp = FormatTime(visibleStart + (visibleDuration * mark / 8d));
-                TextRenderer.DrawText(e.Graphics, stamp, new Font("Segoe UI", 7f), new Point(Math.Max(0, x - 16), rulerTop), Color.FromArgb(120, 120, 135));
+                var ratio = (second - visibleStart) / Math.Max(0.001, visibleDuration);
+                if (ratio < 0 || ratio > 1)
+                    continue;
+
+                var x = timelineLeft + (int)Math.Round(ratio * timelineWidth);
+                var isMajor = Math.Abs(second % 5d) < 0.001d;
+                e.Graphics.DrawLine(isMajor ? majorPen : secondPen, x, rulerTop + 10, x, a2.Bottom);
+
+                if (isMajor || visibleDuration <= 15)
+                {
+                    var stamp = FormatTime(second);
+                    TextRenderer.DrawText(e.Graphics, stamp, new Font("Segoe UI", 7f), new Point(Math.Max(0, x - 16), rulerTop), Color.FromArgb(120, 120, 135));
+                }
             }
 
             if (_razorMode)
@@ -3743,9 +3909,14 @@ public sealed class QuickEditForm : Form
 
                 e.Graphics.FillRectangle(shadowBrush, new Rectangle(rect.Left + 2, rect.Top + 2, rect.Width, rect.Height));
                 e.Graphics.FillRectangle(blockBrush, rect);
+                if (_thumbnailProvider?.Invoke(segment.SourceFile) is { Count: > 0 } filmstripFrames)
+                    DrawFilmstrip(e.Graphics, filmstripFrames, rect);
                 e.Graphics.FillRectangle(audioBrush, audioBlock);
                 if (_waveformProvider?.Invoke(segment.SourceFile) is Image waveform)
-                    e.Graphics.DrawImage(waveform, audioBlock);
+                {
+                    DrawImageWithOpacity(e.Graphics, waveform, rect, 0.22f);
+                    DrawImageWithOpacity(e.Graphics, waveform, audioBlock, 0.55f);
+                }
                 e.Graphics.DrawRectangle(activePen, rect);
                 e.Graphics.DrawRectangle(activePen, audioBlock);
 
@@ -3766,14 +3937,15 @@ public sealed class QuickEditForm : Form
                     }
                 }
 
-                var tagRect = new Rectangle(rect.Left + 6, rect.Top + 4, 34, 14);
+                var tagRect = new Rectangle(rect.Left + 6, rect.Top + Math.Max(16, rect.Height - 18), 34, 12);
                 using var tagBrush = new SolidBrush(Color.FromArgb(96, 15, 23, 42));
+                using var labelBackBrush = new SolidBrush(Color.FromArgb(165, 0, 0, 0));
+                var label = Path.GetFileName(segment.SourceFile);
+                var labelRect = new Rectangle(rect.Left + 4, rect.Top + 4, Math.Max(24, rect.Width - 8), 14);
+                e.Graphics.FillRectangle(labelBackBrush, labelRect);
+                TextRenderer.DrawText(e.Graphics, label, new Font("Segoe UI", 7f, FontStyle.Bold), labelRect, Color.White, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine);
                 e.Graphics.FillRectangle(tagBrush, tagRect);
-                TextRenderer.DrawText(e.Graphics, $"{segment.SafeTrack}:{index + 1}", new Font("Segoe UI", 6.5f, FontStyle.Bold), tagRect, Color.FromArgb(226, 232, 240), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
-
-                var label = $"{Path.GetFileNameWithoutExtension(segment.SourceFile)}";
-                var labelRect = new Rectangle(rect.Left + 44, rect.Top, Math.Max(18, rect.Width - 48), rect.Height);
-                TextRenderer.DrawText(e.Graphics, label, Font, labelRect, Color.White, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine);
+                TextRenderer.DrawText(e.Graphics, $"{segment.SafeTrack}:{index + 1}", new Font("Segoe UI", 6.25f, FontStyle.Bold), tagRect, Color.FromArgb(226, 232, 240), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
                 _hitTargets.Add((rect, index));
                 cursorSeconds += segment.Duration;
             }
@@ -3869,7 +4041,7 @@ public sealed class QuickEditForm : Form
         {
             if (_razorMode)
             {
-                Cursor = Cursors.Cross;
+                Cursor = RazorCursor;
                 return;
             }
 
@@ -3900,6 +4072,52 @@ public sealed class QuickEditForm : Form
             Invalidate();
         }
 
+        private static void DrawImageWithOpacity(Graphics graphics, Image image, Rectangle destination, float opacity)
+        {
+            if (destination.Width <= 1 || destination.Height <= 1)
+                return;
+
+            using var attributes = new ImageAttributes();
+            var matrix = new ColorMatrix { Matrix33 = Math.Clamp(opacity, 0f, 1f) };
+            attributes.SetColorMatrix(matrix, ColorMatrixFlag.Default, ColorAdjustType.Bitmap);
+            graphics.DrawImage(image, destination, 0, 0, image.Width, image.Height, GraphicsUnit.Pixel, attributes);
+        }
+
+        private static void DrawFilmstrip(Graphics graphics, IReadOnlyList<Image> frames, Rectangle rect)
+        {
+            if (frames.Count == 0 || rect.Width <= 2 || rect.Height <= 2)
+                return;
+
+            var thumbWidth = Math.Max(28, rect.Height);
+            var x = rect.Left;
+            var frameIndex = 0;
+            while (x < rect.Right)
+            {
+                var width = Math.Min(thumbWidth, rect.Right - x);
+                var frameRect = new Rectangle(x, rect.Top, width, rect.Height);
+                graphics.DrawImage(frames[frameIndex % frames.Count], frameRect);
+                x += width;
+                frameIndex++;
+            }
+        }
+
+        private static Cursor CreateRazorCursor()
+        {
+            try
+            {
+                using var bitmap = new Bitmap(32, 32);
+                using var graphics = Graphics.FromImage(bitmap);
+                graphics.Clear(Color.Transparent);
+                TextRenderer.DrawText(graphics, "✂", new Font("Segoe UI Emoji", 16f, FontStyle.Bold), new Rectangle(0, 0, 28, 28), Color.White, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+                var iconHandle = bitmap.GetHicon();
+                return new Cursor(iconHandle);
+            }
+            catch
+            {
+                return Cursors.Cross;
+            }
+        }
+
         private (double Start, double Duration) GetVisibleRange(double totalDuration)
         {
             var visibleDuration = Math.Min(totalDuration, Math.Max(3, totalDuration / Math.Max(1, _zoom)));
@@ -3909,6 +4127,12 @@ public sealed class QuickEditForm : Form
 
         private double SnapToBoundary(double absoluteSeconds, double totalDuration, out bool snapped)
         {
+            if (!_snappingEnabled)
+            {
+                snapped = false;
+                return SnapToFrame(absoluteSeconds);
+            }
+
             var (visibleStart, visibleDuration) = GetVisibleRange(totalDuration);
             var threshold = Math.Max(0.05, visibleDuration * 0.02);
             var snapPoints = new List<double> { 0, totalDuration };
@@ -3920,9 +4144,12 @@ public sealed class QuickEditForm : Form
                 snapPoints.Add(cursor);
             }
 
+            for (var tick = Math.Ceiling(visibleStart); tick <= visibleStart + visibleDuration; tick += 1d)
+                snapPoints.Add(tick);
+
             var nearest = snapPoints.OrderBy(value => Math.Abs(value - absoluteSeconds)).FirstOrDefault();
             snapped = Math.Abs(nearest - absoluteSeconds) <= threshold;
-            return snapped ? nearest : absoluteSeconds;
+            return SnapToFrame(snapped ? nearest : absoluteSeconds);
         }
 
         private int GetInsertIndex(int x, int timelineLeft, int timelineWidth, double totalDuration)
