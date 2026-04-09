@@ -1,5 +1,6 @@
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
 
 namespace VeloUploader;
 
@@ -8,6 +9,10 @@ class DarkTextBox : Panel
 {
     public readonly TextBox Inner;
     private bool _focused;
+
+    [System.ComponentModel.Browsable(false)]
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public bool DrawRightBorder { get; set; } = true;
 
     static readonly Color C_BG = Color.FromArgb(22, 22, 22);
     static readonly Color C_BORDER = Color.FromArgb(51, 51, 51);
@@ -46,7 +51,11 @@ class DarkTextBox : Panel
     {
         base.OnPaint(e);
         using var pen = new Pen(_focused ? C_FOCUS : C_BORDER, 1);
-        e.Graphics.DrawRectangle(pen, 0, 0, Width - 1, Height - 1);
+        e.Graphics.DrawLine(pen, 0, 0, Width - 1, 0);
+        e.Graphics.DrawLine(pen, 0, Height - 1, Width - 1, Height - 1);
+        e.Graphics.DrawLine(pen, 0, 0, 0, Height - 1);
+        if (DrawRightBorder)
+            e.Graphics.DrawLine(pen, Width - 1, 0, Width - 1, Height - 1);
     }
 }
 
@@ -649,9 +658,10 @@ public class SettingsForm : Form
         Lbl(g, "API Token", lx, y);
         _tokenBox = new DarkTextBox(settings.ApiToken, "velo_...", lx, y + 16, w - 80);
         _tokenBox.UseSystemPasswordChar = true;
+        _tokenBox.DrawRightBorder = false;
         _tokenBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         g.Controls.Add(_tokenBox);
-        _testBtn = MkBtn("Test API", lx + w - 80, y + 16, 80, 24, C_ACCENT, C_ACCENT_H);
+        _testBtn = MkBtn("Test API", lx + w - 80, y + 16, 80, 24, C_ACCENT, C_ACCENT_H, true);
         _testBtn.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         _testBtn.Click += async (_, _) => await TestConnection();
         g.Controls.Add(_testBtn);
@@ -680,10 +690,11 @@ public class SettingsForm : Form
         Lbl(g, "Pinned certificate (optional)", lx, y);
         y += 16;
         _certPathBox = new DarkTextBox(settings.TrustedCertPath, "Trusted .crt/.cer/.pem file for certificate pinning", lx, y, w - 228);
+        _certPathBox.DrawRightBorder = false;
         _certPathBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         g.Controls.Add(_certPathBox);
 
-        var certBrowseBtn = MkBtn("Browse", lx + w - 228, y, 76, 24, C_BTN, C_BTN_H);
+        var certBrowseBtn = MkBtn("Browse", lx + w - 228, y, 76, 24, C_BTN, C_BTN_H, true);
         certBrowseBtn.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         certBrowseBtn.Click += (_, _) =>
         {
@@ -699,11 +710,11 @@ public class SettingsForm : Form
             }
         };
         g.Controls.Add(certBrowseBtn);
-        var genCertBtn = MkBtn("Generate", lx + w - 152, y, 76, 24, C_BTN, C_BTN_H);
+        var genCertBtn = MkBtn("Generate", lx + w - 152, y, 76, 24, C_BTN, C_BTN_H, true);
         genCertBtn.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         genCertBtn.Click += (_, _) => GenerateCert();
         g.Controls.Add(genCertBtn);
-        _testTlsBtn = MkBtn("Test TLS", lx + w - 76, y, 76, 24, C_BTN, C_BTN_H);
+        _testTlsBtn = MkBtn("Test TLS", lx + w - 76, y, 76, 24, C_BTN, C_BTN_H, true);
         _testTlsBtn.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         _testTlsBtn.Click += async (_, _) => await TestTlsConnection();
         g.Controls.Add(_testTlsBtn);
@@ -728,9 +739,10 @@ public class SettingsForm : Form
 
         Lbl(g, "Watch folder", lx, y);
         _watchBox = new DarkTextBox(settings.WatchFolder, @"D:\recordings", lx, y + 16, w - 72);
+        _watchBox.DrawRightBorder = false;
         _watchBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         g.Controls.Add(_watchBox);
-        var browseBtn = MkBtn("Browse", lx + w - 72, y + 16, 72, 24, C_BTN, C_BTN_H);
+        var browseBtn = MkBtn("Browse", lx + w - 72, y + 16, 72, 24, C_BTN, C_BTN_H, true);
         browseBtn.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         browseBtn.Click += (_, _) => { using var d = new FolderBrowserDialog { SelectedPath = _watchBox.Text }; if (d.ShowDialog() == DialogResult.OK) _watchBox.Text = d.SelectedPath; };
         g.Controls.Add(browseBtn);
@@ -747,9 +759,10 @@ public class SettingsForm : Form
         y += 24;
         Lbl(g, "Destination folder", lx, y);
         _moveToBox = new DarkTextBox(settings.MoveToFolder, @"D:\archived-clips", lx, y + 16, w - 72);
+        _moveToBox.DrawRightBorder = false;
         _moveToBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         g.Controls.Add(_moveToBox);
-        var moveBrowseBtn = MkBtn("Browse", lx + w - 72, y + 16, 72, 24, C_BTN, C_BTN_H);
+        var moveBrowseBtn = MkBtn("Browse", lx + w - 72, y + 16, 72, 24, C_BTN, C_BTN_H, true);
         moveBrowseBtn.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         moveBrowseBtn.Click += (_, _) => { using var d = new FolderBrowserDialog { SelectedPath = _moveToBox.Text }; if (d.ShowDialog() == DialogResult.OK) _moveToBox.Text = d.SelectedPath; };
         g.Controls.Add(moveBrowseBtn);
@@ -884,13 +897,14 @@ public class SettingsForm : Form
         y += 84;
 
         _addFolderBox = new DarkTextBox("", "Folder name (e.g. Desktop)", lx, y, w - 120);
+        _addFolderBox.DrawRightBorder = false;
         _addFolderBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         f.Controls.Add(_addFolderBox);
-        var addF = MkBtn("Add", lx + w - 120, y, 50, 24, C_BTN, C_BTN_H);
+        var addF = MkBtn("Add", lx + w - 120, y, 50, 24, C_BTN, C_BTN_H, true);
         addF.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         addF.Click += (_, _) => { var t = _addFolderBox.Text.Trim(); if (t.Length > 0 && !_foldersList.Inner.Items.Contains(t)) { _foldersList.Inner.Items.Add(t); _addFolderBox.Text = ""; } };
         f.Controls.Add(addF);
-        var brF = MkBtn("Browse", lx + w - 70, y, 70, 24, C_BTN, C_BTN_H);
+        var brF = MkBtn("Browse", lx + w - 70, y, 70, 24, C_BTN, C_BTN_H, true);
         brF.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         brF.Click += (_, _) => { using var d = new FolderBrowserDialog(); if (d.ShowDialog() == DialogResult.OK) { var n = new DirectoryInfo(d.SelectedPath).Name; if (!_foldersList.Inner.Items.Contains(n)) _foldersList.Inner.Items.Add(n); } };
         f.Controls.Add(brF);
@@ -911,9 +925,10 @@ public class SettingsForm : Form
         y += 74;
 
         _addPatternBox = new DarkTextBox("", "e.g. *_temp.mp4", lx, y, w - 56);
+        _addPatternBox.DrawRightBorder = false;
         _addPatternBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         f.Controls.Add(_addPatternBox);
-        var addP = MkBtn("Add", lx + w - 56, y, 56, 24, C_BTN, C_BTN_H);
+        var addP = MkBtn("Add", lx + w - 56, y, 56, 24, C_BTN, C_BTN_H, true);
         addP.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         addP.Click += (_, _) => { var t = _addPatternBox.Text.Trim(); if (t.Length > 0 && !_patternsList.Inner.Items.Contains(t)) { _patternsList.Inner.Items.Add(t); _addPatternBox.Text = ""; } };
         f.Controls.Add(addP);
@@ -1252,6 +1267,15 @@ public class SettingsForm : Form
             _statusRefreshTimer.Start();
         };
 
+        foreach (var page in _pages)
+            ApplyObsidianScrollbarTheme(page);
+        ApplyObsidianScrollbarTheme(_pendingQueueList.Inner);
+        ApplyObsidianScrollbarTheme(_historyList.Inner);
+        ApplyObsidianScrollbarTheme(_foldersList.Inner);
+        ApplyObsidianScrollbarTheme(_patternsList.Inner);
+        ApplyObsidianScrollbarTheme(_eventLogBox);
+        ApplyObsidianScrollbarTheme(_logBox);
+
         SwitchTab(initialTab);
         ResumeLayout();
     }
@@ -1357,30 +1381,37 @@ public class SettingsForm : Form
         return bitmap;
     }
 
-    static Panel AddHeaderBar(Control parent, string title, int x, int y)
+    static Panel AddHeaderBar(Control parent, string title, int x, int y, bool filled = true)
     {
         var bar = new Panel
         {
             Location = new Point(x, y),
-            Size = new Size(Math.Max(120, parent.ClientSize.Width - x - 12), 14),
-            BackColor = Color.FromArgb(26, 26, 26),
+            Size = new Size(Math.Max(120, parent.ClientSize.Width - x - 12), filled ? 14 : 12),
+            BackColor = filled ? Color.FromArgb(26, 26, 26) : Color.Transparent,
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
             Margin = Padding.Empty,
         };
         bar.Paint += (_, e) =>
         {
             using var pen = new Pen(C_BORDER, 1);
-            e.Graphics.DrawLine(pen, 0, 0, bar.Width - 1, 0);
-            e.Graphics.DrawLine(pen, 0, bar.Height - 1, bar.Width - 1, bar.Height - 1);
+            if (filled)
+            {
+                e.Graphics.DrawLine(pen, 0, 0, bar.Width - 1, 0);
+                e.Graphics.DrawLine(pen, 0, bar.Height - 1, bar.Width - 1, bar.Height - 1);
+            }
+            else
+            {
+                e.Graphics.DrawLine(pen, 0, bar.Height - 1, bar.Width - 1, bar.Height - 1);
+            }
         };
 
         var lbl = new Label
         {
             Text = title,
-            Location = new Point(8, 1),
+            Location = new Point(0, filled ? 1 : 0),
             AutoSize = true,
-            ForeColor = C_T2,
-            Font = new Font("Consolas", 7.5f, FontStyle.Bold),
+            ForeColor = filled ? C_T2 : C_T3,
+            Font = new Font("Consolas", filled ? 7.5f : 7f, FontStyle.Bold),
             UseMnemonic = false,
             BackColor = Color.Transparent,
         };
@@ -1391,15 +1422,15 @@ public class SettingsForm : Form
 
     static void Section(Control p, string text, int x, int y)
     {
-        AddHeaderBar(p, text, Math.Max(0, x - 10), y);
+        AddHeaderBar(p, text, Math.Max(0, x - 10), y, false);
     }
 
     static void Lbl(Control p, string text, int x, int y)
     {
-        p.Controls.Add(new Label { Text = text, Location = new Point(x, y), AutoSize = true, ForeColor = C_T2, Font = new Font("Segoe UI", 8f), BackColor = Color.Transparent });
+        p.Controls.Add(new Label { Text = text, Location = new Point(x, y), AutoSize = true, ForeColor = Color.FromArgb(102, 102, 102), Font = new Font("Segoe UI", 7.5f), BackColor = Color.Transparent });
     }
 
-    static Button MkBtn(string text, int x, int y, int w, int h, Color bg, Color hover)
+    static Button MkBtn(string text, int x, int y, int w, int h, Color bg, Color hover, bool joinLeft = false)
     {
         var b = new Button
         {
@@ -1416,10 +1447,18 @@ public class SettingsForm : Form
             Margin = Padding.Empty,
             UseMnemonic = false,
         };
-        b.FlatAppearance.BorderSize = 1;
-        b.FlatAppearance.BorderColor = C_BORDER;
+        b.FlatAppearance.BorderSize = 0;
         b.FlatAppearance.MouseOverBackColor = hover;
         b.FlatAppearance.MouseDownBackColor = hover;
+        b.Paint += (_, e) =>
+        {
+            using var pen = new Pen(C_BORDER, 1);
+            e.Graphics.DrawLine(pen, 0, 0, b.Width - 1, 0);
+            e.Graphics.DrawLine(pen, 0, b.Height - 1, b.Width - 1, b.Height - 1);
+            if (!joinLeft)
+                e.Graphics.DrawLine(pen, 0, 0, 0, b.Height - 1);
+            e.Graphics.DrawLine(pen, b.Width - 1, 0, b.Width - 1, b.Height - 1);
+        };
         return b;
     }
 
@@ -1430,7 +1469,7 @@ public class SettingsForm : Form
             Text = text,
             Checked = v,
             Location = new Point(x, y),
-            Width = TextRenderer.MeasureText(text, new Font("Segoe UI", 8f)).Width + 30,
+            Width = 300,
             Height = 20,
             BackColor = Color.Transparent,
         };
@@ -1440,6 +1479,27 @@ public class SettingsForm : Form
     {
         AddHeaderBar(parent, title, Math.Max(0, x - 10), y);
     }
+
+    private void ApplyObsidianScrollbarTheme(Control control)
+    {
+        void ApplyTheme()
+        {
+            try
+            {
+                if (control.IsHandleCreated)
+                    SetWindowTheme(control.Handle, "DarkMode_Explorer", null);
+            }
+            catch
+            {
+            }
+        }
+
+        control.HandleCreated += (_, _) => ApplyTheme();
+        ApplyTheme();
+    }
+
+    [DllImport("uxtheme.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern int SetWindowTheme(IntPtr hWnd, string? pszSubAppName, string? pszSubIdList);
 
     private void CheckGPUStatus()
     {

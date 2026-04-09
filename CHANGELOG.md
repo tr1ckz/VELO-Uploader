@@ -1,5 +1,10 @@
 # VELO Uploader - Changelog
 
+## Version 1.7.42 (2026-04-09)
+- UI: enforce a stricter flush-right spine so attached action buttons now terminate on the same right edge and join directly to their fields
+- UI: reduce the heavy BIOS-style bars by softening settings separators, muting inline labels, and tightening the two-column checkbox grid
+- UI: apply the editor-style dark scrollbar theme to the Control Center scroll surfaces for a more consistent workstation feel
+
 ## Version 1.7.41 (2026-04-09)
 - UI: switch the Control Center to a tighter table-grid architecture with flush section cards, shared 1px `#333` separators, and full-width `#1a1a1a` header bars
 - UI: align every browse/action group to the right edge with zero-gap input joins and a unified 24px button system
