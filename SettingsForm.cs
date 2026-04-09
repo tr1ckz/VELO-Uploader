@@ -17,15 +17,15 @@ class DarkTextBox : Panel
     public DarkTextBox(string text, string placeholder, int x, int y, int w)
     {
         Location = new Point(x, y);
-        Size = new Size(w, 28);
+        Size = new Size(w, 24);
         BackColor = C_BG;
 
         Inner = new TextBox
         {
             Text = text,
             PlaceholderText = placeholder,
-            Location = new Point(5, 3),
-            Size = new Size(w - 10, 18),
+            Location = new Point(6, 3),
+            Size = new Size(w - 12, 18),
             BackColor = C_BG,
             ForeColor = C_FG,
             BorderStyle = BorderStyle.None,
@@ -129,7 +129,7 @@ class DarkNumeric : Panel
     public DarkNumeric(int val, int min, int max, int x, int y, int w)
     {
         Location = new Point(x, y);
-        Size = new Size(w, 28);
+        Size = new Size(w, 24);
         BackColor = C_BG;
 
         Inner = new NumericUpDown
@@ -138,7 +138,7 @@ class DarkNumeric : Panel
             Minimum = min,
             Maximum = max,
             Location = new Point(1, 1),
-            Size = new Size(w - 2, 26),
+            Size = new Size(w - 2, 22),
             BackColor = C_BG,
             ForeColor = C_FG,
             BorderStyle = BorderStyle.None,
@@ -166,13 +166,13 @@ class DarkComboBox : Panel
     public DarkComboBox(int x, int y, int w, IEnumerable<string> items, string selected)
     {
         Location = new Point(x, y);
-        Size = new Size(w, 28);
+        Size = new Size(w, 24);
         BackColor = C_BG;
 
         Inner = new ComboBox
         {
             Location = new Point(1, 1),
-            Size = new Size(w - 2, 26),
+            Size = new Size(w - 2, 22),
             BackColor = C_BG,
             ForeColor = C_FG,
             FlatStyle = FlatStyle.Flat,
@@ -192,6 +192,53 @@ class DarkComboBox : Panel
     }
 }
 
+class AccentCheckBox : CheckBox
+{
+    static readonly Color C_BOX_BG = Color.FromArgb(17, 17, 17);
+    static readonly Color C_BOX_BORDER = Color.FromArgb(68, 68, 68);
+    static readonly Color C_TEXT = Color.FromArgb(155, 155, 165);
+    static readonly Color C_CHECK = Color.FromArgb(139, 92, 246);
+
+    public AccentCheckBox()
+    {
+        AutoSize = false;
+        Height = 20;
+        ForeColor = C_TEXT;
+        Font = new Font("Segoe UI", 8f);
+        Cursor = Cursors.Hand;
+        BackColor = Color.Transparent;
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.UserPaint | ControlStyles.SupportsTransparentBackColor, true);
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        e.Graphics.Clear(Parent?.BackColor ?? Color.FromArgb(12, 12, 15));
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+
+        var box = new Rectangle(0, Math.Max(0, (Height - 14) / 2), 14, 14);
+        using (var back = new SolidBrush(C_BOX_BG))
+            e.Graphics.FillRectangle(back, box);
+        using (var pen = new Pen(C_BOX_BORDER, 1))
+            e.Graphics.DrawRectangle(pen, box);
+
+        if (Checked)
+        {
+            using var pen = new Pen(C_CHECK, 2f);
+            e.Graphics.DrawLines(pen,
+            [
+                new Point(box.Left + 3, box.Top + 7),
+                new Point(box.Left + 6, box.Bottom - 3),
+                new Point(box.Right - 3, box.Top + 3),
+            ]);
+        }
+
+        var textRect = new Rectangle(box.Right + 8, 0, Math.Max(0, Width - box.Right - 8), Height);
+        TextRenderer.DrawText(e.Graphics, Text, Font, textRect, C_TEXT, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+
+        if (Focused)
+            ControlPaint.DrawFocusRectangle(e.Graphics, textRect, C_TEXT, Color.Transparent);
+    }
+}
 
 public class SettingsForm : Form
 {
@@ -279,7 +326,7 @@ public class SettingsForm : Form
         DoubleBuffered = true;
 
         const int pageTop = 34;
-        const int footerHeight = 34;
+        const int footerHeight = 42;
         int pageHeight = ClientSize.Height - pageTop - footerHeight;
 
         // Load icon from embedded resource
@@ -391,7 +438,7 @@ public class SettingsForm : Form
             Controls.Add(_pages[i]);
         }
 
-        var footer = new Panel { Dock = DockStyle.Bottom, Height = footerHeight, BackColor = C_PANEL };
+        var footer = new Panel { Dock = DockStyle.Bottom, Height = footerHeight, BackColor = C_PANEL, Padding = new Padding(12, 8, 12, 8) };
         footer.Paint += (_, e) =>
         {
             using var pen = new Pen(C_BORDER, 1);
@@ -433,13 +480,17 @@ public class SettingsForm : Form
         };
         footer.Controls.Add(footerLink);
 
+        var footerSaveBtn = MkBtn("Save & Start Watching", 0, 8, 188, 24, C_BTN, C_BTN_H);
+        footerSaveBtn.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        footerSaveBtn.Click += (_, _) => SaveSettings();
+        footer.Controls.Add(footerSaveBtn);
+
         void LayoutFooter()
         {
             int spacing = 6;
-            int totalWidth = footerText.PreferredWidth + spacing + footerLink.PreferredWidth;
-            int startX = Math.Max(12, (footer.Width - totalWidth) / 2);
-            footerText.Location = new Point(startX, 9);
-            footerLink.Location = new Point(startX + footerText.PreferredWidth + spacing, 9);
+            footerText.Location = new Point(12, 11);
+            footerLink.Location = new Point(12 + footerText.PreferredWidth + spacing, 11);
+            footerSaveBtn.Location = new Point(Math.Max(footer.Width - footerSaveBtn.Width - 12, 12), 8);
         }
 
         footer.SizeChanged += (_, _) => LayoutFooter();
@@ -550,8 +601,8 @@ public class SettingsForm : Form
         UploadHistoryManager.Changed += OnHistoryChanged;
 
         AddSectionCard(home, lx - 10, 6, w + 20, 76);
-        AddSectionCard(home, lx - 10, 78, w + 20, 192);
-        AddSectionCard(home, lx - 10, 272, w + 20, 306);
+        AddSectionCard(home, lx - 10, 78, w + 20, 192, false);
+        AddSectionCard(home, lx - 10, 272, w + 20, 306, false);
 
         // ═══════════════════════════════════════
         //  PAGE 1: SETTINGS
@@ -591,14 +642,17 @@ public class SettingsForm : Form
 
         Lbl(g, "Server URL", lx, y);
         _urlBox = new DarkTextBox(settings.ServerUrl, "https://clips.example.com", lx, y + 16, w);
+        _urlBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         g.Controls.Add(_urlBox);
         y += 50;
 
         Lbl(g, "API Token", lx, y);
         _tokenBox = new DarkTextBox(settings.ApiToken, "velo_...", lx, y + 16, w - 80);
         _tokenBox.UseSystemPasswordChar = true;
+        _tokenBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         g.Controls.Add(_tokenBox);
-        _testBtn = MkBtn("Test API", lx + w - 80, y + 16, 80, 28, C_ACCENT, C_ACCENT_H);
+        _testBtn = MkBtn("Test API", lx + w - 80, y + 16, 80, 24, C_ACCENT, C_ACCENT_H);
+        _testBtn.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         _testBtn.Click += async (_, _) => await TestConnection();
         g.Controls.Add(_testBtn);
         y += 42;
@@ -606,7 +660,7 @@ public class SettingsForm : Form
         _statusLabel = new Label
         {
             Location = new Point(lx, y),
-            Size = new Size(w, 30),
+            Size = new Size(w, 24),
             ForeColor = C_T3,
             Font = new Font("Segoe UI", 8f, FontStyle.Bold),
             TextAlign = ContentAlignment.MiddleLeft,
@@ -626,9 +680,11 @@ public class SettingsForm : Form
         Lbl(g, "Pinned certificate (optional)", lx, y);
         y += 16;
         _certPathBox = new DarkTextBox(settings.TrustedCertPath, "Trusted .crt/.cer/.pem file for certificate pinning", lx, y, w - 228);
+        _certPathBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         g.Controls.Add(_certPathBox);
 
-        var certBrowseBtn = MkBtn("Browse", lx + w - 228, y, 76, 28, C_BTN, C_BTN_H);
+        var certBrowseBtn = MkBtn("Browse", lx + w - 228, y, 76, 24, C_BTN, C_BTN_H);
+        certBrowseBtn.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         certBrowseBtn.Click += (_, _) =>
         {
             using var d = new OpenFileDialog
@@ -643,10 +699,12 @@ public class SettingsForm : Form
             }
         };
         g.Controls.Add(certBrowseBtn);
-        var genCertBtn = MkBtn("Generate", lx + w - 152, y, 76, 28, C_BTN, C_BTN_H);
+        var genCertBtn = MkBtn("Generate", lx + w - 152, y, 76, 24, C_BTN, C_BTN_H);
+        genCertBtn.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         genCertBtn.Click += (_, _) => GenerateCert();
         g.Controls.Add(genCertBtn);
-        _testTlsBtn = MkBtn("Test TLS", lx + w - 76, y, 76, 28, C_BTN, C_BTN_H);
+        _testTlsBtn = MkBtn("Test TLS", lx + w - 76, y, 76, 24, C_BTN, C_BTN_H);
+        _testTlsBtn.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         _testTlsBtn.Click += async (_, _) => await TestTlsConnection();
         g.Controls.Add(_testTlsBtn);
         y += 34;
@@ -670,8 +728,10 @@ public class SettingsForm : Form
 
         Lbl(g, "Watch folder", lx, y);
         _watchBox = new DarkTextBox(settings.WatchFolder, @"D:\recordings", lx, y + 16, w - 72);
+        _watchBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         g.Controls.Add(_watchBox);
-        var browseBtn = MkBtn("Browse", lx + w - 72, y + 16, 72, 28, C_BTN, C_BTN_H);
+        var browseBtn = MkBtn("Browse", lx + w - 72, y + 16, 72, 24, C_BTN, C_BTN_H);
+        browseBtn.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         browseBtn.Click += (_, _) => { using var d = new FolderBrowserDialog { SelectedPath = _watchBox.Text }; if (d.ShowDialog() == DialogResult.OK) _watchBox.Text = d.SelectedPath; };
         g.Controls.Add(browseBtn);
         y += 50;
@@ -687,8 +747,10 @@ public class SettingsForm : Form
         y += 24;
         Lbl(g, "Destination folder", lx, y);
         _moveToBox = new DarkTextBox(settings.MoveToFolder, @"D:\archived-clips", lx, y + 16, w - 72);
+        _moveToBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         g.Controls.Add(_moveToBox);
-        var moveBrowseBtn = MkBtn("Browse", lx + w - 72, y + 16, 72, 28, C_BTN, C_BTN_H);
+        var moveBrowseBtn = MkBtn("Browse", lx + w - 72, y + 16, 72, 24, C_BTN, C_BTN_H);
+        moveBrowseBtn.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         moveBrowseBtn.Click += (_, _) => { using var d = new FolderBrowserDialog { SelectedPath = _moveToBox.Text }; if (d.ShowDialog() == DialogResult.OK) _moveToBox.Text = d.SelectedPath; };
         g.Controls.Add(moveBrowseBtn);
         // Update move destination box visibility based on checkbox
@@ -785,24 +847,19 @@ public class SettingsForm : Form
         g.Controls.Add(_gameCompressionBox);
         _policySyncBox = MkChk("Sync upload settings from server on launch", settings.EnablePolicySync, lx + 340, y);
         g.Controls.Add(_policySyncBox);
-        y += 42;
-
-        var saveBtn = MkBtn("Save & Start Watching", lx + w - 188, y, 188, 28, C_BTN, C_BTN_H);
-        saveBtn.Font = new Font("Segoe UI", 8f, FontStyle.Bold);
-        saveBtn.Click += (_, _) => SaveSettings();
-        g.Controls.Add(saveBtn);
+        y += 18;
 
         _selfSignedBox.CheckedChanged += (_, _) => UpdateTlsUi();
         _certPathBox.Inner.TextChanged += (_, _) => UpdateTlsUi();
         UpdateTlsUi();
 
         AddSectionCard(g, lx - 10, 6, w + 20, 44);
-        AddSectionCard(g, lx - 10, 48, w + 20, 120);
-        AddSectionCard(g, lx - 10, 170, w + 20, 118);
-        AddSectionCard(g, lx - 10, 292, w + 20, 188);
-        AddSectionCard(g, lx - 10, 484, w + 20, 74);
-        AddSectionCard(g, lx - 10, 560, w + 20, 62);
-        AddSectionCard(g, lx - 10, 626, w + 20, 98);
+        AddSectionCard(g, lx - 10, 48, w + 20, 120, false);
+        AddSectionCard(g, lx - 10, 170, w + 20, 118, false);
+        AddSectionCard(g, lx - 10, 292, w + 20, 188, false);
+        AddSectionCard(g, lx - 10, 484, w + 20, 74, false);
+        AddSectionCard(g, lx - 10, 560, w + 20, 62, false);
+        AddSectionCard(g, lx - 10, 626, w + 20, 98, false);
 
         // ═══════════════════════════════════════
         //  PAGE 1: SETTINGS — rules + filters
@@ -816,20 +873,25 @@ public class SettingsForm : Form
         f.Controls.Add(MkLabel("Clips in these folder names are skipped", lx + 130, y + 1, new Font("Segoe UI", 7.5f), C_T3));
         y += 18;
 
-        _foldersList = new DarkListBox(lx, y, w - 90, 78);
+        _foldersList = new DarkListBox(lx, y, w - 82, 78);
+        _foldersList.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         foreach (var fol in settings.IgnoredFolders) _foldersList.Inner.Items.Add(fol);
         f.Controls.Add(_foldersList);
-        var rmF = MkBtn("Remove", lx + w - 82, y, 82, 26, C_RED, Color.FromArgb(190, 50, 50));
+        var rmF = MkBtn("Remove", lx + w - 82, y, 82, 24, C_RED, Color.FromArgb(190, 50, 50));
+        rmF.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         rmF.Click += (_, _) => { if (_foldersList.Inner.SelectedIndex >= 0) _foldersList.Inner.Items.RemoveAt(_foldersList.Inner.SelectedIndex); };
         f.Controls.Add(rmF);
         y += 84;
 
-        _addFolderBox = new DarkTextBox("", "Folder name (e.g. Desktop)", lx, y, w - 172);
+        _addFolderBox = new DarkTextBox("", "Folder name (e.g. Desktop)", lx, y, w - 120);
+        _addFolderBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         f.Controls.Add(_addFolderBox);
-        var addF = MkBtn("Add", lx + w - 164, y, 50, 28, C_BTN, C_BTN_H);
+        var addF = MkBtn("Add", lx + w - 120, y, 50, 24, C_BTN, C_BTN_H);
+        addF.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         addF.Click += (_, _) => { var t = _addFolderBox.Text.Trim(); if (t.Length > 0 && !_foldersList.Inner.Items.Contains(t)) { _foldersList.Inner.Items.Add(t); _addFolderBox.Text = ""; } };
         f.Controls.Add(addF);
-        var brF = MkBtn("Browse", lx + w - 106, y, 70, 28, C_BTN, C_BTN_H);
+        var brF = MkBtn("Browse", lx + w - 70, y, 70, 24, C_BTN, C_BTN_H);
+        brF.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         brF.Click += (_, _) => { using var d = new FolderBrowserDialog(); if (d.ShowDialog() == DialogResult.OK) { var n = new DirectoryInfo(d.SelectedPath).Name; if (!_foldersList.Inner.Items.Contains(n)) _foldersList.Inner.Items.Add(n); } };
         f.Controls.Add(brF);
         y += 38;
@@ -838,17 +900,21 @@ public class SettingsForm : Form
         f.Controls.Add(MkLabel("Wildcards: * any, ? single", lx + 140, y + 1, new Font("Segoe UI", 7.5f), C_T3));
         y += 18;
 
-        _patternsList = new DarkListBox(lx, y, w - 90, 68);
+        _patternsList = new DarkListBox(lx, y, w - 82, 68);
+        _patternsList.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         foreach (var p in settings.IgnoredPatterns) _patternsList.Inner.Items.Add(p);
         f.Controls.Add(_patternsList);
-        var rmP = MkBtn("Remove", lx + w - 82, y, 82, 26, C_RED, Color.FromArgb(190, 50, 50));
+        var rmP = MkBtn("Remove", lx + w - 82, y, 82, 24, C_RED, Color.FromArgb(190, 50, 50));
+        rmP.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         rmP.Click += (_, _) => { if (_patternsList.Inner.SelectedIndex >= 0) _patternsList.Inner.Items.RemoveAt(_patternsList.Inner.SelectedIndex); };
         f.Controls.Add(rmP);
         y += 74;
 
-        _addPatternBox = new DarkTextBox("", "e.g. *_temp.mp4", lx, y, w - 100);
+        _addPatternBox = new DarkTextBox("", "e.g. *_temp.mp4", lx, y, w - 56);
+        _addPatternBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         f.Controls.Add(_addPatternBox);
-        var addP = MkBtn("Add", lx + w - 92, y, 56, 28, C_BTN, C_BTN_H);
+        var addP = MkBtn("Add", lx + w - 56, y, 56, 24, C_BTN, C_BTN_H);
+        addP.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         addP.Click += (_, _) => { var t = _addPatternBox.Text.Trim(); if (t.Length > 0 && !_patternsList.Inner.Items.Contains(t)) { _patternsList.Inner.Items.Add(t); _addPatternBox.Text = ""; } };
         f.Controls.Add(addP);
         y += 38;
@@ -865,8 +931,8 @@ public class SettingsForm : Form
         f.Controls.Add(saveFilt);
 
         AddSectionCard(f, lx - 10, y - 328, w + 20, 154);
-        AddSectionCard(f, lx - 10, y - 166, w + 20, 130);
-        AddSectionCard(f, lx - 10, y - 28, w + 20, 72);
+        AddSectionCard(f, lx - 10, y - 166, w + 20, 130, false);
+        AddSectionCard(f, lx - 10, y - 28, w + 20, 72, false);
 
         // ═══════════════════════════════════════
         //  PAGE 2: LOGS (activity + raw logs)
@@ -1049,12 +1115,12 @@ public class SettingsForm : Form
         _updateCheckBtn = new Button
         {
             Location = new Point(lx + 200, sy - 2),
-            Size = new Size(120, 28),
+            Size = new Size(120, 24),
             Text = "Check Updates",
             FlatStyle = FlatStyle.Flat,
             BackColor = C_BTN,
             ForeColor = Color.White,
-            Font = new Font("Segoe UI", 7.5f),
+            Font = new Font("Segoe UI", 8f, FontStyle.Bold),
             Cursor = Cursors.Hand,
         };
         _updateCheckBtn.FlatAppearance.BorderSize = 1;
@@ -1251,18 +1317,23 @@ public class SettingsForm : Form
         label.ForeColor = color;
     }
 
-    static Panel AddSectionCard(Control parent, int x, int y, int width, int height)
+    static Panel AddSectionCard(Control parent, int x, int y, int width, int height, bool drawTopBorder = true)
     {
         var card = new Panel
         {
             Location = new Point(x, y),
             Size = new Size(width, height),
             BackColor = Color.FromArgb(22, 22, 22),
+            Margin = Padding.Empty,
         };
         card.Paint += (_, e) =>
         {
-            using var pen = new Pen(Color.FromArgb(45, 45, 45), 1);
-            e.Graphics.DrawRectangle(pen, 0, 0, card.Width - 1, card.Height - 1);
+            using var pen = new Pen(C_BORDER, 1);
+            if (drawTopBorder)
+                e.Graphics.DrawLine(pen, 0, 0, card.Width - 1, 0);
+            e.Graphics.DrawLine(pen, 0, card.Height - 1, card.Width - 1, card.Height - 1);
+            e.Graphics.DrawLine(pen, 0, 0, 0, card.Height - 1);
+            e.Graphics.DrawLine(pen, card.Width - 1, 0, card.Width - 1, card.Height - 1);
         };
         parent.Controls.Add(card);
         card.SendToBack();
@@ -1286,19 +1357,41 @@ public class SettingsForm : Form
         return bitmap;
     }
 
-    static void Section(Control p, string text, int x, int y)
+    static Panel AddHeaderBar(Control parent, string title, int x, int y)
     {
+        var bar = new Panel
+        {
+            Location = new Point(x, y),
+            Size = new Size(Math.Max(120, parent.ClientSize.Width - x - 12), 14),
+            BackColor = Color.FromArgb(26, 26, 26),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+            Margin = Padding.Empty,
+        };
+        bar.Paint += (_, e) =>
+        {
+            using var pen = new Pen(C_BORDER, 1);
+            e.Graphics.DrawLine(pen, 0, 0, bar.Width - 1, 0);
+            e.Graphics.DrawLine(pen, 0, bar.Height - 1, bar.Width - 1, bar.Height - 1);
+        };
+
         var lbl = new Label
         {
-            Text = text,
-            Location = new Point(x, y),
+            Text = title,
+            Location = new Point(8, 1),
             AutoSize = true,
             ForeColor = C_T2,
             Font = new Font("Consolas", 7.5f, FontStyle.Bold),
             UseMnemonic = false,
             BackColor = Color.Transparent,
         };
-        p.Controls.Add(lbl);
+        bar.Controls.Add(lbl);
+        parent.Controls.Add(bar);
+        return bar;
+    }
+
+    static void Section(Control p, string text, int x, int y)
+    {
+        AddHeaderBar(p, text, Math.Max(0, x - 10), y);
     }
 
     static void Lbl(Control p, string text, int x, int y)
@@ -1312,11 +1405,11 @@ public class SettingsForm : Form
         {
             Text = text,
             Location = new Point(x, y),
-            Size = new Size(w, h),
+            Size = new Size(w, 24),
             FlatStyle = FlatStyle.Flat,
             BackColor = bg,
             ForeColor = Color.White,
-            Font = new Font("Segoe UI", 7.5f, FontStyle.Bold),
+            Font = new Font("Segoe UI", 8f, FontStyle.Bold),
             Cursor = Cursors.Hand,
             TextAlign = ContentAlignment.MiddleCenter,
             Padding = Padding.Empty,
@@ -1332,33 +1425,20 @@ public class SettingsForm : Form
 
     static CheckBox MkChk(string text, bool v, int x, int y)
     {
-        return new CheckBox
+        return new AccentCheckBox
         {
             Text = text,
             Checked = v,
             Location = new Point(x, y),
-            AutoSize = true,
-            ForeColor = C_T2,
-            Font = new Font("Segoe UI", 8f),
-            Cursor = Cursors.Hand,
-            FlatStyle = FlatStyle.Flat,
+            Width = TextRenderer.MeasureText(text, new Font("Segoe UI", 8f)).Width + 30,
+            Height = 20,
             BackColor = Color.Transparent,
         };
     }
 
     static void MkSectionLabel(Control parent, string title, int x, int y)
     {
-        var lbl = new Label
-        {
-            Text = title,
-            Location = new Point(x, y),
-            AutoSize = true,
-            Font = new Font("Consolas", 7.5f, FontStyle.Bold),
-            ForeColor = C_T2,
-            BackColor = Color.Transparent,
-            UseMnemonic = false,
-        };
-        parent.Controls.Add(lbl);
+        AddHeaderBar(parent, title, Math.Max(0, x - 10), y);
     }
 
     private void CheckGPUStatus()

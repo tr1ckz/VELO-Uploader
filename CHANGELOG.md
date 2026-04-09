@@ -1,5 +1,10 @@
 # VELO Uploader - Changelog
 
+## Version 1.7.41 (2026-04-09)
+- UI: switch the Control Center to a tighter table-grid architecture with flush section cards, shared 1px `#333` separators, and full-width `#1a1a1a` header bars
+- UI: align every browse/action group to the right edge with zero-gap input joins and a unified 24px button system
+- UI: restyle checkboxes to low-contrast dark boxes with purple ticks and move `Save & Start Watching` into the fixed bottom footer bar
+
 ## Version 1.7.40 (2026-04-09)
 - UI: collapse the Control Center chrome into a single 32px header row with tabs and a tiny tucked-right version label
 - UI: slim the quick-action row, tighten section spacing, flatten borders to a strict 1px industrial look, and connect browse/input groups more cleanly
