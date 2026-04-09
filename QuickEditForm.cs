@@ -121,46 +121,48 @@ public sealed class QuickEditForm : Form
         {
         }
 
+        var topBar = new Panel
+        {
+            Location = new Point(0, 0),
+            Size = new Size(ClientSize.Width, 24),
+            BackColor = Color.FromArgb(18, 18, 20),
+            BorderStyle = BorderStyle.FixedSingle,
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+        };
+        Controls.Add(topBar);
+
         var title = new Label
         {
-            Text = "Premiere-style timeline editor",
+            Text = "PREMIERE-STYLE TIMELINE EDITOR",
             AutoSize = true,
-            Location = new Point(20, 14),
-            Font = new Font("Segoe UI Semibold", 14f),
-            ForeColor = Color.White,
+            Location = new Point(8, 4),
+            Font = new Font("Segoe UI", 8.25f, FontStyle.Bold),
+            ForeColor = Color.FromArgb(136, 136, 136),
         };
-        Controls.Add(title);
-
-        var hint = new Label
-        {
-            Text = "Import footage, set IN / OUT in the Source monitor, then Insert or Overwrite at the playhead just like a real NLE timeline.",
-            AutoSize = false,
-            Size = new Size(1320, 40),
-            Location = new Point(20, 42),
-            ForeColor = Color.FromArgb(155, 155, 165),
-        };
-        Controls.Add(hint);
+        topBar.Controls.Add(title);
 
         _workspaceBadgeStrip = new FlowLayoutPanel
         {
-            Location = new Point(20, 74),
-            Size = new Size(1320, 28),
+            Location = new Point(230, 1),
+            Size = new Size(1140, 20),
             AutoSize = false,
             WrapContents = false,
             BackColor = Color.Transparent,
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty,
         };
-        _workspaceBadgeStrip.Controls.Add(BuildHeaderBadge("▣ PROJECT", Color.FromArgb(33, 19, 54), Color.FromArgb(196, 181, 253)));
-        _workspaceBadgeStrip.Controls.Add(BuildHeaderBadge("◴ SOURCE", Color.FromArgb(18, 44, 66), Color.FromArgb(125, 211, 252)));
-        _workspaceBadgeStrip.Controls.Add(BuildHeaderBadge("▶ PROGRAM", Color.FromArgb(24, 50, 37), Color.FromArgb(134, 239, 172)));
-        _workspaceBadgeStrip.Controls.Add(BuildHeaderBadge("✂ TIMELINE", Color.FromArgb(59, 25, 25), Color.FromArgb(252, 165, 165)));
-        _workspaceBadgeStrip.Controls.Add(BuildHeaderBadge("⇪ EXPORT", Color.FromArgb(44, 30, 18), Color.FromArgb(253, 224, 71)));
-        Controls.Add(_workspaceBadgeStrip);
+        _workspaceBadgeStrip.Controls.Add(BuildHeaderBadge("PROJECT", Color.Empty, Color.Empty));
+        _workspaceBadgeStrip.Controls.Add(BuildHeaderBadge("SOURCE", Color.Empty, Color.Empty));
+        _workspaceBadgeStrip.Controls.Add(BuildHeaderBadge("PROGRAM", Color.Empty, Color.Empty));
+        _workspaceBadgeStrip.Controls.Add(BuildHeaderBadge("TIMELINE", Color.Empty, Color.Empty));
+        _workspaceBadgeStrip.Controls.Add(BuildHeaderBadge("EXPORT", Color.Empty, Color.Empty));
+        topBar.Controls.Add(_workspaceBadgeStrip);
 
         var leftPanel = new Panel
         {
-            Location = new Point(20, 92),
-            Size = new Size(260, 680),
+            Location = new Point(0, 24),
+            Size = new Size(280, 680),
             BackColor = Color.FromArgb(16, 18, 22),
             BorderStyle = BorderStyle.FixedSingle,
             Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left,
@@ -169,9 +171,9 @@ public sealed class QuickEditForm : Form
 
         var leftSplitter = new Panel
         {
-            Size = new Size(5, 680),
-            BackColor = Color.FromArgb(44, 52, 64),
-            Cursor = Cursors.VSplit,
+            Size = new Size(1, 680),
+            BackColor = Color.FromArgb(51, 51, 51),
+            Cursor = Cursors.Default,
             Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left,
         };
         Controls.Add(leftSplitter);
@@ -226,7 +228,7 @@ public sealed class QuickEditForm : Form
 
         var centerPanel = new Panel
         {
-            Location = new Point(296, 92),
+            Location = new Point(281, 24),
             Size = new Size(760, 340),
             BackColor = Color.FromArgb(15, 17, 20),
             BorderStyle = BorderStyle.FixedSingle,
@@ -236,8 +238,8 @@ public sealed class QuickEditForm : Form
 
         var timelinePanel = new Panel
         {
-            Location = new Point(20, 448),
-            Size = new Size(1036, 324),
+            Location = new Point(281, 364),
+            Size = new Size(760, 340),
             BackColor = Color.FromArgb(15, 17, 20),
             BorderStyle = BorderStyle.FixedSingle,
             Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
@@ -246,9 +248,9 @@ public sealed class QuickEditForm : Form
 
         var rightSplitter = new Panel
         {
-            Size = new Size(5, 680),
-            BackColor = Color.FromArgb(44, 52, 64),
-            Cursor = Cursors.VSplit,
+            Size = new Size(1, 680),
+            BackColor = Color.FromArgb(51, 51, 51),
+            Cursor = Cursors.Default,
             Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Right,
         };
         Controls.Add(rightSplitter);
@@ -374,6 +376,7 @@ public sealed class QuickEditForm : Form
         _sequenceTimelineView.SegmentTrimChanged += (index, start, end) => ApplySequenceTrimFromTimeline(index, start, end);
         _sequenceTimelineView.SegmentMoved += (fromIndex, toIndex, track) => MoveSequenceSegmentTo(fromIndex, toIndex, track);
         _sequenceTimelineView.SegmentSplitRequested += (index, splitTime) => SplitSelectedSegmentAtPlayhead(index, splitTime);
+        _sequenceTimelineView.SeekRequested += async seconds => await ScrubSequenceToTimeAsync(seconds);
         _sequenceTimelineView.ZoomDeltaRequested += AdjustTimelineZoom;
         _sequenceTimelineView.SetWaveformProvider(file => _waveformCache.TryGetValue(file, out var waveform) ? waveform : null);
         centerPanel.Controls.Add(_sequenceTimelineView);
@@ -396,8 +399,8 @@ public sealed class QuickEditForm : Form
 
         var rightPanel = new Panel
         {
-            Location = new Point(1072, 92),
-            Size = new Size(300, 680),
+            Location = new Point(1120, 24),
+            Size = new Size(280, 680),
             BackColor = Color.FromArgb(16, 18, 22),
             BorderStyle = BorderStyle.FixedSingle,
             Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Right,
@@ -652,77 +655,82 @@ public sealed class QuickEditForm : Form
 
         void LayoutWorkspace()
         {
-            const int outerMargin = 20;
-            const int top = 112;
-            const int gap = 10;
-            _workspaceBadgeStrip.Location = new Point(20, 74);
-            _workspaceBadgeStrip.Size = new Size(ClientSize.Width - 40, 28);
-            var panelHeight = Math.Max(600, ClientSize.Height - top - 88);
-            var leftWidth = Math.Clamp(leftPanelWidth, 220, Math.Min(420, Math.Max(220, ClientSize.Width / 3)));
-            var rightWidth = Math.Clamp(rightPanelWidth, 250, Math.Min(420, Math.Max(250, ClientSize.Width / 3)));
-            var topRowHeight = Math.Clamp((int)Math.Round(panelHeight * 0.40), 280, 360);
-            var timelineTop = top + topRowHeight + 12;
-            var timelineHeight = Math.Max(240, panelHeight - topRowHeight - 12);
+            const int navHeight = 24;
+            const int separator = 1;
+            const int sideWidth = 280;
+            const int footerHeight = 24;
 
-            leftPanel.Bounds = new Rectangle(outerMargin, top, leftWidth, topRowHeight);
-            leftSplitter.Bounds = new Rectangle(leftPanel.Right + 4, top, 5, topRowHeight);
-            rightPanel.Bounds = new Rectangle(ClientSize.Width - outerMargin - rightWidth, top, rightWidth, panelHeight);
-            rightSplitter.Bounds = new Rectangle(rightPanel.Left - 9, top, 5, panelHeight);
-            centerPanel.Bounds = new Rectangle(leftSplitter.Right + gap, top, Math.Max(560, rightSplitter.Left - gap - (leftSplitter.Right + gap)), topRowHeight);
-            timelinePanel.Bounds = new Rectangle(outerMargin, timelineTop, rightSplitter.Left - outerMargin - gap, timelineHeight);
+            topBar.Bounds = new Rectangle(0, 0, ClientSize.Width, navHeight);
+            _workspaceBadgeStrip.Location = new Point(Math.Min(220, Math.Max(150, title.Right + 12)), 1);
+            _workspaceBadgeStrip.Size = new Size(Math.Max(120, topBar.ClientSize.Width - _workspaceBadgeStrip.Left - 6), 20);
 
-            _projectSearchBox.Bounds = new Rectangle(12, 68, Math.Max(120, leftPanel.ClientSize.Width - 112), 26);
-            projectImportButton.Location = new Point(leftPanel.ClientSize.Width - 92, 66);
-            _mediaThumbStrip.Bounds = new Rectangle(12, 104, leftPanel.ClientSize.Width - 24, 76);
-            _filesList.Bounds = new Rectangle(12, 190, leftPanel.ClientSize.Width - 24, Math.Max(86, leftPanel.ClientSize.Height - 264));
+            var top = navHeight;
+            var panelHeight = Math.Max(520, ClientSize.Height - top - footerHeight);
+            var centerLeft = sideWidth + separator;
+            var centerWidth = Math.Max(520, ClientSize.Width - (sideWidth * 2) - (separator * 2));
+            var topRowHeight = Math.Max(220, panelHeight / 2);
+            var bottomRowHeight = Math.Max(220, panelHeight - topRowHeight);
 
-            const int margin = 16;
-            const int monitorGap = 12;
+            leftPanel.Bounds = new Rectangle(0, top, sideWidth, panelHeight);
+            leftSplitter.Bounds = new Rectangle(leftPanel.Right, top, separator, panelHeight);
+            centerPanel.Bounds = new Rectangle(centerLeft, top, centerWidth, topRowHeight);
+            timelinePanel.Bounds = new Rectangle(centerLeft, centerPanel.Bottom, centerWidth, bottomRowHeight);
+            rightSplitter.Bounds = new Rectangle(ClientSize.Width - sideWidth - separator, top, separator, panelHeight);
+            rightPanel.Bounds = new Rectangle(ClientSize.Width - sideWidth, top, sideWidth, panelHeight);
+
+            _projectSearchBox.Bounds = new Rectangle(8, 64, Math.Max(120, leftPanel.ClientSize.Width - 84), 24);
+            projectImportButton.Location = new Point(leftPanel.ClientSize.Width - 68, 64);
+            projectImportButton.Size = new Size(60, 24);
+            _mediaThumbStrip.Bounds = new Rectangle(8, 96, leftPanel.ClientSize.Width - 16, 64);
+            _filesList.Bounds = new Rectangle(8, 168, leftPanel.ClientSize.Width - 16, Math.Max(180, Math.Min(400, leftPanel.ClientSize.Height - 244)));
+
+            const int margin = 8;
+            const int monitorGap = 8;
             var availableWidth = Math.Max(320, centerPanel.ClientSize.Width - (margin * 2));
-            var sourceWidth = Math.Clamp((int)Math.Round(availableWidth * 0.34), 220, 340);
+            var sourceWidth = Math.Clamp((int)Math.Round((availableWidth - monitorGap) * 0.36), 220, 360);
             var programX = margin + sourceWidth + monitorGap;
-            var programWidth = Math.Max(320, availableWidth - sourceWidth - monitorGap);
-            var monitorHeight = Math.Max(160, centerPanel.ClientSize.Height - 114);
+            var programWidth = Math.Max(260, availableWidth - sourceWidth - monitorGap);
+            var monitorHeight = Math.Max(120, centerPanel.ClientSize.Height - 86);
 
-            sourceMonitorLabel.Location = new Point(margin, 14);
-            programMonitorLabel.Location = new Point(programX, 14);
-            _videoInfoLabel.Location = new Point(margin, 36);
-            _videoInfoLabel.Size = new Size(centerPanel.ClientSize.Width - (margin * 2), 26);
+            sourceMonitorLabel.Location = new Point(margin, 8);
+            programMonitorLabel.Location = new Point(programX, 8);
+            _videoInfoLabel.Location = new Point(margin, 24);
+            _videoInfoLabel.Size = new Size(centerPanel.ClientSize.Width - (margin * 2), 22);
 
-            _sourcePreview.Bounds = new Rectangle(margin, 64, sourceWidth, monitorHeight);
-            _playerHost.Bounds = new Rectangle(programX, 64, programWidth, monitorHeight);
+            _sourcePreview.Bounds = new Rectangle(margin, 48, sourceWidth, monitorHeight);
+            _playerHost.Bounds = new Rectangle(programX, 48, programWidth, monitorHeight);
 
-            _previewTimeLabel.Location = new Point(margin, _sourcePreview.Bottom + 6);
-            _previewTimeLabel.Size = new Size(sourceWidth, 22);
-            _playerStatusLabel.Location = new Point(programX, _playerHost.Bottom + 6);
-            _playerStatusLabel.Size = new Size(programWidth, 22);
+            _previewTimeLabel.Location = new Point(margin, _sourcePreview.Bottom + 4);
+            _previewTimeLabel.Size = new Size(sourceWidth, 18);
+            _playerStatusLabel.Location = new Point(programX, _playerHost.Bottom + 4);
+            _playerStatusLabel.Size = new Size(programWidth, 18);
 
-            trimSectionLabel.Location = new Point(margin, 12);
-            trimHint.Location = new Point(margin, 32);
-            trimHint.Size = new Size(timelinePanel.ClientSize.Width - (margin * 2), 24);
+            trimSectionLabel.Location = new Point(margin, 8);
+            trimHint.Location = new Point(margin, 24);
+            trimHint.Size = new Size(timelinePanel.ClientSize.Width - (margin * 2), 22);
 
-            _trimTimelineView.Bounds = new Rectangle(margin, 60, timelinePanel.ClientSize.Width - (margin * 2), 92);
-            _refreshPreviewButton.Location = new Point(timelinePanel.ClientSize.Width - margin - _refreshPreviewButton.Width, _trimTimelineView.Bottom + 8);
-            _timelineBar.Bounds = new Rectangle(margin, _trimTimelineView.Bottom + 10, Math.Max(240, _refreshPreviewButton.Left - margin - 8), 26);
+            _trimTimelineView.Bounds = new Rectangle(margin, 48, timelinePanel.ClientSize.Width - (margin * 2), 82);
+            _refreshPreviewButton.Location = new Point(timelinePanel.ClientSize.Width - margin - _refreshPreviewButton.Width, _trimTimelineView.Bottom + 6);
+            _timelineBar.Bounds = new Rectangle(margin, _trimTimelineView.Bottom + 6, Math.Max(220, _refreshPreviewButton.Left - margin - 6), 24);
 
-            var transportY = _timelineBar.Bottom + 8;
+            var transportY = _timelineBar.Bottom + 6;
             _playPauseButton.Location = new Point(margin, transportY);
-            _jumpBackButton.Location = new Point(_playPauseButton.Right + 8, transportY);
-            _jumpForwardButton.Location = new Point(_jumpBackButton.Right + 8, transportY);
-            _selectToolButton.Location = new Point(_jumpForwardButton.Right + 14, transportY);
-            _rippleToolButton.Location = new Point(_selectToolButton.Right + 8, transportY);
-            _razorToolButton.Location = new Point(_rippleToolButton.Right + 8, transportY);
-            _timelineModeLabel.Location = new Point(_razorToolButton.Right + 10, transportY - 1);
-            _timelineModeLabel.Size = new Size(Math.Max(160, timelinePanel.ClientSize.Width - _timelineModeLabel.Left - margin), 28);
+            _jumpBackButton.Location = new Point(_playPauseButton.Right + 6, transportY);
+            _jumpForwardButton.Location = new Point(_jumpBackButton.Right + 6, transportY);
+            _selectToolButton.Location = new Point(_jumpForwardButton.Right + 10, transportY);
+            _rippleToolButton.Location = new Point(_selectToolButton.Right + 6, transportY);
+            _razorToolButton.Location = new Point(_rippleToolButton.Right + 6, transportY);
+            _timelineModeLabel.Location = new Point(_razorToolButton.Right + 8, transportY + 3);
+            _timelineModeLabel.Size = new Size(Math.Max(120, timelinePanel.ClientSize.Width - _timelineModeLabel.Left - margin), 18);
 
             var toolRowBottom = Math.Max(_playPauseButton.Bottom, Math.Max(_rippleToolButton.Bottom, _timelineModeLabel.Bottom));
-            sequenceSectionLabel.Location = new Point(margin, toolRowBottom + 14);
-            timelineHint.Location = new Point(margin, sequenceSectionLabel.Bottom + 2);
-            timelineHint.Size = new Size(timelinePanel.ClientSize.Width - (margin * 2), 24);
-            _sequenceTimelineView.Bounds = new Rectangle(margin, timelineHint.Bottom + 4, timelinePanel.ClientSize.Width - (margin * 2), Math.Max(120, timelinePanel.ClientSize.Height - timelineHint.Bottom - 14));
+            sequenceSectionLabel.Location = new Point(margin, toolRowBottom + 8);
+            timelineHint.Location = new Point(margin, sequenceSectionLabel.Bottom + 1);
+            timelineHint.Size = new Size(timelinePanel.ClientSize.Width - (margin * 2), 22);
+            _sequenceTimelineView.Bounds = new Rectangle(margin, timelineHint.Bottom + 2, timelinePanel.ClientSize.Width - (margin * 2), Math.Max(120, timelinePanel.ClientSize.Height - timelineHint.Bottom - 8));
 
-            _statusLabel.Location = new Point(20, ClientSize.Height - 48);
-            _statusLabel.Size = new Size(ClientSize.Width - 40, 24);
+            _statusLabel.Location = new Point(8, ClientSize.Height - 20);
+            _statusLabel.Size = new Size(ClientSize.Width - 16, 16);
         }
 
         leftPanel.Paint += (_, e) =>
@@ -808,47 +816,49 @@ public sealed class QuickEditForm : Form
         Text = text.ToUpperInvariant(),
         AutoSize = true,
         Location = new Point(x, y),
-        Font = new Font("Segoe UI Semibold", 8.5f, FontStyle.Bold),
-        ForeColor = Color.FromArgb(196, 181, 253),
+        Font = new Font("Segoe UI", 8.25f, FontStyle.Bold),
+        ForeColor = Color.FromArgb(136, 136, 136),
     };
 
     private static Label BuildHeaderBadge(string text, Color background, Color foreground) => new()
     {
-        Text = text,
+        Text = text.ToUpperInvariant(),
         AutoSize = true,
-        Margin = new Padding(0, 0, 8, 0),
-        Padding = new Padding(10, 4, 10, 4),
-        BackColor = background,
-        ForeColor = foreground,
-        Font = new Font("Segoe UI Semibold", 8f, FontStyle.Bold),
+        Margin = new Padding(0, 0, 4, 0),
+        Padding = new Padding(8, 2, 8, 2),
+        BackColor = Color.FromArgb(22, 22, 26),
+        ForeColor = Color.FromArgb(136, 136, 136),
+        Font = new Font("Segoe UI", 8.25f, FontStyle.Bold),
         BorderStyle = BorderStyle.FixedSingle,
     };
 
     private static Label BuildLabel(string text, int x, int y) => new()
     {
-        Text = text,
+        Text = text.ToUpperInvariant(),
         AutoSize = true,
         Location = new Point(x, y),
-        ForeColor = Color.FromArgb(200, 200, 210),
+        Font = new Font("Segoe UI", 8.25f, FontStyle.Bold),
+        ForeColor = Color.FromArgb(136, 136, 136),
     };
 
     private static Label BuildSmallLabel(string text, int x, int y, int width) => new()
     {
-        Text = text,
+        Text = text.ToUpperInvariant(),
         Location = new Point(x, y),
-        Size = new Size(width, 34),
-        Font = new Font("Segoe UI", 8.25f),
-        ForeColor = Color.FromArgb(163, 172, 185),
+        Size = new Size(width, 28),
+        Font = new Font("Segoe UI", 8.25f, FontStyle.Bold),
+        ForeColor = Color.FromArgb(136, 136, 136),
     };
 
     private static TextBox BuildTextBox(string text, int x, int y, int width) => new()
     {
         Text = text,
         Location = new Point(x, y),
-        Size = new Size(width, 26),
+        Size = new Size(width, 24),
         BackColor = Color.FromArgb(14, 14, 18),
-        ForeColor = Color.FromArgb(240, 240, 245),
+        ForeColor = Color.FromArgb(230, 230, 235),
         BorderStyle = BorderStyle.FixedSingle,
+        Font = new Font("Segoe UI", 8.25f, FontStyle.Regular),
     };
 
     private static NumericUpDown BuildNumeric(decimal value, decimal min, decimal max, int x, int y, int width)
@@ -860,10 +870,11 @@ public sealed class QuickEditForm : Form
             DecimalPlaces = 2,
             Increment = 0.25M,
             Location = new Point(x, y),
-            Size = new Size(width, 26),
+            Size = new Size(width, 24),
             BackColor = Color.FromArgb(14, 14, 18),
-            ForeColor = Color.FromArgb(240, 240, 245),
+            ForeColor = Color.FromArgb(230, 230, 235),
             BorderStyle = BorderStyle.FixedSingle,
+            Font = new Font("Segoe UI", 8.25f, FontStyle.Regular),
         };
 
         numeric.Value = Math.Clamp(value, min, max);
@@ -876,15 +887,15 @@ public sealed class QuickEditForm : Form
         {
             Text = text,
             Location = new Point(x, y),
-            Size = new Size(width, 32),
+            Size = new Size(width, 24),
             FlatStyle = FlatStyle.Flat,
-            BackColor = Color.FromArgb(28, 32, 38),
-            ForeColor = Color.FromArgb(241, 245, 249),
-            Font = new Font("Segoe UI Semibold", 8.5f),
+            BackColor = Color.FromArgb(24, 24, 28),
+            ForeColor = Color.FromArgb(225, 225, 228),
+            Font = new Font("Segoe UI", 8.25f, FontStyle.Bold),
         };
-        button.FlatAppearance.BorderColor = Color.FromArgb(71, 85, 105);
-        button.FlatAppearance.MouseOverBackColor = Color.FromArgb(39, 46, 56);
-        button.FlatAppearance.MouseDownBackColor = Color.FromArgb(51, 65, 85);
+        button.FlatAppearance.BorderColor = Color.FromArgb(51, 51, 51);
+        button.FlatAppearance.MouseOverBackColor = Color.FromArgb(30, 32, 36);
+        button.FlatAppearance.MouseDownBackColor = Color.FromArgb(40, 42, 48);
         button.Click += onClick;
         return button;
     }
@@ -892,29 +903,23 @@ public sealed class QuickEditForm : Form
     private static Button BuildActionButton(string text, int x, int y, int width, EventHandler onClick)
     {
         var button = BuildButton(text, x, y, width, onClick);
-        button.BackColor = Color.FromArgb(109, 40, 217);
-        button.FlatAppearance.BorderColor = Color.FromArgb(167, 139, 250);
-        button.FlatAppearance.MouseOverBackColor = Color.FromArgb(124, 58, 237);
-        button.FlatAppearance.MouseDownBackColor = Color.FromArgb(91, 33, 182);
+        button.BackColor = Color.FromArgb(30, 33, 38);
+        button.FlatAppearance.BorderColor = Color.FromArgb(84, 84, 90);
+        button.FlatAppearance.MouseOverBackColor = Color.FromArgb(38, 42, 48);
+        button.FlatAppearance.MouseDownBackColor = Color.FromArgb(44, 48, 54);
         return button;
     }
 
     private static void DrawWorkspaceCard(Graphics graphics, Rectangle rect, string title, string subtitle, Color accent)
     {
-        if (rect.Width <= 4 || rect.Height <= 4)
-            return;
-
-        var cardRect = Rectangle.Inflate(rect, 2, 2);
-        using var borderPen = new Pen(Color.FromArgb(36, 50, 66));
-        using var accentPen = new Pen(accent, 1.5f);
-        graphics.DrawRectangle(borderPen, cardRect);
-        graphics.DrawLine(accentPen, cardRect.Left + 1, cardRect.Top + 1, cardRect.Right - 1, cardRect.Top + 1);
+        return;
     }
 
     private static void StyleToolButton(Button button, bool active)
     {
-        button.BackColor = active ? Color.FromArgb(124, 58, 237) : Color.FromArgb(38, 38, 46);
-        button.FlatAppearance.BorderColor = active ? Color.FromArgb(154, 92, 255) : Color.FromArgb(70, 70, 82);
+        button.BackColor = active ? Color.FromArgb(44, 48, 54) : Color.FromArgb(24, 24, 28);
+        button.ForeColor = active ? Color.White : Color.FromArgb(200, 200, 204);
+        button.FlatAppearance.BorderColor = active ? Color.FromArgb(104, 104, 112) : Color.FromArgb(51, 51, 51);
     }
 
     private void OnFilesListDragEnter(object? sender, DragEventArgs e)
@@ -969,13 +974,13 @@ public sealed class QuickEditForm : Form
         var hasClipSelection = !string.IsNullOrWhiteSpace(_selectedFile) || (_sequenceList?.SelectedIndex ?? -1) >= 0;
         if (hasClipSelection)
         {
-            _inspectorHeaderLabel.Text = "Clip inspector".ToUpperInvariant();
-            _inspectorHintLabel.Text = "Transform, crop, and source-linked audio details for the selected clip live here. Export remains below.";
+            _inspectorHeaderLabel.Text = "CLIP INSPECTOR";
+            _inspectorHintLabel.Text = "TRANSFORM, CROP, AND SOURCE-LINKED AUDIO DETAILS FOR THE SELECTED CLIP LIVE HERE. EXPORT REMAINS BELOW.";
         }
         else
         {
-            _inspectorHeaderLabel.Text = "Export inspector".ToUpperInvariant();
-            _inspectorHintLabel.Text = "No clip selected — set your output name, folder, and render/export controls here.";
+            _inspectorHeaderLabel.Text = "EXPORT INSPECTOR";
+            _inspectorHintLabel.Text = "NO CLIP SELECTED — SET YOUR OUTPUT NAME, FOLDER, AND RENDER/EXPORT CONTROLS HERE.";
         }
     }
 
@@ -1815,14 +1820,15 @@ public sealed class QuickEditForm : Form
         var razorActive = mode == TimelineEditMode.Razor;
         var rippleActive = mode == TimelineEditMode.Ripple;
         _sequenceTimelineView.SetRazorMode(razorActive);
+        _sequenceTimelineView.SetRippleMode(rippleActive);
         StyleToolButton(_selectToolButton, mode == TimelineEditMode.Select);
         StyleToolButton(_rippleToolButton, rippleActive);
         StyleToolButton(_razorToolButton, razorActive);
         _timelineModeLabel.Text = mode switch
         {
-            TimelineEditMode.Razor => "Razor tool active — click any timeline cut to slice it instantly.",
-            TimelineEditMode.Ripple => "Ripple tool active — drag edit edges and the sequence will flow around the trim.",
-            _ => "Selection tool active — Insert/Overwrite at the playhead, drag clips, or press C for Razor.",
+            TimelineEditMode.Razor => "RAZOR TOOL ACTIVE — CLICK ANY TIMELINE CUT TO SLICE IT INSTANTLY.",
+            TimelineEditMode.Ripple => "RIPPLE TOOL ACTIVE — DRAG CLIPS TO INSERT AND PUSH DOWNSTREAM EDITS.",
+            _ => "SELECTION TOOL ACTIVE — DRAG CLIPS TO OVERWRITE OR SWAP IN PLACE.",
         };
         _statusLabel.Text = _timelineModeLabel.Text;
     }
@@ -1953,7 +1959,7 @@ public sealed class QuickEditForm : Form
     {
         var ffmpegPath = FFmpegHelper.GetFFmpegPath() ?? "ffmpeg";
         var tempFile = Path.Combine(Path.GetTempPath(), $"velo-wave-{Guid.NewGuid():N}.png");
-        var args = $"-i {Quote(filePath)} -filter_complex \"aformat=channel_layouts=mono,showwavespic=s=1600x120:colors=0x38BDF8\" -frames:v 1 -y {Quote(tempFile)}";
+        var args = $"-i {Quote(filePath)} -filter_complex \"aformat=channel_layouts=mono,showwavespic=s=2400x180:colors=0x7DD3FC\" -frames:v 1 -y {Quote(tempFile)}";
         var psi = new ProcessStartInfo(ffmpegPath, args)
         {
             UseShellExecute = false,
@@ -1985,19 +1991,82 @@ public sealed class QuickEditForm : Form
             try { File.Delete(tempFile); } catch { }
         }
 
-        var fallback = new Bitmap(1600, 120);
+        var fallback = new Bitmap(2400, 180);
         using (var g = Graphics.FromImage(fallback))
         {
-            g.Clear(Color.FromArgb(18, 18, 24));
-            using var pen = new Pen(Color.FromArgb(56, 189, 248), 2);
+            g.Clear(Color.Black);
+            using var pen = new Pen(Color.FromArgb(125, 211, 252), 1.4f);
             var mid = fallback.Height / 2;
-            for (var x = 0; x < fallback.Width; x += 8)
+            for (var x = 0; x < fallback.Width; x += 3)
             {
-                var height = 6 + (int)(Math.Abs(Math.Sin(x / 40d)) * 42);
+                var height = 10 + (int)(Math.Abs(Math.Sin(x / 32d)) * 62);
                 g.DrawLine(pen, x, mid - height, x, mid + height);
             }
         }
         return fallback;
+    }
+
+    private async Task ScrubSequenceToTimeAsync(double sequenceSeconds)
+    {
+        if (_sequenceSegments.Count == 0)
+        {
+            SeekToTime(sequenceSeconds, refreshPreview: true);
+            return;
+        }
+
+        var totalDuration = _sequenceSegments.Sum(segment => segment.Duration);
+        var clampedSequenceTime = Math.Clamp(sequenceSeconds, 0, Math.Max(0.001, totalDuration));
+        var cursor = 0d;
+
+        for (var index = 0; index < _sequenceSegments.Count; index++)
+        {
+            var segment = _sequenceSegments[index];
+            var segmentEnd = cursor + segment.Duration;
+            if (clampedSequenceTime <= segmentEnd || index == _sequenceSegments.Count - 1)
+            {
+                var localOffset = Math.Clamp(clampedSequenceTime - cursor, 0, Math.Max(0.001, segment.Duration));
+                var clipTime = Math.Clamp(segment.StartSec + localOffset, segment.StartSec, segment.EndSec);
+
+                if (_sequenceList.SelectedIndex != index)
+                    _sequenceList.SelectedIndex = index;
+                _sequenceTimelineView.SetSelectedIndex(index);
+
+                var clipNeedsLoad = !string.Equals(_selectedFile, segment.SourceFile, StringComparison.OrdinalIgnoreCase) || _mediaElement.Source == null;
+                if (clipNeedsLoad)
+                {
+                    var existingIndex = _filesList.Items.IndexOf(segment.SourceFile);
+                    if (existingIndex < 0)
+                    {
+                        _filesList.Items.Insert(0, segment.SourceFile);
+                        existingIndex = 0;
+                    }
+
+                    if (_filesList.SelectedIndex != existingIndex || !string.Equals(_filesList.SelectedItem?.ToString(), segment.SourceFile, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _filesList.ClearSelected();
+                        _filesList.SelectedIndex = existingIndex;
+                        await HandleSelectionChangedAsync();
+                    }
+                }
+
+                _updatingTrimRange = true;
+                try
+                {
+                    _startBox.Value = Math.Clamp((decimal)segment.StartSec, _startBox.Minimum, _startBox.Maximum);
+                    _endBox.Value = Math.Clamp((decimal)segment.EndSec, _endBox.Minimum, _endBox.Maximum);
+                }
+                finally
+                {
+                    _updatingTrimRange = false;
+                }
+
+                UpdateTrimTimelineUi();
+                SeekToTime(clipTime, refreshPreview: true);
+                return;
+            }
+
+            cursor = segmentEnd;
+        }
     }
 
     private void AddMarkerAtPlayhead()
@@ -2342,7 +2411,23 @@ public sealed class QuickEditForm : Form
 
         PushSequenceUndoState();
         var clampedTrack = Math.Clamp(targetTrack, 1, 2);
-        var segment = _sequenceSegments[fromIndex] with { Track = clampedTrack };
+
+        if (_timelineEditMode == TimelineEditMode.Ripple)
+        {
+            var rippleIndex = RippleMoveSequenceSegment(fromIndex, targetIndex, clampedTrack);
+            UpdateSequenceUi(rippleIndex);
+            _statusLabel.Text = $"Ripple-inserted timeline cut on V{clampedTrack} and pushed downstream edits.";
+            return;
+        }
+
+        var overwriteIndex = OverwriteMoveSequenceSegment(fromIndex, targetIndex, clampedTrack);
+        UpdateSequenceUi(overwriteIndex);
+        _statusLabel.Text = $"Overwrite-moved timeline cut to V{clampedTrack} without rippling the rest of the edit.";
+    }
+
+    private int RippleMoveSequenceSegment(int fromIndex, int targetIndex, int targetTrack)
+    {
+        var segment = _sequenceSegments[fromIndex] with { Track = targetTrack };
         _sequenceSegments.RemoveAt(fromIndex);
 
         var insertIndex = Math.Clamp(targetIndex, 0, _sequenceSegments.Count);
@@ -2350,8 +2435,27 @@ public sealed class QuickEditForm : Form
             insertIndex--;
 
         _sequenceSegments.Insert(insertIndex, segment);
-        UpdateSequenceUi(insertIndex);
-        _statusLabel.Text = $"Moved timeline cut to V{clampedTrack}.";
+        return insertIndex;
+    }
+
+    private int OverwriteMoveSequenceSegment(int fromIndex, int targetIndex, int targetTrack)
+    {
+        if (_sequenceSegments.Count == 0)
+            return -1;
+
+        var overwriteIndex = Math.Clamp(targetIndex, 0, _sequenceSegments.Count - 1);
+        var moving = _sequenceSegments[fromIndex] with { Track = targetTrack };
+
+        if (overwriteIndex == fromIndex)
+        {
+            _sequenceSegments[fromIndex] = moving;
+            return fromIndex;
+        }
+
+        var displaced = _sequenceSegments[overwriteIndex] with { Track = _sequenceSegments[fromIndex].SafeTrack };
+        _sequenceSegments[fromIndex] = displaced;
+        _sequenceSegments[overwriteIndex] = moving;
+        return overwriteIndex;
     }
 
     private async Task LoadSequenceSegmentAsync(int index)
@@ -2842,7 +2946,7 @@ public sealed class QuickEditForm : Form
         public TrimTimelineView()
         {
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.UserPaint, true);
-            BackColor = Color.FromArgb(10, 10, 12);
+            BackColor = Color.Black;
             ForeColor = Color.FromArgb(240, 240, 245);
             Cursor = Cursors.Hand;
             TabStop = true;
@@ -2956,10 +3060,12 @@ public sealed class QuickEditForm : Form
             base.OnPaint(e);
             e.Graphics.Clear(BackColor);
             e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            e.Graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+            e.Graphics.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
 
             using var borderPen = new Pen(Color.FromArgb(52, 52, 66));
             using var textBrush = new SolidBrush(Color.FromArgb(145, 145, 160));
-            using var railBrush = new SolidBrush(Color.FromArgb(26, 26, 34));
+            using var railBrush = new SolidBrush(Color.FromArgb(34, 34, 34));
             using var clipBrush = new SolidBrush(Color.FromArgb(188, 37, 99, 235));
             using var rangeBrush = new SolidBrush(Color.FromArgb(228, 124, 58, 237));
             using var playheadPen = new Pen(Color.FromArgb(248, 113, 113), 2);
@@ -3199,6 +3305,7 @@ public sealed class QuickEditForm : Form
         private enum SegmentDragMode
         {
             None,
+            Seek,
             Move,
             ResizeLeft,
             ResizeRight,
@@ -3215,6 +3322,7 @@ public sealed class QuickEditForm : Form
         private int _previewInsertIndex = -1;
         private int _previewTrack = 1;
         private bool _razorMode;
+        private bool _rippleMoveMode;
         private double _snapIndicatorSeconds = double.NaN;
         private string _snapIndicatorLabel = string.Empty;
 
@@ -3224,12 +3332,13 @@ public sealed class QuickEditForm : Form
         public event Action<int, double, double>? SegmentTrimChanged;
         public event Action<int, int, int>? SegmentMoved;
         public event Action<int, double>? SegmentSplitRequested;
+        public event Action<double>? SeekRequested;
         public event Action<double>? ZoomDeltaRequested;
 
         public SequenceTimelineView()
         {
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.UserPaint, true);
-            BackColor = Color.FromArgb(10, 10, 12);
+            BackColor = Color.Black;
             ForeColor = Color.FromArgb(240, 240, 245);
             Cursor = Cursors.Hand;
             TabStop = true;
@@ -3275,13 +3384,25 @@ public sealed class QuickEditForm : Form
             Invalidate();
         }
 
+        public void SetRippleMode(bool enabled)
+        {
+            _rippleMoveMode = enabled;
+            if (!_razorMode)
+                Cursor = enabled ? Cursors.Hand : Cursors.SizeAll;
+            Invalidate();
+        }
+
         protected override void OnMouseDown(MouseEventArgs e)
         {
             base.OnMouseDown(e);
             Focus();
             var hit = _hitTargets.FirstOrDefault(target => target.Rect.Contains(e.Location));
             if (hit.Rect == Rectangle.Empty)
+            {
+                _dragMode = SegmentDragMode.Seek;
+                UpdatePlayheadFromPoint(e.Location);
                 return;
+            }
 
             _selectedIndex = hit.Index;
             Invalidate();
@@ -3318,7 +3439,19 @@ public sealed class QuickEditForm : Form
         protected override void OnMouseMove(MouseEventArgs e)
         {
             base.OnMouseMove(e);
-            if (_dragMode == SegmentDragMode.None || _dragOriginSegment == null || _dragIndex < 0 || _dragIndex >= _segments.Count)
+            if (_dragMode == SegmentDragMode.None)
+            {
+                UpdateCursor(e.Location);
+                return;
+            }
+
+            if (_dragMode == SegmentDragMode.Seek)
+            {
+                UpdatePlayheadFromPoint(e.Location);
+                return;
+            }
+
+            if (_dragOriginSegment == null || _dragIndex < 0 || _dragIndex >= _segments.Count)
                 return;
 
             var totalDuration = Math.Max(0.1, _segments.Sum(segment => segment.Duration));
@@ -3330,7 +3463,9 @@ public sealed class QuickEditForm : Form
             absoluteSeconds = SnapToBoundary(absoluteSeconds, totalDuration, out var snapped);
             var localPosition = absoluteSeconds - priorDuration;
             _snapIndicatorSeconds = snapped ? absoluteSeconds : double.NaN;
-            _snapIndicatorLabel = snapped ? (_dragMode == SegmentDragMode.Move ? "SNAP" : "TRIM") : string.Empty;
+            _snapIndicatorLabel = snapped
+                ? (_dragMode == SegmentDragMode.Move ? (_rippleMoveMode ? "RIPPLE" : "OVR") : "TRIM")
+                : string.Empty;
 
             if (_dragMode == SegmentDragMode.ResizeLeft)
             {
@@ -3357,6 +3492,8 @@ public sealed class QuickEditForm : Form
             base.OnMouseUp(e);
             if (_dragMode == SegmentDragMode.Move && _dragIndex >= 0)
                 SegmentMoved?.Invoke(_dragIndex, _previewInsertIndex < 0 ? _dragIndex : _previewInsertIndex, _previewTrack);
+            else if (_dragMode == SegmentDragMode.Seek)
+                UpdatePlayheadFromPoint(e.Location);
 
             _dragMode = SegmentDragMode.None;
             _dragIndex = -1;
@@ -3364,6 +3501,7 @@ public sealed class QuickEditForm : Form
             _previewInsertIndex = -1;
             _snapIndicatorSeconds = double.NaN;
             _snapIndicatorLabel = string.Empty;
+            UpdateCursor(e.Location);
             Invalidate();
         }
 
@@ -3381,9 +3519,11 @@ public sealed class QuickEditForm : Form
 
             e.Graphics.Clear(BackColor);
             e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            e.Graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+            e.Graphics.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
 
             using var borderPen = new Pen(Color.FromArgb(52, 52, 66));
-            using var railBrush = new SolidBrush(Color.FromArgb(20, 20, 28));
+            using var railBrush = new SolidBrush(Color.FromArgb(34, 34, 34));
             e.Graphics.DrawRectangle(borderPen, 0, 0, Width - 1, Height - 1);
 
             if (_segments.Count == 0)
@@ -3526,10 +3666,33 @@ public sealed class QuickEditForm : Form
 
             if (_dragMode == SegmentDragMode.Move && _previewInsertIndex >= 0)
             {
-                var insertX = timelineLeft + (int)Math.Round(GetInsertRatio(_previewInsertIndex, totalDuration, visibleStart, visibleDuration) * timelineWidth);
+                var insertRatio = GetInsertRatio(_previewInsertIndex, totalDuration, visibleStart, visibleDuration);
+                var insertX = timelineLeft + (int)Math.Round(insertRatio * timelineWidth);
                 var targetLane = _previewTrack == 2 ? v2 : v1;
-                using var insertPen = new Pen(Color.FromArgb(251, 191, 36), 2);
-                using var insertGlowPen = new Pen(Color.FromArgb(120, 251, 191, 36), 6);
+                var targetAudioLane = _previewTrack == 2 ? a2 : a1;
+
+                if (_dragOriginSegment != null)
+                {
+                    var ghostWidth = Math.Max(40, (int)Math.Round((_dragOriginSegment.Duration / Math.Max(0.001, visibleDuration)) * timelineWidth));
+                    ghostWidth = Math.Min(ghostWidth, Math.Max(40, targetLane.Width - 4));
+                    var ghostLeft = Math.Clamp(insertX + 2, targetLane.Left + 1, targetLane.Right - ghostWidth - 1);
+                    var ghostRect = new Rectangle(ghostLeft, targetLane.Top + 4, ghostWidth, targetLane.Height - 8);
+                    var ghostAudioRect = new Rectangle(ghostLeft, targetAudioLane.Top + 2, ghostWidth, targetAudioLane.Height - 4);
+                    using var ghostBrush = new SolidBrush(Color.FromArgb(72, 235, 235, 240));
+                    using var ghostAudioBrush = new SolidBrush(Color.FromArgb(56, 180, 196, 214));
+                    using var ghostBorder = new Pen(Color.FromArgb(190, 248, 250, 252), 1)
+                    {
+                        DashStyle = System.Drawing.Drawing2D.DashStyle.Dash,
+                    };
+                    e.Graphics.FillRectangle(ghostBrush, ghostRect);
+                    e.Graphics.FillRectangle(ghostAudioBrush, ghostAudioRect);
+                    e.Graphics.DrawRectangle(ghostBorder, ghostRect);
+                    e.Graphics.DrawRectangle(ghostBorder, ghostAudioRect);
+                }
+
+                var indicatorColor = _rippleMoveMode ? Color.FromArgb(251, 191, 36) : Color.FromArgb(248, 113, 113);
+                using var insertPen = new Pen(indicatorColor, 2);
+                using var insertGlowPen = new Pen(Color.FromArgb(120, indicatorColor), 6);
                 e.Graphics.DrawLine(insertGlowPen, insertX, targetLane.Top - 4, insertX, a2.Bottom + 4);
                 e.Graphics.DrawLine(insertPen, insertX, targetLane.Top - 4, insertX, a2.Bottom + 4);
             }
@@ -3567,6 +3730,41 @@ public sealed class QuickEditForm : Form
                 new Point(playheadX + 8, rulerTop - 4),
             ]);
             e.Graphics.FillEllipse(playheadBrush, playheadX - 4, a2.Bottom + 6, 8, 8);
+        }
+
+        private void UpdateCursor(Point location)
+        {
+            if (_razorMode)
+            {
+                Cursor = Cursors.Cross;
+                return;
+            }
+
+            var hit = _hitTargets.FirstOrDefault(target => target.Rect.Contains(location));
+            if (hit.Rect == Rectangle.Empty)
+            {
+                Cursor = Cursors.Hand;
+                return;
+            }
+
+            const int handleWidth = 8;
+            var leftHandle = new Rectangle(hit.Rect.Left - 4, hit.Rect.Top, handleWidth, hit.Rect.Height);
+            var rightHandle = new Rectangle(hit.Rect.Right - 4, hit.Rect.Top, handleWidth, hit.Rect.Height);
+            Cursor = leftHandle.Contains(location) || rightHandle.Contains(location)
+                ? Cursors.SizeWE
+                : Cursors.SizeAll;
+        }
+
+        private void UpdatePlayheadFromPoint(Point location)
+        {
+            var totalDuration = Math.Max(0.1, _segments.Sum(segment => segment.Duration));
+            var timelineLeft = 72;
+            var timelineWidth = Math.Max(120, Width - timelineLeft - 14);
+            var (visibleStart, visibleDuration) = GetVisibleRange(totalDuration);
+            var ratio = Math.Clamp((location.X - timelineLeft) / (double)Math.Max(1, timelineWidth), 0, 1);
+            _playheadSeconds = Math.Clamp(visibleStart + (ratio * visibleDuration), 0, totalDuration);
+            SeekRequested?.Invoke(_playheadSeconds);
+            Invalidate();
         }
 
         private (double Start, double Duration) GetVisibleRange(double totalDuration)
