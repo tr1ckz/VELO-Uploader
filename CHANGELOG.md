@@ -1,5 +1,9 @@
 # VELO Uploader - Changelog
 
+## Version 1.7.37 (2026-04-09)
+- Change: pressing `Open Video Editor` now performs API-token validation first and returns an explicit `Unauthorized` error when the token is missing or rejected
+- UX: invalid editor license failures now surface as a clear unauthorized dialog instead of a generic lock message
+
 ## Version 1.7.36 (2026-04-09)
 - Feature: lock the video editor behind live API-token validation so it only opens when the VELO token is accepted by the server
 - Improvement: reuse the same server-side token validation flow in the Settings `Test API` action and the editor launch gate

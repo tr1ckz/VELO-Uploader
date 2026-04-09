@@ -975,10 +975,10 @@ public class TrayContext : ApplicationContext
         if (string.IsNullOrWhiteSpace(_settings.ServerUrl) || string.IsNullOrWhiteSpace(_settings.ApiToken))
         {
             MessageBox.Show(
-                "The video editor is locked until a valid API token is configured.",
-                "Video editor locked",
+                "Unauthorized: configure a valid API token before opening the video editor.",
+                "Unauthorized",
                 MessageBoxButtons.OK,
-                MessageBoxIcon.Warning);
+                MessageBoxIcon.Error);
             ShowSettingsOnTab(1);
             return;
         }
@@ -998,10 +998,12 @@ public class TrayContext : ApplicationContext
                 }
 
                 MessageBox.Show(
-                    "The video editor requires a valid VELO API token before it can open.\n\n" + validation.Message,
-                    "Video editor locked",
+                    validation.IsUnauthorized
+                        ? validation.Message
+                        : "Unauthorized: the video editor requires a valid VELO API token before it can open.\n\n" + validation.Message,
+                    "Unauthorized",
                     MessageBoxButtons.OK,
-                    MessageBoxIcon.Warning);
+                    MessageBoxIcon.Error);
                 ShowSettingsOnTab(1);
                 return;
             }

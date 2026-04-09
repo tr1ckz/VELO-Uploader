@@ -45,7 +45,7 @@ public class UploadService
         bool Retryable = false,
         TimeSpan? RetryAfter = null);
 
-    public record ApiTokenValidationResult(bool IsValid, string Message);
+    public record ApiTokenValidationResult(bool IsValid, bool IsUnauthorized, string Message, HttpStatusCode? StatusCode = null);
 
     private sealed record ChunkInitResult(string UploadId, string? Error = null, bool Retryable = false, TimeSpan? RetryAfter = null);
 
@@ -55,7 +55,7 @@ public class UploadService
         var token = settings.ApiToken?.Trim() ?? string.Empty;
 
         if (baseUrl.Length < 10 || token.Length == 0)
-            return new ApiTokenValidationResult(false, "Server URL and API token are required.");
+            return new ApiTokenValidationResult(false, true, "Unauthorized: server URL and API token are required.");
 
         try
         {
@@ -71,25 +71,25 @@ public class UploadService
             using var response = await client.SendAsync(request, HttpCompletionOption.ResponseContentRead, ct);
 
             if (response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.Forbidden)
-                return new ApiTokenValidationResult(false, "API token rejected by server.");
+                return new ApiTokenValidationResult(false, true, "Unauthorized: API token rejected by server.", response.StatusCode);
 
             // The upload endpoint authenticates first, then validates payload shape.
             // Any non-auth 4xx response means the token itself was accepted.
             if ((int)response.StatusCode >= 400 && (int)response.StatusCode < 500)
-                return new ApiTokenValidationResult(true, $"API token OK • server auth passed ({(int)response.StatusCode})");
+                return new ApiTokenValidationResult(true, false, $"API token OK • server auth passed ({(int)response.StatusCode})", response.StatusCode);
 
             if (response.IsSuccessStatusCode)
-                return new ApiTokenValidationResult(true, $"API token OK • HTTP {(int)response.StatusCode}");
+                return new ApiTokenValidationResult(true, false, $"API token OK • HTTP {(int)response.StatusCode}", response.StatusCode);
 
-            return new ApiTokenValidationResult(false, $"Could not verify API token • server returned {(int)response.StatusCode}.");
+            return new ApiTokenValidationResult(false, false, $"Could not verify API token • server returned {(int)response.StatusCode}.", response.StatusCode);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            return new ApiTokenValidationResult(false, "API validation timed out.");
+            return new ApiTokenValidationResult(false, false, "Could not verify API token: validation timed out.");
         }
         catch (Exception ex)
         {
-            return new ApiTokenValidationResult(false, $"Could not verify API token: {ex.Message}");
+            return new ApiTokenValidationResult(false, false, $"Could not verify API token: {ex.Message}");
         }
     }
 
