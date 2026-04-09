@@ -206,14 +206,21 @@ public sealed class QuickEditForm : Form
         {
             Location = new Point(12, 190),
             Size = new Size(236, 382),
-            HorizontalScrollbar = true,
+            HorizontalScrollbar = false,
             SelectionMode = SelectionMode.MultiExtended,
             AllowDrop = true,
-            BackColor = Color.FromArgb(14, 14, 18),
+            BackColor = Color.FromArgb(17, 17, 17),
             ForeColor = Color.FromArgb(240, 240, 245),
             BorderStyle = BorderStyle.FixedSingle,
             Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
+            DrawMode = DrawMode.OwnerDrawFixed,
+            ItemHeight = 92,
+            MultiColumn = true,
+            ColumnWidth = 122,
+            IntegralHeight = false,
+            ScrollAlwaysVisible = true,
         };
+        _filesList.DrawItem += DrawMediaBinItem;
         _filesList.SelectedIndexChanged += async (_, _) => await HandleSelectionChangedAsync();
         _filesList.DragEnter += OnFilesListDragEnter;
         _filesList.DragDrop += OnFilesListDragDrop;
@@ -376,6 +383,7 @@ public sealed class QuickEditForm : Form
         _sequenceTimelineView.SegmentTrimChanged += (index, start, end) => ApplySequenceTrimFromTimeline(index, start, end);
         _sequenceTimelineView.SegmentMoved += (fromIndex, toIndex, track) => MoveSequenceSegmentTo(fromIndex, toIndex, track);
         _sequenceTimelineView.SegmentSplitRequested += (index, splitTime) => SplitSelectedSegmentAtPlayhead(index, splitTime);
+        _sequenceTimelineView.RippleDeleteRequested += (insertIndex, track) => RippleDeleteGapAt(insertIndex, track);
         _sequenceTimelineView.SeekRequested += async seconds => await ScrubSequenceToTimeAsync(seconds);
         _sequenceTimelineView.ZoomDeltaRequested += AdjustTimelineZoom;
         _sequenceTimelineView.SetWaveformProvider(file => _waveformCache.TryGetValue(file, out var waveform) ? waveform : null);
@@ -922,6 +930,48 @@ public sealed class QuickEditForm : Form
         button.FlatAppearance.BorderColor = active ? Color.FromArgb(104, 104, 112) : Color.FromArgb(51, 51, 51);
     }
 
+    private void DrawMediaBinItem(object? sender, DrawItemEventArgs e)
+    {
+        using var surfaceBrush = new SolidBrush(Color.FromArgb(17, 17, 17));
+        e.Graphics.FillRectangle(surfaceBrush, e.Bounds);
+
+        if (e.Index < 0 || e.Index >= _filesList.Items.Count)
+            return;
+
+        e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        e.Graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+
+        var filePath = _filesList.Items[e.Index]?.ToString() ?? string.Empty;
+        var isSelected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
+        var tileRect = new Rectangle(e.Bounds.Left + 4, e.Bounds.Top + 4, Math.Max(90, e.Bounds.Width - 8), Math.Max(82, e.Bounds.Height - 8));
+        var thumbRect = new Rectangle(tileRect.Left + 4, tileRect.Top + 4, tileRect.Width - 8, 54);
+        var textRect = new Rectangle(tileRect.Left + 4, thumbRect.Bottom + 4, tileRect.Width - 8, tileRect.Bottom - thumbRect.Bottom - 8);
+
+        using var tileBrush = new SolidBrush(Color.FromArgb(20, 20, 22));
+        using var borderPen = new Pen(isSelected ? Color.FromArgb(59, 130, 246) : Color.FromArgb(51, 51, 51), 1);
+        using var thumbBack = new SolidBrush(Color.Black);
+        e.Graphics.FillRectangle(tileBrush, tileRect);
+        e.Graphics.FillRectangle(thumbBack, thumbRect);
+        e.Graphics.DrawRectangle(borderPen, tileRect);
+        e.Graphics.DrawRectangle(Pens.DimGray, thumbRect);
+
+        if (!string.IsNullOrWhiteSpace(filePath) && _mediaThumbCache.TryGetValue(filePath, out var cachedThumb))
+            e.Graphics.DrawImage(cachedThumb, thumbRect);
+        else
+            TextRenderer.DrawText(e.Graphics, "VIDEO", new Font("Segoe UI", 7f, FontStyle.Bold), thumbRect, Color.FromArgb(160, 160, 170), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+
+        var label = string.IsNullOrWhiteSpace(filePath) ? "EMPTY" : Path.GetFileName(filePath);
+        TextRenderer.DrawText(
+            e.Graphics,
+            label,
+            new Font("Segoe UI", 7.5f, FontStyle.Bold),
+            textRect,
+            isSelected ? Color.White : Color.FromArgb(210, 210, 215),
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.Top | TextFormatFlags.EndEllipsis | TextFormatFlags.WordBreak);
+
+        e.DrawFocusRectangle();
+    }
+
     private void OnFilesListDragEnter(object? sender, DragEventArgs e)
     {
         e.Effect = e.Data?.GetDataPresent(DataFormats.FileDrop) == true
@@ -999,7 +1049,29 @@ public sealed class QuickEditForm : Form
         if (!string.IsNullOrWhiteSpace(_selectedFile) && files.Remove(_selectedFile))
             files.Insert(0, _selectedFile);
 
-        files = files.Take(4).ToList();
+        var previewFiles = files.Take(12).ToList();
+        foreach (var file in previewFiles)
+        {
+            if (_mediaThumbCache.ContainsKey(file))
+                continue;
+
+            try
+            {
+                using var thumb = await ExtractPreviewImageAsync(file, 0, CancellationToken.None);
+                _mediaThumbCache[file] = new Bitmap(thumb, new Size(96, 54));
+            }
+            catch
+            {
+                var fallback = new Bitmap(96, 54);
+                using var g = Graphics.FromImage(fallback);
+                g.Clear(Color.Black);
+                TextRenderer.DrawText(g, "VIDEO", new Font("Segoe UI", 7f, FontStyle.Bold), new Rectangle(0, 16, 96, 18), Color.FromArgb(190, 190, 205), TextFormatFlags.HorizontalCenter);
+                _mediaThumbCache[file] = fallback;
+            }
+        }
+        _filesList.Invalidate();
+
+        files = previewFiles.Take(4).ToList();
 
         _mediaThumbStrip.SuspendLayout();
         try
@@ -1051,25 +1123,8 @@ public sealed class QuickEditForm : Form
 
                 _mediaThumbStrip.Controls.Add(card);
 
-                if (!_mediaThumbCache.TryGetValue(file, out var cachedThumb))
-                {
-                    try
-                    {
-                        using var thumb = await ExtractPreviewImageAsync(file, 0, CancellationToken.None);
-                        cachedThumb = new Bitmap(thumb, new Size(96, 44));
-                        _mediaThumbCache[file] = cachedThumb;
-                    }
-                    catch
-                    {
-                        cachedThumb = new Bitmap(96, 44);
-                        using var g = Graphics.FromImage(cachedThumb);
-                        g.Clear(Color.FromArgb(20, 20, 26));
-                        TextRenderer.DrawText(g, "VIDEO", new Font("Segoe UI", 8f, FontStyle.Bold), new Rectangle(0, 12, 96, 20), Color.FromArgb(190, 190, 205), TextFormatFlags.HorizontalCenter);
-                        _mediaThumbCache[file] = cachedThumb;
-                    }
-                }
-
-                thumbBox.Image = cachedThumb;
+                if (_mediaThumbCache.TryGetValue(file, out var cachedThumb))
+                    thumbBox.Image = cachedThumb;
             }
         }
         finally
@@ -1552,7 +1607,7 @@ public sealed class QuickEditForm : Form
 
     private void SetTrimBoundary(bool isStart)
     {
-        var current = (decimal)GetCurrentPreviewTime();
+        var current = (decimal)SnapToFrame(GetCurrentPreviewTime());
         if (isStart)
         {
             _startBox.Value = Math.Min(_endBox.Value, current);
@@ -1752,12 +1807,14 @@ public sealed class QuickEditForm : Form
         if (_updatingTrimRange)
             return;
 
+        var snappedStart = SnapToFrame(start);
+        var snappedEnd = Math.Max(snappedStart + (1d / 30d), SnapToFrame(end));
         var max = (decimal)Math.Max(_videoDuration, 0.25);
         _updatingTrimRange = true;
         try
         {
-            _startBox.Value = Math.Clamp((decimal)start, _startBox.Minimum, max);
-            _endBox.Value = Math.Clamp((decimal)end, _endBox.Minimum, max);
+            _startBox.Value = Math.Clamp((decimal)snappedStart, _startBox.Minimum, max);
+            _endBox.Value = Math.Clamp((decimal)snappedEnd, _endBox.Minimum, max);
         }
         finally
         {
@@ -2273,7 +2330,7 @@ public sealed class QuickEditForm : Form
     private void SplitSelectedSegmentAtPlayhead(int? requestedIndex = null, double? requestedTime = null)
     {
         var selectedIndex = requestedIndex ?? _sequenceList.SelectedIndex;
-        var playhead = requestedTime ?? GetCurrentPreviewTime();
+        var playhead = SnapToFrame(requestedTime ?? GetCurrentPreviewTime());
         if (selectedIndex < 0 || selectedIndex >= _sequenceSegments.Count)
         {
             MessageBox.Show(this, "Select a timeline cut first, then use Cut at playhead or the Razor tool.", "VELO Video Editor", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -2309,8 +2366,8 @@ public sealed class QuickEditForm : Form
 
         PushSequenceUndoState();
         var segment = _sequenceSegments[index];
-        var safeStart = Math.Max(0, Math.Min(start, end - 0.05));
-        var safeEnd = Math.Max(safeStart + 0.05, end);
+        var safeStart = SnapToFrame(Math.Max(0, Math.Min(start, end - (1d / 30d))));
+        var safeEnd = Math.Max(safeStart + (1d / 30d), SnapToFrame(end));
         _sequenceSegments[index] = segment with { StartSec = safeStart, EndSec = safeEnd };
         UpdateSequenceUi(index);
 
@@ -2443,19 +2500,55 @@ public sealed class QuickEditForm : Form
         if (_sequenceSegments.Count == 0)
             return -1;
 
-        var overwriteIndex = Math.Clamp(targetIndex, 0, _sequenceSegments.Count - 1);
         var moving = _sequenceSegments[fromIndex] with { Track = targetTrack };
-
-        if (overwriteIndex == fromIndex)
+        if (targetIndex == fromIndex)
         {
             _sequenceSegments[fromIndex] = moving;
             return fromIndex;
         }
 
-        var displaced = _sequenceSegments[overwriteIndex] with { Track = _sequenceSegments[fromIndex].SafeTrack };
-        _sequenceSegments[fromIndex] = displaced;
-        _sequenceSegments[overwriteIndex] = moving;
-        return overwriteIndex;
+        _sequenceSegments.RemoveAt(fromIndex);
+        var insertIndex = Math.Clamp(targetIndex, 0, _sequenceSegments.Count);
+        if (insertIndex > fromIndex)
+            insertIndex--;
+
+        if (insertIndex < _sequenceSegments.Count)
+            _sequenceSegments.RemoveAt(insertIndex);
+
+        insertIndex = Math.Clamp(insertIndex, 0, _sequenceSegments.Count);
+        _sequenceSegments.Insert(insertIndex, moving);
+        return insertIndex;
+    }
+
+    private void RippleDeleteGapAt(int insertIndex, int targetTrack)
+    {
+        if (_sequenceSegments.Count < 2)
+            return;
+
+        var clampedTrack = Math.Clamp(targetTrack, 1, 2);
+        var gapTargetIndex = -1;
+        for (var index = Math.Clamp(insertIndex, 0, _sequenceSegments.Count - 1); index < _sequenceSegments.Count; index++)
+        {
+            if (_sequenceSegments[index].SafeTrack == clampedTrack)
+            {
+                gapTargetIndex = index;
+                break;
+            }
+        }
+
+        if (gapTargetIndex < 0 || gapTargetIndex == insertIndex)
+        {
+            _statusLabel.Text = $"No removable gap found on V{clampedTrack}.";
+            return;
+        }
+
+        PushSequenceUndoState();
+        var segment = _sequenceSegments[gapTargetIndex];
+        _sequenceSegments.RemoveAt(gapTargetIndex);
+        var newIndex = Math.Clamp(insertIndex, 0, _sequenceSegments.Count);
+        _sequenceSegments.Insert(newIndex, segment);
+        UpdateSequenceUi(newIndex);
+        _statusLabel.Text = $"Ripple deleted the gap on V{clampedTrack} and pulled later clips left.";
     }
 
     private async Task LoadSequenceSegmentAsync(int index)
@@ -2908,6 +3001,12 @@ public sealed class QuickEditForm : Form
             : ts.ToString(@"mm\:ss\.fff");
     }
 
+    private static double SnapToFrame(double seconds, double fps = 30d)
+    {
+        var safeFps = Math.Max(1d, fps);
+        return Math.Round(Math.Max(0, seconds) * safeFps) / safeFps;
+    }
+
     private static string SanitizeFileName(string value)
     {
         var invalid = Path.GetInvalidFileNameChars();
@@ -3066,9 +3165,9 @@ public sealed class QuickEditForm : Form
             using var borderPen = new Pen(Color.FromArgb(52, 52, 66));
             using var textBrush = new SolidBrush(Color.FromArgb(145, 145, 160));
             using var railBrush = new SolidBrush(Color.FromArgb(34, 34, 34));
-            using var clipBrush = new SolidBrush(Color.FromArgb(188, 37, 99, 235));
-            using var rangeBrush = new SolidBrush(Color.FromArgb(228, 124, 58, 237));
-            using var playheadPen = new Pen(Color.FromArgb(248, 113, 113), 2);
+            using var clipBrush = new SolidBrush(Color.FromArgb(28, 59, 130, 246));
+            using var wasteBrush = new SolidBrush(Color.FromArgb(153, 0, 0, 0));
+            using var playheadPen = new Pen(Color.FromArgb(248, 113, 113), 1);
             using var handleBrush = new SolidBrush(Color.FromArgb(245, 245, 250));
 
             e.Graphics.DrawRectangle(borderPen, 0, 0, Width - 1, Height - 1);
@@ -3134,10 +3233,15 @@ public sealed class QuickEditForm : Form
                 e.Graphics.DrawImage(_waveformImage, waveformRect, sourceX, 0, Math.Min(sourceWidth, _waveformImage.Width - sourceX), _waveformImage.Height, GraphicsUnit.Pixel);
             }
 
-            var selectedRect = Rectangle.FromLTRB(SecondsToX(_rangeStart, rail), rail.Top + 2, SecondsToX(_rangeEnd, rail), rail.Bottom - 2);
-            e.Graphics.FillRectangle(clipBrush, rail.Left + 1, rail.Top + 2, rail.Width - 2, rail.Height - 4);
-            e.Graphics.FillRectangle(rangeBrush, selectedRect);
-            using var selectedBorder = new Pen(Color.FromArgb(221, 214, 254), 2);
+            var rangeLeft = SecondsToX(_rangeStart, rail);
+            var rangeRight = SecondsToX(_rangeEnd, rail);
+            var selectedRect = Rectangle.FromLTRB(Math.Min(rangeLeft, rangeRight), rail.Top + 1, Math.Max(rangeLeft, rangeRight), rail.Bottom - 1);
+            e.Graphics.FillRectangle(clipBrush, selectedRect);
+            if (selectedRect.Left > rail.Left + 1)
+                e.Graphics.FillRectangle(wasteBrush, new Rectangle(rail.Left + 1, rail.Top + 1, selectedRect.Left - rail.Left - 1, rail.Height - 2));
+            if (selectedRect.Right < rail.Right - 1)
+                e.Graphics.FillRectangle(wasteBrush, new Rectangle(selectedRect.Right, rail.Top + 1, rail.Right - selectedRect.Right - 1, rail.Height - 2));
+            using var selectedBorder = new Pen(Color.FromArgb(59, 130, 246), 1);
             e.Graphics.DrawRectangle(selectedBorder, selectedRect);
 
             if (!double.IsNaN(_snapIndicatorSeconds))
@@ -3171,15 +3275,7 @@ public sealed class QuickEditForm : Form
             DrawTrimHandle(e.Graphics, endHandle, "O", Color.FromArgb(168, 85, 247));
 
             var playheadX = SecondsToX(_playhead, rail);
-            using var playheadBrush = new SolidBrush(Color.FromArgb(248, 113, 113));
-            e.Graphics.DrawLine(playheadPen, playheadX, rail.Top - 6, playheadX, rail.Bottom + 8);
-            e.Graphics.FillPolygon(playheadBrush,
-            [
-                new Point(playheadX, rail.Top - 10),
-                new Point(playheadX - 7, rail.Top - 1),
-                new Point(playheadX + 7, rail.Top - 1),
-            ]);
-            e.Graphics.FillEllipse(playheadBrush, playheadX - 4, rail.Bottom + 5, 8, 8);
+            e.Graphics.DrawLine(playheadPen, playheadX, 0, playheadX, Height - 1);
 
             TextRenderer.DrawText(e.Graphics, $"IN {FormatTime(_rangeStart)}", new Font("Segoe UI", 7f), new Point(14, rail.Bottom + 6), Color.FromArgb(200, 200, 215));
             TextRenderer.DrawText(e.Graphics, $"OUT {FormatTime(_rangeEnd)}", new Font("Segoe UI", 7f), new Point(120, rail.Bottom + 6), Color.FromArgb(200, 200, 215));
@@ -3325,6 +3421,9 @@ public sealed class QuickEditForm : Form
         private bool _rippleMoveMode;
         private double _snapIndicatorSeconds = double.NaN;
         private string _snapIndicatorLabel = string.Empty;
+        private readonly ContextMenuStrip _gapContextMenu = new();
+        private int _gapContextInsertIndex = -1;
+        private int _gapContextTrack = 1;
 
         private Func<string, Image?>? _waveformProvider;
 
@@ -3332,6 +3431,7 @@ public sealed class QuickEditForm : Form
         public event Action<int, double, double>? SegmentTrimChanged;
         public event Action<int, int, int>? SegmentMoved;
         public event Action<int, double>? SegmentSplitRequested;
+        public event Action<int, int>? RippleDeleteRequested;
         public event Action<double>? SeekRequested;
         public event Action<double>? ZoomDeltaRequested;
 
@@ -3343,6 +3443,14 @@ public sealed class QuickEditForm : Form
             Cursor = Cursors.Hand;
             TabStop = true;
             MouseEnter += (_, _) => Focus();
+
+            var rippleDeleteItem = new ToolStripMenuItem("Ripple Delete Gap");
+            rippleDeleteItem.Click += (_, _) =>
+            {
+                if (_gapContextInsertIndex >= 0)
+                    RippleDeleteRequested?.Invoke(_gapContextInsertIndex, _gapContextTrack);
+            };
+            _gapContextMenu.Items.Add(rippleDeleteItem);
         }
 
         public void SetSegments(IEnumerable<TimelineSegment> segments, int selectedIndex)
@@ -3490,6 +3598,12 @@ public sealed class QuickEditForm : Form
         protected override void OnMouseUp(MouseEventArgs e)
         {
             base.OnMouseUp(e);
+            if (e.Button == MouseButtons.Right)
+            {
+                ShowGapContextMenu(e.Location);
+                return;
+            }
+
             if (_dragMode == SegmentDragMode.Move && _dragIndex >= 0)
                 SegmentMoved?.Invoke(_dragIndex, _previewInsertIndex < 0 ? _dragIndex : _previewInsertIndex, _previewTrack);
             else if (_dragMode == SegmentDragMode.Seek)
@@ -3730,6 +3844,25 @@ public sealed class QuickEditForm : Form
                 new Point(playheadX + 8, rulerTop - 4),
             ]);
             e.Graphics.FillEllipse(playheadBrush, playheadX - 4, a2.Bottom + 6, 8, 8);
+        }
+
+        private void ShowGapContextMenu(Point location)
+        {
+            if (_segments.Count < 2)
+                return;
+
+            var hit = _hitTargets.FirstOrDefault(target => target.Rect.Contains(location));
+            if (hit.Rect != Rectangle.Empty || location.X < 72 || location.Y < 30)
+                return;
+
+            var totalDuration = Math.Max(0.1, _segments.Sum(segment => segment.Duration));
+            var timelineLeft = 72;
+            var timelineWidth = Math.Max(120, Width - timelineLeft - 14);
+            _gapContextInsertIndex = GetInsertIndex(location.X, timelineLeft, timelineWidth, totalDuration);
+            _gapContextTrack = GetTrackForY(location.Y);
+            if (_gapContextMenu.Items[0] is ToolStripMenuItem item)
+                item.Text = $"Ripple Delete Gap on V{_gapContextTrack}";
+            _gapContextMenu.Show(this, location);
         }
 
         private void UpdateCursor(Point location)
