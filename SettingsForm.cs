@@ -9,9 +9,9 @@ class DarkTextBox : Panel
     public readonly TextBox Inner;
     private bool _focused;
 
-    static readonly Color C_BG = Color.FromArgb(14, 14, 18);
-    static readonly Color C_BORDER = Color.FromArgb(40, 40, 50);
-    static readonly Color C_FOCUS = Color.FromArgb(124, 58, 237);
+    static readonly Color C_BG = Color.FromArgb(22, 22, 22);
+    static readonly Color C_BORDER = Color.FromArgb(51, 51, 51);
+    static readonly Color C_FOCUS = Color.FromArgb(139, 92, 246);
     static readonly Color C_FG = Color.FromArgb(240, 240, 245);
 
     public DarkTextBox(string text, string placeholder, int x, int y, int w)
@@ -24,8 +24,8 @@ class DarkTextBox : Panel
         {
             Text = text,
             PlaceholderText = placeholder,
-            Location = new Point(6, 4),
-            Size = new Size(w - 12, 20),
+            Location = new Point(5, 3),
+            Size = new Size(w - 10, 18),
             BackColor = C_BG,
             ForeColor = C_FG,
             BorderStyle = BorderStyle.None,
@@ -55,11 +55,11 @@ class DarkListBox : Panel
 {
     public readonly ListBox Inner;
 
-    static readonly Color C_BG = Color.FromArgb(14, 14, 18);
-    static readonly Color C_BORDER = Color.FromArgb(40, 40, 50);
+    static readonly Color C_BG = Color.FromArgb(22, 22, 22);
+    static readonly Color C_BORDER = Color.FromArgb(51, 51, 51);
     static readonly Color C_FG = Color.FromArgb(240, 240, 245);
     static readonly Color C_SEL = Color.FromArgb(34, 31, 48);
-    static readonly Color C_ACCENT = Color.FromArgb(124, 58, 237);
+    static readonly Color C_ACCENT = Color.FromArgb(139, 92, 246);
 
     public DarkListBox(int x, int y, int w, int h)
     {
@@ -74,10 +74,10 @@ class DarkListBox : Panel
             BackColor = C_BG,
             ForeColor = C_FG,
             BorderStyle = BorderStyle.None,
-            Font = new Font("Segoe UI", 8.5f, FontStyle.Bold),
+            Font = new Font("Segoe UI", 8f, FontStyle.Bold),
             IntegralHeight = false,
             DrawMode = DrawMode.OwnerDrawFixed,
-            ItemHeight = 20,
+            ItemHeight = 18,
         };
         Inner.DrawItem += (_, e) =>
         {
@@ -122,8 +122,8 @@ class DarkNumeric : Panel
 {
     public readonly NumericUpDown Inner;
 
-    static readonly Color C_BG = Color.FromArgb(14, 14, 18);
-    static readonly Color C_BORDER = Color.FromArgb(40, 40, 50);
+    static readonly Color C_BG = Color.FromArgb(22, 22, 22);
+    static readonly Color C_BORDER = Color.FromArgb(51, 51, 51);
     static readonly Color C_FG = Color.FromArgb(240, 240, 245);
 
     public DarkNumeric(int val, int min, int max, int x, int y, int w)
@@ -159,8 +159,8 @@ class DarkComboBox : Panel
 {
     public readonly ComboBox Inner;
 
-    static readonly Color C_BG = Color.FromArgb(14, 14, 18);
-    static readonly Color C_BORDER = Color.FromArgb(40, 40, 50);
+    static readonly Color C_BG = Color.FromArgb(22, 22, 22);
+    static readonly Color C_BORDER = Color.FromArgb(51, 51, 51);
     static readonly Color C_FG = Color.FromArgb(240, 240, 245);
 
     public DarkComboBox(int x, int y, int w, IEnumerable<string> items, string selected)
@@ -244,16 +244,16 @@ public class SettingsForm : Form
 
     // Palette
     static readonly Color C_BG = Color.FromArgb(12, 12, 15);
-    static readonly Color C_PANEL = Color.FromArgb(18, 18, 22);
-    static readonly Color C_INPUT = Color.FromArgb(14, 14, 18);
-    static readonly Color C_BORDER = Color.FromArgb(40, 40, 50);
+    static readonly Color C_PANEL = Color.FromArgb(22, 22, 22);
+    static readonly Color C_INPUT = Color.FromArgb(22, 22, 22);
+    static readonly Color C_BORDER = Color.FromArgb(51, 51, 51);
     static readonly Color C_T1 = Color.FromArgb(240, 240, 245);
     static readonly Color C_T2 = Color.FromArgb(155, 155, 165);
-    static readonly Color C_T3 = Color.FromArgb(90, 90, 100);
-    static readonly Color C_ACCENT = Color.FromArgb(124, 58, 237);
-    static readonly Color C_ACCENT_H = Color.FromArgb(139, 78, 245);
-    static readonly Color C_BTN = Color.FromArgb(38, 38, 46);
-    static readonly Color C_BTN_H = Color.FromArgb(52, 52, 62);
+    static readonly Color C_T3 = Color.FromArgb(105, 105, 112);
+    static readonly Color C_ACCENT = Color.FromArgb(139, 92, 246);
+    static readonly Color C_ACCENT_H = Color.FromArgb(155, 117, 248);
+    static readonly Color C_BTN = Color.FromArgb(42, 42, 42);
+    static readonly Color C_BTN_H = Color.FromArgb(58, 58, 58);
     static readonly Color C_RED = Color.FromArgb(160, 38, 38);
     static readonly Color C_GREEN = Color.FromArgb(74, 222, 128);
     static readonly Color C_ORANGE = Color.FromArgb(251, 146, 60);
@@ -278,7 +278,7 @@ public class SettingsForm : Form
         Font = new Font("Segoe UI", 9f);
         DoubleBuffered = true;
 
-        const int pageTop = 58;
+        const int pageTop = 34;
         const int footerHeight = 34;
         int pageHeight = ClientSize.Height - pageTop - footerHeight;
 
@@ -291,17 +291,17 @@ public class SettingsForm : Form
         catch { }
 
         // ── Header ──
-        var header = new Panel { Dock = DockStyle.Top, Height = 48, BackColor = C_PANEL };
+        var header = new Panel { Dock = DockStyle.Top, Height = 32, BackColor = C_PANEL };
         header.Paint += (_, e) =>
         {
-            using var pen = new Pen(C_ACCENT, 2);
+            using var pen = new Pen(C_BORDER, 1);
             e.Graphics.DrawLine(pen, 0, header.Height - 1, header.Width, header.Height - 1);
         };
         Controls.Add(header);
 
         var logoBox = new PictureBox
         {
-            Bounds = new Rectangle(12, 9, 18, 18),
+            Bounds = new Rectangle(8, 9, 14, 14),
             SizeMode = PictureBoxSizeMode.Zoom,
             BackColor = Color.Transparent,
         };
@@ -317,8 +317,8 @@ public class SettingsForm : Form
         catch { }
         header.Controls.Add(logoBox);
 
-        var headerTitle = MkLabel("VELO", 36, 11, new Font("Segoe UI", 9.5f, FontStyle.Bold), C_T1);
-        var headerVersion = MkLabel($"v{GitHubUpdater.GetCurrentVersion()}", 0, 13, new Font("Consolas", 8f, FontStyle.Bold), C_ACCENT);
+        var headerTitle = MkLabel("VELO", 27, 8, new Font("Segoe UI", 8.5f, FontStyle.Bold), C_T1);
+        var headerVersion = MkLabel($"v{GitHubUpdater.GetCurrentVersion()}", 0, 10, new Font("Consolas", 7f, FontStyle.Bold), C_T3);
         headerVersion.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         header.Controls.Add(headerTitle);
         header.Controls.Add(headerVersion);
@@ -326,8 +326,8 @@ public class SettingsForm : Form
         // ── Compact tab bar ──
         var tabBar = new Panel
         {
-            Location = new Point(116, 8),
-            Size = new Size(Math.Max(320, ClientSize.Width - 240), 30),
+            Location = new Point(72, 2),
+            Size = new Size(Math.Max(360, ClientSize.Width - 160), 28),
             BackColor = Color.Transparent,
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
         };
@@ -341,17 +341,17 @@ public class SettingsForm : Form
             var btn = new Button
             {
                 Text = tabNames[i],
-                Location = new Point(i * 92 + 4, 0),
-                Size = new Size(88, 28),
+                Location = new Point(i * 82 + 4, 0),
+                Size = new Size(78, 24),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.Transparent,
                 ForeColor = C_T3,
-                Font = new Font("Segoe UI", 8f, FontStyle.Bold),
+                Font = new Font("Segoe UI", 7.5f, FontStyle.Bold),
                 Cursor = Cursors.Hand,
                 TabStop = false,
             };
             btn.FlatAppearance.BorderSize = 0;
-            btn.FlatAppearance.MouseOverBackColor = Color.FromArgb(30, 30, 38);
+            btn.FlatAppearance.MouseOverBackColor = Color.FromArgb(30, 30, 30);
             btn.Click += (_, _) => SwitchTab(idx);
             tabBar.Controls.Add(btn);
             _tabBtns[i] = btn;
@@ -362,14 +362,14 @@ public class SettingsForm : Form
             var tabIndex = Math.Clamp(_activeTab, 0, _tabBtns.Length - 1);
             var btn = _tabBtns[tabIndex];
             using var brush = new SolidBrush(C_ACCENT);
-            e.Graphics.FillRectangle(brush, btn.Left + 8, 26, btn.Width - 16, 2);
+            e.Graphics.FillRectangle(brush, btn.Left + 6, 22, btn.Width - 12, 2);
         };
 
         void LayoutHeader()
         {
-            tabBar.Location = new Point(116, 8);
-            tabBar.Width = Math.Max(320, header.ClientSize.Width - 240);
-            headerVersion.Location = new Point(Math.Max(12, header.ClientSize.Width - headerVersion.PreferredWidth - 14), 13);
+            tabBar.Location = new Point(72, 2);
+            tabBar.Width = Math.Max(360, header.ClientSize.Width - 160);
+            headerVersion.Location = new Point(Math.Max(12, header.ClientSize.Width - headerVersion.PreferredWidth - 8), 10);
         }
 
         header.SizeChanged += (_, _) => LayoutHeader();
@@ -463,41 +463,39 @@ public class SettingsForm : Form
         //  PAGE 0: GENERAL (queue + recent videos)
         // ═══════════════════════════════════════
         var home = _pages[0];
-        int y = 14, lx = 22, w = 636;
+        int y = 10, lx = 22, w = 636;
 
-        MkSectionLabel(home, "QUEUE + RECENT VIDEOS", lx, y); y += 22;
-        home.Controls.Add(MkLabel("This is the day-to-day dashboard: what is queued, what uploaded, and where to jump next.", lx, y, new Font("Segoe UI", 7.8f), C_T3));
-        y += 24;
+        MkSectionLabel(home, "QUEUE + RECENT VIDEOS", lx, y); y += 16;
 
         _queueModeLabel = MkLedLabel("LIVE UPLOAD", lx, y, C_GREEN);
         home.Controls.Add(_queueModeLabel);
-        _queueSummaryLabel = MkLabel("PENDING LOCAL VIDEOS: 0", lx + 210, y + 1, new Font("Consolas", 8f, FontStyle.Bold), C_T2);
+        _queueSummaryLabel = MkLabel("PENDING LOCAL VIDEOS: 0", lx + 198, y + 1, new Font("Consolas", 8f, FontStyle.Bold), C_T2);
         home.Controls.Add(_queueSummaryLabel);
-        y += 28;
+        y += 22;
 
-        _quickEditorBtn = MkBtn("Open Video Editor", lx, y, 136, 32, C_ACCENT, C_ACCENT_H);
+        _quickEditorBtn = MkBtn("Open Video Editor", lx, y, 128, 24, C_BTN, C_ACCENT_H);
         _quickEditorBtn.Enabled = _openQuickEditor != null;
         _quickEditorBtn.Click += (_, _) => OpenQuickEditorFromCurrentSettings();
         home.Controls.Add(_quickEditorBtn);
 
-        _queueProcessNowBtn = MkBtn("Process Queue", lx + 146, y, 118, 32, C_BTN, C_BTN_H);
+        _queueProcessNowBtn = MkBtn("Process Queue", lx + 132, y, 102, 24, C_BTN, C_ACCENT_H);
         _queueProcessNowBtn.Enabled = _setQueueProcessing != null;
         _queueProcessNowBtn.Click += (_, _) => _setQueueProcessing?.Invoke(true, true);
         home.Controls.Add(_queueProcessNowBtn);
 
-        _queueToggleBtn = MkBtn("Queue Only", lx + 274, y, 108, 32, C_BTN, C_BTN_H);
+        _queueToggleBtn = MkBtn("Queue Only", lx + 238, y, 96, 24, C_BTN, C_ACCENT_H);
         _queueToggleBtn.Enabled = _setQueueProcessing != null;
         _queueToggleBtn.Click += (_, _) => _setQueueProcessing?.Invoke(_queueToggleBtn.Text.Contains("Resume", StringComparison.OrdinalIgnoreCase), true);
         home.Controls.Add(_queueToggleBtn);
 
-        var openSettingsBtn = MkBtn("Open Settings", lx + 392, y, 118, 32, C_BTN, C_BTN_H);
+        var openSettingsBtn = MkBtn("Open Settings", lx + 338, y, 102, 24, C_BTN, C_ACCENT_H);
         openSettingsBtn.Click += (_, _) => ShowTab(1);
         home.Controls.Add(openSettingsBtn);
 
-        var openLogsBtn = MkBtn("Open Logs", lx + 520, y, 94, 32, C_BTN, C_BTN_H);
+        var openLogsBtn = MkBtn("Open Logs", lx + 444, y, 88, 24, C_BTN, C_ACCENT_H);
         openLogsBtn.Click += (_, _) => ShowTab(2);
         home.Controls.Add(openLogsBtn);
-        y += 46;
+        y += 34;
 
         MkSectionLabel(home, "PENDING QUEUE", lx, y); y += 18;
         _pendingQueueList = new DarkListBox(lx, y, w, 160);
@@ -551,48 +549,45 @@ public class SettingsForm : Form
         };
         UploadHistoryManager.Changed += OnHistoryChanged;
 
-        AddSectionCard(home, lx - 10, 8, w + 20, 120);
-        AddSectionCard(home, lx - 10, 138, w + 20, 188);
-        AddSectionCard(home, lx - 10, 334, w + 20, 306);
+        AddSectionCard(home, lx - 10, 6, w + 20, 76);
+        AddSectionCard(home, lx - 10, 78, w + 20, 192);
+        AddSectionCard(home, lx - 10, 272, w + 20, 306);
 
         // ═══════════════════════════════════════
         //  PAGE 1: SETTINGS
         // ═══════════════════════════════════════
         var g = _pages[1];
-        y = 14;
+        y = 10;
 
         // ─────────────────────────────────────
         // SECTION: QUICK ACTIONS
         // ─────────────────────────────────────
-        Section(g, "QUICK ACTIONS", lx, y); y += 18;
+        Section(g, "QUICK ACTIONS", lx, y); y += 12;
 
-        g.Controls.Add(MkLabel("Everyday stuff lives here: queue control, editor, and quick checks.", lx, y, new Font("Segoe UI", 7.8f), C_T3));
-        y += 22;
-
-        var openEditorBtn = MkBtn("Open Video Editor", lx, y, 128, 30, C_ACCENT, C_ACCENT_H);
+        var openEditorBtn = MkBtn("Open Video Editor", lx, y, 118, 24, C_BTN, C_ACCENT_H);
         openEditorBtn.Click += (_, _) => OpenQuickEditorFromCurrentSettings();
         openEditorBtn.Enabled = _openQuickEditor != null;
         g.Controls.Add(openEditorBtn);
 
-        var openQueueBtn = MkBtn("Open General", lx + 138, y, 110, 30, C_BTN, C_BTN_H);
+        var openQueueBtn = MkBtn("Open General", lx + 122, y, 92, 24, C_BTN, C_ACCENT_H);
         openQueueBtn.Click += (_, _) => ShowTab(0);
         g.Controls.Add(openQueueBtn);
 
-        var processNowBtn = MkBtn("Process Queue", lx + 258, y, 110, 30, C_BTN, C_BTN_H);
+        var processNowBtn = MkBtn("Process Queue", lx + 218, y, 96, 24, C_BTN, C_ACCENT_H);
         processNowBtn.Click += (_, _) => _setQueueProcessing?.Invoke(true, true);
         processNowBtn.Enabled = _setQueueProcessing != null;
         g.Controls.Add(processNowBtn);
 
-        var pauseQueueBtn = MkBtn("Queue Only", lx + 378, y, 96, 30, C_BTN, C_BTN_H);
+        var pauseQueueBtn = MkBtn("Queue Only", lx + 318, y, 86, 24, C_BTN, C_ACCENT_H);
         pauseQueueBtn.Click += (_, _) => _setQueueProcessing?.Invoke(false, false);
         pauseQueueBtn.Enabled = _setQueueProcessing != null;
         g.Controls.Add(pauseQueueBtn);
-        y += 46;
+        y += 32;
 
         // ─────────────────────────────────────
         // SECTION: CONNECTION
         // ─────────────────────────────────────
-        Section(g, "CONNECTION", lx, y); y += 18;
+        Section(g, "CONNECTION", lx, y); y += 12;
 
         Lbl(g, "Server URL", lx, y);
         _urlBox = new DarkTextBox(settings.ServerUrl, "https://clips.example.com", lx, y + 16, w);
@@ -600,13 +595,13 @@ public class SettingsForm : Form
         y += 50;
 
         Lbl(g, "API Token", lx, y);
-        _tokenBox = new DarkTextBox(settings.ApiToken, "velo_...", lx, y + 16, w - 180);
+        _tokenBox = new DarkTextBox(settings.ApiToken, "velo_...", lx, y + 16, w - 80);
         _tokenBox.UseSystemPasswordChar = true;
         g.Controls.Add(_tokenBox);
-        _testBtn = MkBtn("Test API", lx + w - 172, y + 16, 80, 28, C_ACCENT, C_ACCENT_H);
+        _testBtn = MkBtn("Test API", lx + w - 80, y + 16, 80, 28, C_ACCENT, C_ACCENT_H);
         _testBtn.Click += async (_, _) => await TestConnection();
         g.Controls.Add(_testBtn);
-        y += 50;
+        y += 42;
 
         _statusLabel = new Label
         {
@@ -617,12 +612,12 @@ public class SettingsForm : Form
             TextAlign = ContentAlignment.MiddleLeft,
         };
         g.Controls.Add(_statusLabel);
-        y += 22;
+        y += 16;
 
         // ─────────────────────────────────────
         // SECTION: SECURITY
         // ─────────────────────────────────────
-        Section(g, "SECURITY", lx, y); y += 18;
+        Section(g, "SECURITY", lx, y); y += 12;
 
         _selfSignedBox = MkChk("Allow self-signed / untrusted server certificate", settings.AllowSelfSignedCerts, lx, y);
         g.Controls.Add(_selfSignedBox);
@@ -630,21 +625,10 @@ public class SettingsForm : Form
 
         Lbl(g, "Pinned certificate (optional)", lx, y);
         y += 16;
-        _certPathBox = new DarkTextBox(settings.TrustedCertPath, "Trusted .crt/.cer/.pem file for certificate pinning", lx, y, w);
+        _certPathBox = new DarkTextBox(settings.TrustedCertPath, "Trusted .crt/.cer/.pem file for certificate pinning", lx, y, w - 228);
         g.Controls.Add(_certPathBox);
-        y += 34;
 
-        _certInfoLabel = new Label
-        {
-            Location = new Point(lx, y),
-            Size = new Size(w - 272, 28),
-            ForeColor = C_T3,
-            Font = new Font("Segoe UI", 7.5f),
-            TextAlign = ContentAlignment.MiddleLeft,
-        };
-        g.Controls.Add(_certInfoLabel);
-
-        var certBrowseBtn = MkBtn("Browse", lx + w - 264, y, 72, 28, C_BTN, C_BTN_H);
+        var certBrowseBtn = MkBtn("Browse", lx + w - 228, y, 76, 28, C_BTN, C_BTN_H);
         certBrowseBtn.Click += (_, _) =>
         {
             using var d = new OpenFileDialog
@@ -659,21 +643,33 @@ public class SettingsForm : Form
             }
         };
         g.Controls.Add(certBrowseBtn);
-        var genCertBtn = MkBtn("Generate", lx + w - 188, y, 78, 28, C_BTN, C_BTN_H);
+        var genCertBtn = MkBtn("Generate", lx + w - 152, y, 76, 28, C_BTN, C_BTN_H);
         genCertBtn.Click += (_, _) => GenerateCert();
         g.Controls.Add(genCertBtn);
-        _testTlsBtn = MkBtn("Test TLS", lx + w - 104, y, 96, 28, C_ACCENT, C_ACCENT_H);
+        _testTlsBtn = MkBtn("Test TLS", lx + w - 76, y, 76, 28, C_BTN, C_BTN_H);
         _testTlsBtn.Click += async (_, _) => await TestTlsConnection();
         g.Controls.Add(_testTlsBtn);
-        y += 42;
+        y += 34;
+
+        _certInfoLabel = new Label
+        {
+            Location = new Point(lx, y),
+            Size = new Size(w, 28),
+            ForeColor = C_T3,
+            Font = new Font("Segoe UI", 7.5f),
+            TextAlign = ContentAlignment.MiddleLeft,
+        };
+        g.Controls.Add(_certInfoLabel);
+
+        y += 32;
 
         // ─────────────────────────────────────
         // SECTION: RECORDINGS
         // ─────────────────────────────────────
-        Section(g, "RECORDINGS", lx, y); y += 18;
+        Section(g, "RECORDINGS", lx, y); y += 12;
 
         Lbl(g, "Watch folder", lx, y);
-        _watchBox = new DarkTextBox(settings.WatchFolder, @"D:\recordings", lx, y + 16, w - 78);
+        _watchBox = new DarkTextBox(settings.WatchFolder, @"D:\recordings", lx, y + 16, w - 72);
         g.Controls.Add(_watchBox);
         var browseBtn = MkBtn("Browse", lx + w - 72, y + 16, 72, 28, C_BTN, C_BTN_H);
         browseBtn.Click += (_, _) => { using var d = new FolderBrowserDialog { SelectedPath = _watchBox.Text }; if (d.ShowDialog() == DialogResult.OK) _watchBox.Text = d.SelectedPath; };
@@ -690,7 +686,7 @@ public class SettingsForm : Form
         g.Controls.Add(_moveBox);
         y += 24;
         Lbl(g, "Destination folder", lx, y);
-        _moveToBox = new DarkTextBox(settings.MoveToFolder, @"D:\archived-clips", lx, y + 16, w - 78);
+        _moveToBox = new DarkTextBox(settings.MoveToFolder, @"D:\archived-clips", lx, y + 16, w - 72);
         g.Controls.Add(_moveToBox);
         var moveBrowseBtn = MkBtn("Browse", lx + w - 72, y + 16, 72, 28, C_BTN, C_BTN_H);
         moveBrowseBtn.Click += (_, _) => { using var d = new FolderBrowserDialog { SelectedPath = _moveToBox.Text }; if (d.ShowDialog() == DialogResult.OK) _moveToBox.Text = d.SelectedPath; };
@@ -726,12 +722,12 @@ public class SettingsForm : Form
         g.Controls.Add(_scanOnLaunchBox);
         _notifyBox = MkChk("Desktop notifications", settings.ShowNotifications, lx + 340, y);
         g.Controls.Add(_notifyBox);
-        y += 42;
+        y += 28;
 
         // ─────────────────────────────────────
         // SECTION: COMPRESSION
         // ─────────────────────────────────────
-        Section(g, "COMPRESSION", lx, y); y += 18;
+        Section(g, "COMPRESSION", lx, y); y += 12;
 
         Lbl(g, "Compression preset:", lx, y + 5);
         
@@ -755,12 +751,12 @@ public class SettingsForm : Form
         g.Controls.Add(_localCompressBox);
         _compressionHardFailBox = MkChk("Skip upload if compression fails", settings.StopOnCompressionFailure, lx + 340, y);
         g.Controls.Add(_compressionHardFailBox);
-        y += 42;
+        y += 28;
 
         // ─────────────────────────────────────
         // SECTION: SYSTEM
         // ─────────────────────────────────────
-        Section(g, "SYSTEM", lx, y); y += 18;
+        Section(g, "SYSTEM", lx, y); y += 12;
 
         _startupBox = MkChk("Start with Windows", StartupManager.IsRegistered(), lx, y);
         g.Controls.Add(_startupBox);
@@ -770,12 +766,12 @@ public class SettingsForm : Form
 
         _autoUpdateBox = MkChk("Check GitHub for app updates on launch", settings.AutoCheckForUpdates, lx, y);
         g.Controls.Add(_autoUpdateBox);
-        y += 42;
+        y += 28;
 
         // ─────────────────────────────────────
         // SECTION: UPLOAD BEHAVIOR
         // ─────────────────────────────────────
-        Section(g, "UPLOAD BEHAVIOR", lx, y); y += 18;
+        Section(g, "UPLOAD BEHAVIOR", lx, y); y += 12;
 
         _queuePersistenceBox = MkChk("Persist upload queue across restarts", settings.EnableQueuePersistence, lx, y);
         g.Controls.Add(_queuePersistenceBox);
@@ -791,8 +787,8 @@ public class SettingsForm : Form
         g.Controls.Add(_policySyncBox);
         y += 42;
 
-        var saveBtn = MkBtn("Save && Start Watching", lx + w - 208, y, 208, 38, C_ACCENT, C_ACCENT_H);
-        saveBtn.Font = new Font("Segoe UI", 10f, FontStyle.Bold);
+        var saveBtn = MkBtn("Save & Start Watching", lx + w - 188, y, 188, 28, C_BTN, C_BTN_H);
+        saveBtn.Font = new Font("Segoe UI", 8f, FontStyle.Bold);
         saveBtn.Click += (_, _) => SaveSettings();
         g.Controls.Add(saveBtn);
 
@@ -800,13 +796,13 @@ public class SettingsForm : Form
         _certPathBox.Inner.TextChanged += (_, _) => UpdateTlsUi();
         UpdateTlsUi();
 
-        AddSectionCard(g, lx - 10, 8, w + 20, 88);
-        AddSectionCard(g, lx - 10, 102, w + 20, 92);
-        AddSectionCard(g, lx - 10, 198, w + 20, 92);
-        AddSectionCard(g, lx - 10, 294, w + 20, 190);
-        AddSectionCard(g, lx - 10, 488, w + 20, 78);
-        AddSectionCard(g, lx - 10, 570, w + 20, 74);
-        AddSectionCard(g, lx - 10, 648, w + 20, 92);
+        AddSectionCard(g, lx - 10, 6, w + 20, 44);
+        AddSectionCard(g, lx - 10, 48, w + 20, 120);
+        AddSectionCard(g, lx - 10, 170, w + 20, 118);
+        AddSectionCard(g, lx - 10, 292, w + 20, 188);
+        AddSectionCard(g, lx - 10, 484, w + 20, 74);
+        AddSectionCard(g, lx - 10, 560, w + 20, 62);
+        AddSectionCard(g, lx - 10, 626, w + 20, 98);
 
         // ═══════════════════════════════════════
         //  PAGE 1: SETTINGS — rules + filters
@@ -863,8 +859,8 @@ public class SettingsForm : Form
         Lbl(f, "MB  (0 = no limit)", lx + 90, y + 5);
         y += 38;
 
-        var saveFilt = MkBtn("Save Filters", lx + w - 120, y, 120, 34, C_ACCENT, C_ACCENT_H);
-        saveFilt.Font = new Font("Segoe UI", 9f, FontStyle.Bold);
+        var saveFilt = MkBtn("Save Filters", lx + w - 108, y, 108, 24, C_BTN, C_BTN_H);
+        saveFilt.Font = new Font("Segoe UI", 8f, FontStyle.Bold);
         saveFilt.Click += (_, _) => SaveFilters();
         f.Controls.Add(saveFilt);
 
@@ -950,7 +946,7 @@ public class SettingsForm : Form
             Location = new Point(lx, sy),
             Size = new Size(w, 90),
             BackColor = C_PANEL,
-            BorderStyle = BorderStyle.FixedSingle,
+            BorderStyle = BorderStyle.None,
         };
         _currentTaskPanel.Paint += (_, e) =>
         {
@@ -1047,7 +1043,7 @@ public class SettingsForm : Form
         // Version Section
         MkSectionLabel(s, "APPLICATION", lx, sy); sy += 18;
 
-        _versionLabel = MkLabel($"v{GitHubUpdater.GetCurrentVersion()}", lx, sy, new Font("Segoe UI", 8.5f, FontStyle.Bold), C_ACCENT);
+        _versionLabel = MkLabel($"v{GitHubUpdater.GetCurrentVersion()}", lx, sy, new Font("Consolas", 8f, FontStyle.Bold), C_T2);
         s.Controls.Add(_versionLabel);
 
         _updateCheckBtn = new Button
@@ -1056,13 +1052,14 @@ public class SettingsForm : Form
             Size = new Size(120, 28),
             Text = "Check Updates",
             FlatStyle = FlatStyle.Flat,
-            BackColor = C_ACCENT,
+            BackColor = C_BTN,
             ForeColor = Color.White,
-            Font = new Font("Segoe UI", 8f),
+            Font = new Font("Segoe UI", 7.5f),
             Cursor = Cursors.Hand,
         };
-        _updateCheckBtn.FlatAppearance.BorderSize = 0;
-        _updateCheckBtn.FlatAppearance.MouseOverBackColor = C_ACCENT_H;
+        _updateCheckBtn.FlatAppearance.BorderSize = 1;
+        _updateCheckBtn.FlatAppearance.BorderColor = C_BORDER;
+        _updateCheckBtn.FlatAppearance.MouseOverBackColor = C_BTN_H;
         _updateCheckBtn.Click += async (_, _) => 
         {
             _updateCheckBtn.Enabled = false;
@@ -1222,7 +1219,7 @@ public class SettingsForm : Form
         for (int i = 0; i < _tabBtns.Length; i++)
         {
             _tabBtns[i].ForeColor = i == _activeTab ? C_T1 : C_T3;
-            _tabBtns[i].Font = new Font("Segoe UI", 9f, i == _activeTab ? FontStyle.Bold : FontStyle.Regular);
+            _tabBtns[i].Font = new Font("Segoe UI", 7.5f, i == _activeTab ? FontStyle.Bold : FontStyle.Regular);
         }
 
         _tabBtns[0].Parent?.Invalidate();
@@ -1296,7 +1293,7 @@ public class SettingsForm : Form
             Text = text,
             Location = new Point(x, y),
             AutoSize = true,
-            ForeColor = C_ACCENT,
+            ForeColor = C_T2,
             Font = new Font("Consolas", 7.5f, FontStyle.Bold),
             UseMnemonic = false,
             BackColor = Color.Transparent,
@@ -1319,13 +1316,17 @@ public class SettingsForm : Form
             FlatStyle = FlatStyle.Flat,
             BackColor = bg,
             ForeColor = Color.White,
-            Font = new Font("Segoe UI", 8f, FontStyle.Bold),
+            Font = new Font("Segoe UI", 7.5f, FontStyle.Bold),
             Cursor = Cursors.Hand,
             TextAlign = ContentAlignment.MiddleCenter,
+            Padding = Padding.Empty,
+            Margin = Padding.Empty,
+            UseMnemonic = false,
         };
         b.FlatAppearance.BorderSize = 1;
         b.FlatAppearance.BorderColor = C_BORDER;
         b.FlatAppearance.MouseOverBackColor = hover;
+        b.FlatAppearance.MouseDownBackColor = hover;
         return b;
     }
 
@@ -1338,8 +1339,10 @@ public class SettingsForm : Form
             Location = new Point(x, y),
             AutoSize = true,
             ForeColor = C_T2,
-            Font = new Font("Segoe UI", 8.5f),
+            Font = new Font("Segoe UI", 8f),
             Cursor = Cursors.Hand,
+            FlatStyle = FlatStyle.Flat,
+            BackColor = Color.Transparent,
         };
     }
 
@@ -1351,7 +1354,7 @@ public class SettingsForm : Form
             Location = new Point(x, y),
             AutoSize = true,
             Font = new Font("Consolas", 7.5f, FontStyle.Bold),
-            ForeColor = C_ACCENT,
+            ForeColor = C_T2,
             BackColor = Color.Transparent,
             UseMnemonic = false,
         };

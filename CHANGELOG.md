@@ -1,5 +1,10 @@
 # VELO Uploader - Changelog
 
+## Version 1.7.40 (2026-04-09)
+- UI: collapse the Control Center chrome into a single 32px header row with tabs and a tiny tucked-right version label
+- UI: slim the quick-action row, tighten section spacing, flatten borders to a strict 1px industrial look, and connect browse/input groups more cleanly
+- UI: reduce the remaining "website" feel with darker monochrome defaults and high-density workstation spacing
+
 ## Version 1.7.39 (2026-04-09)
 - UI: replace the flat uploader section dividers with distinct shaded cards (`#161616` with `#2d2d2d` borders) for a denser workstation-style hierarchy
 - UI: upgrade GPU/server/system status indicators to monospace LED-style labels
