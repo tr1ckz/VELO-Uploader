@@ -1,5 +1,12 @@
 # VELO Uploader - Changelog
 
+## Version 1.7.43 (2026-04-09)
+- UI: adopt dual-column inspector layout for the Settings page — labels sit inline on the left with inputs and attached buttons filling the right column
+- UI: remove per-row section card borders across all pages for a clean flat `#111` background with minimal `#222` section dividers
+- UI: remove the VELO logo from the header bar, shift tab bar flush-left for a slim text-only chrome
+- UI: update input background to `#1a1a1a` and form background to `#111` to match the NLE editor palette
+- UI: unify section headers as lightweight 1px top-line dividers with muted uppercase labels
+
 ## Version 1.7.42 (2026-04-09)
 - UI: enforce a stricter flush-right spine so attached action buttons now terminate on the same right edge and join directly to their fields
 - UI: reduce the heavy BIOS-style bars by softening settings separators, muting inline labels, and tightening the two-column checkbox grid

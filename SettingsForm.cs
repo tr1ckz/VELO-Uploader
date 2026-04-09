@@ -14,7 +14,7 @@ class DarkTextBox : Panel
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     public bool DrawRightBorder { get; set; } = true;
 
-    static readonly Color C_BG = Color.FromArgb(22, 22, 22);
+    static readonly Color C_BG = Color.FromArgb(26, 26, 26);
     static readonly Color C_BORDER = Color.FromArgb(51, 51, 51);
     static readonly Color C_FOCUS = Color.FromArgb(139, 92, 246);
     static readonly Color C_FG = Color.FromArgb(240, 240, 245);
@@ -64,7 +64,7 @@ class DarkListBox : Panel
 {
     public readonly ListBox Inner;
 
-    static readonly Color C_BG = Color.FromArgb(22, 22, 22);
+    static readonly Color C_BG = Color.FromArgb(26, 26, 26);
     static readonly Color C_BORDER = Color.FromArgb(51, 51, 51);
     static readonly Color C_FG = Color.FromArgb(240, 240, 245);
     static readonly Color C_SEL = Color.FromArgb(34, 31, 48);
@@ -131,7 +131,7 @@ class DarkNumeric : Panel
 {
     public readonly NumericUpDown Inner;
 
-    static readonly Color C_BG = Color.FromArgb(22, 22, 22);
+    static readonly Color C_BG = Color.FromArgb(26, 26, 26);
     static readonly Color C_BORDER = Color.FromArgb(51, 51, 51);
     static readonly Color C_FG = Color.FromArgb(240, 240, 245);
 
@@ -168,7 +168,7 @@ class DarkComboBox : Panel
 {
     public readonly ComboBox Inner;
 
-    static readonly Color C_BG = Color.FromArgb(22, 22, 22);
+    static readonly Color C_BG = Color.FromArgb(26, 26, 26);
     static readonly Color C_BORDER = Color.FromArgb(51, 51, 51);
     static readonly Color C_FG = Color.FromArgb(240, 240, 245);
 
@@ -299,9 +299,9 @@ public class SettingsForm : Form
     private readonly Action<AppSettings?>? _openQuickEditor;
 
     // Palette
-    static readonly Color C_BG = Color.FromArgb(12, 12, 15);
+    static readonly Color C_BG = Color.FromArgb(17, 17, 17);
     static readonly Color C_PANEL = Color.FromArgb(22, 22, 22);
-    static readonly Color C_INPUT = Color.FromArgb(22, 22, 22);
+    static readonly Color C_INPUT = Color.FromArgb(26, 26, 26);
     static readonly Color C_BORDER = Color.FromArgb(51, 51, 51);
     static readonly Color C_T1 = Color.FromArgb(240, 240, 245);
     static readonly Color C_T2 = Color.FromArgb(155, 155, 165);
@@ -355,35 +355,15 @@ public class SettingsForm : Form
         };
         Controls.Add(header);
 
-        var logoBox = new PictureBox
-        {
-            Bounds = new Rectangle(8, 9, 14, 14),
-            SizeMode = PictureBoxSizeMode.Zoom,
-            BackColor = Color.Transparent,
-        };
-        try
-        {
-            var logoStream = typeof(SettingsForm).Assembly.GetManifestResourceStream("logo.png");
-            if (logoStream != null)
-            {
-                using var img = Image.FromStream(logoStream);
-                logoBox.Image = CreateMonochromeImage(img);
-            }
-        }
-        catch { }
-        header.Controls.Add(logoBox);
-
-        var headerTitle = MkLabel("VELO", 27, 8, new Font("Segoe UI", 8.5f, FontStyle.Bold), C_T1);
         var headerVersion = MkLabel($"v{GitHubUpdater.GetCurrentVersion()}", 0, 10, new Font("Consolas", 7f, FontStyle.Bold), C_T3);
         headerVersion.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        header.Controls.Add(headerTitle);
         header.Controls.Add(headerVersion);
 
         // ── Compact tab bar ──
         var tabBar = new Panel
         {
-            Location = new Point(72, 2),
-            Size = new Size(Math.Max(360, ClientSize.Width - 160), 28),
+            Location = new Point(8, 2),
+            Size = new Size(Math.Max(360, ClientSize.Width - 96), 28),
             BackColor = Color.Transparent,
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
         };
@@ -423,8 +403,8 @@ public class SettingsForm : Form
 
         void LayoutHeader()
         {
-            tabBar.Location = new Point(72, 2);
-            tabBar.Width = Math.Max(360, header.ClientSize.Width - 160);
+            tabBar.Location = new Point(8, 2);
+            tabBar.Width = Math.Max(360, header.ClientSize.Width - 96);
             headerVersion.Location = new Point(Math.Max(12, header.ClientSize.Width - headerVersion.PreferredWidth - 8), 10);
         }
 
@@ -609,20 +589,16 @@ public class SettingsForm : Form
         };
         UploadHistoryManager.Changed += OnHistoryChanged;
 
-        AddSectionCard(home, lx - 10, 6, w + 20, 76);
-        AddSectionCard(home, lx - 10, 78, w + 20, 192, false);
-        AddSectionCard(home, lx - 10, 272, w + 20, 306, false);
-
         // ═══════════════════════════════════════
         //  PAGE 1: SETTINGS
         // ═══════════════════════════════════════
         var g = _pages[1];
         y = 10;
+        int colB = lx + 168;
+        int colBW = w - 168;
 
-        // ─────────────────────────────────────
-        // SECTION: QUICK ACTIONS
-        // ─────────────────────────────────────
-        Section(g, "QUICK ACTIONS", lx, y); y += 12;
+        // ─── QUICK ACTIONS ───
+        Section(g, "QUICK ACTIONS", lx, y); y += 18;
 
         var openEditorBtn = MkBtn("Open Video Editor", lx, y, 118, 24, C_BTN, C_ACCENT_H);
         openEditorBtn.Click += (_, _) => OpenQuickEditorFromCurrentSettings();
@@ -644,52 +620,47 @@ public class SettingsForm : Form
         g.Controls.Add(pauseQueueBtn);
         y += 32;
 
-        // ─────────────────────────────────────
-        // SECTION: CONNECTION
-        // ─────────────────────────────────────
-        Section(g, "CONNECTION", lx, y); y += 12;
+        // ─── CONNECTION ───
+        Section(g, "CONNECTION", lx, y); y += 18;
 
         Lbl(g, "Server URL", lx, y);
-        _urlBox = new DarkTextBox(settings.ServerUrl, "https://clips.example.com", lx, y + 16, w);
+        _urlBox = new DarkTextBox(settings.ServerUrl, "https://clips.example.com", colB, y, colBW);
         _urlBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         g.Controls.Add(_urlBox);
-        y += 50;
+        y += 28;
 
         Lbl(g, "API Token", lx, y);
-        _tokenBox = new DarkTextBox(settings.ApiToken, "velo_...", lx, y + 16, w - 80);
+        _tokenBox = new DarkTextBox(settings.ApiToken, "velo_...", colB, y, colBW - 80);
         _tokenBox.UseSystemPasswordChar = true;
         _tokenBox.DrawRightBorder = false;
         _tokenBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         g.Controls.Add(_tokenBox);
-        _testBtn = MkBtn("Test API", lx + w - 80, y + 16, 80, 24, C_ACCENT, C_ACCENT_H, true);
+        _testBtn = MkBtn("Test API", lx + w - 80, y, 80, 24, C_ACCENT, C_ACCENT_H, true);
         _testBtn.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         _testBtn.Click += async (_, _) => await TestConnection();
         g.Controls.Add(_testBtn);
-        y += 42;
+        y += 28;
 
         _statusLabel = new Label
         {
-            Location = new Point(lx, y),
-            Size = new Size(w, 24),
+            Location = new Point(colB, y),
+            Size = new Size(colBW, 18),
             ForeColor = C_T3,
             Font = new Font("Segoe UI", 8f, FontStyle.Bold),
             TextAlign = ContentAlignment.MiddleLeft,
         };
         g.Controls.Add(_statusLabel);
-        y += 16;
+        y += 22;
 
-        // ─────────────────────────────────────
-        // SECTION: SECURITY
-        // ─────────────────────────────────────
-        Section(g, "SECURITY", lx, y); y += 12;
+        // ─── SECURITY ───
+        Section(g, "SECURITY", lx, y); y += 18;
 
         _selfSignedBox = MkChk("Allow self-signed / untrusted server certificate", settings.AllowSelfSignedCerts, lx, y);
         g.Controls.Add(_selfSignedBox);
-        y += 28;
+        y += 26;
 
-        Lbl(g, "Pinned certificate (optional)", lx, y);
-        y += 16;
-        _certPathBox = new DarkTextBox(settings.TrustedCertPath, "Trusted .crt/.cer/.pem file for certificate pinning", lx, y, w - 228);
+        Lbl(g, "Pinned Cert", lx, y);
+        _certPathBox = new DarkTextBox(settings.TrustedCertPath, "Trusted .crt/.cer/.pem file", colB, y, colBW - 228);
         _certPathBox.DrawRightBorder = false;
         _certPathBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         g.Controls.Add(_certPathBox);
@@ -718,51 +689,49 @@ public class SettingsForm : Form
         _testTlsBtn.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         _testTlsBtn.Click += async (_, _) => await TestTlsConnection();
         g.Controls.Add(_testTlsBtn);
-        y += 34;
+        y += 28;
 
         _certInfoLabel = new Label
         {
-            Location = new Point(lx, y),
-            Size = new Size(w, 28),
+            Location = new Point(colB, y),
+            Size = new Size(colBW, 18),
             ForeColor = C_T3,
             Font = new Font("Segoe UI", 7.5f),
             TextAlign = ContentAlignment.MiddleLeft,
         };
         g.Controls.Add(_certInfoLabel);
 
-        y += 32;
+        y += 22;
 
-        // ─────────────────────────────────────
-        // SECTION: RECORDINGS
-        // ─────────────────────────────────────
-        Section(g, "RECORDINGS", lx, y); y += 12;
+        // ─── RECORDINGS ───
+        Section(g, "RECORDINGS", lx, y); y += 18;
 
-        Lbl(g, "Watch folder", lx, y);
-        _watchBox = new DarkTextBox(settings.WatchFolder, @"D:\recordings", lx, y + 16, w - 72);
+        Lbl(g, "Watch Folder", lx, y);
+        _watchBox = new DarkTextBox(settings.WatchFolder, @"D:\recordings", colB, y, colBW - 72);
         _watchBox.DrawRightBorder = false;
         _watchBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         g.Controls.Add(_watchBox);
-        var browseBtn = MkBtn("Browse", lx + w - 72, y + 16, 72, 24, C_BTN, C_BTN_H, true);
+        var browseBtn = MkBtn("Browse", lx + w - 72, y, 72, 24, C_BTN, C_BTN_H, true);
         browseBtn.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         browseBtn.Click += (_, _) => { using var d = new FolderBrowserDialog { SelectedPath = _watchBox.Text }; if (d.ShowDialog() == DialogResult.OK) _watchBox.Text = d.SelectedPath; };
         g.Controls.Add(browseBtn);
-        y += 50;
+        y += 28;
 
         _subfoldersBox = MkChk("Include subfolders", settings.WatchSubfolders, lx, y);
         g.Controls.Add(_subfoldersBox);
         _deleteBox = MkChk("Delete clip after upload", settings.DeleteAfterUpload, lx + 340, y);
         g.Controls.Add(_deleteBox);
-        y += 28;
+        y += 24;
 
         _moveBox = MkChk("Move clip after upload", settings.MoveAfterUpload, lx, y);
         g.Controls.Add(_moveBox);
-        y += 24;
-        Lbl(g, "Destination folder", lx, y);
-        _moveToBox = new DarkTextBox(settings.MoveToFolder, @"D:\archived-clips", lx, y + 16, w - 72);
+        y += 26;
+        Lbl(g, "Destination", lx, y);
+        _moveToBox = new DarkTextBox(settings.MoveToFolder, @"D:\archived-clips", colB, y, colBW - 72);
         _moveToBox.DrawRightBorder = false;
         _moveToBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         g.Controls.Add(_moveToBox);
-        var moveBrowseBtn = MkBtn("Browse", lx + w - 72, y + 16, 72, 24, C_BTN, C_BTN_H, true);
+        var moveBrowseBtn = MkBtn("Browse", lx + w - 72, y, 72, 24, C_BTN, C_BTN_H, true);
         moveBrowseBtn.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         moveBrowseBtn.Click += (_, _) => { using var d = new FolderBrowserDialog { SelectedPath = _moveToBox.Text }; if (d.ShowDialog() == DialogResult.OK) _moveToBox.Text = d.SelectedPath; };
         g.Controls.Add(moveBrowseBtn);
@@ -791,68 +760,59 @@ public class SettingsForm : Form
             _deleteBox.Checked = false;
         else if (_deleteBox.Checked)
             _moveBox.Checked = false;
-        y += 50;
+        y += 28;
 
         _scanOnLaunchBox = MkChk("Upload existing clips on launch", settings.ScanOnLaunch, lx, y);
         g.Controls.Add(_scanOnLaunchBox);
         _notifyBox = MkChk("Desktop notifications", settings.ShowNotifications, lx + 340, y);
         g.Controls.Add(_notifyBox);
-        y += 28;
+        y += 24;
 
-        // ─────────────────────────────────────
-        // SECTION: COMPRESSION
-        // ─────────────────────────────────────
-        Section(g, "COMPRESSION", lx, y); y += 12;
+        // ─── COMPRESSION ───
+        Section(g, "COMPRESSION", lx, y); y += 18;
 
-        Lbl(g, "Compression preset:", lx, y + 5);
+        Lbl(g, "Preset", lx, y + 2);
         
-        // Show GPU presets if available, otherwise CPU only
         var gpuAvailable = LocalCompressor.IsGPUAvailable();
         var presetOptions = gpuAvailable ? CompressionPreset.All : CompressionPreset.AllCPU;
-        _presetBox = new DarkComboBox(lx + 120, y, 140, presetOptions, settings.CompressionPreset);
+        _presetBox = new DarkComboBox(colB, y, 140, presetOptions, settings.CompressionPreset);
         g.Controls.Add(_presetBox);
 
-        // Show GPU status label
-        var gpuStatus = gpuAvailable ? "GPU READY" : "CPU ONLY";
-        var gpuStatusColor = gpuAvailable ? C_GREEN : C_T3;
-        g.Controls.Add(MkLedLabel(gpuStatus, lx + w - 132, y + 4, gpuStatusColor));
+        // GPU status
+        g.Controls.Add(MkLedLabel(gpuAvailable ? "GPU READY" : "CPU ONLY", lx + w - 132, y + 4, gpuAvailable ? C_GREEN : C_T3));
 
-        Lbl(g, "Retries:", lx + 340, y + 5);
-        _retriesBox = new DarkNumeric(settings.MaxRetries, 1, 10, lx + 400, y, 60);
+        Lbl(g, "Retries", colB + 200, y + 2);
+        _retriesBox = new DarkNumeric(settings.MaxRetries, 1, 10, colB + 260, y, 60);
         g.Controls.Add(_retriesBox);
-        y += 38;
+        y += 28;
 
         _localCompressBox = MkChk("Compress locally before upload (FFmpeg)", settings.LocalCompress, lx, y);
         g.Controls.Add(_localCompressBox);
         _compressionHardFailBox = MkChk("Skip upload if compression fails", settings.StopOnCompressionFailure, lx + 340, y);
         g.Controls.Add(_compressionHardFailBox);
-        y += 28;
+        y += 24;
 
-        // ─────────────────────────────────────
-        // SECTION: SYSTEM
-        // ─────────────────────────────────────
-        Section(g, "SYSTEM", lx, y); y += 12;
+        // ─── SYSTEM ───
+        Section(g, "SYSTEM", lx, y); y += 18;
 
         _startupBox = MkChk("Start with Windows", StartupManager.IsRegistered(), lx, y);
         g.Controls.Add(_startupBox);
         _soundBox = MkChk("Play success/failure sounds", settings.PlaySounds, lx + 340, y);
         g.Controls.Add(_soundBox);
-        y += 28;
+        y += 24;
 
         _autoUpdateBox = MkChk("Check GitHub for app updates on launch", settings.AutoCheckForUpdates, lx, y);
         g.Controls.Add(_autoUpdateBox);
-        y += 28;
+        y += 24;
 
-        // ─────────────────────────────────────
-        // SECTION: UPLOAD BEHAVIOR
-        // ─────────────────────────────────────
-        Section(g, "UPLOAD BEHAVIOR", lx, y); y += 12;
+        // ─── UPLOAD BEHAVIOR ───
+        Section(g, "UPLOAD BEHAVIOR", lx, y); y += 18;
 
         _queuePersistenceBox = MkChk("Persist upload queue across restarts", settings.EnableQueuePersistence, lx, y);
         g.Controls.Add(_queuePersistenceBox);
         _requireChecksumBox = MkChk("Require checksum validation on upload", settings.RequireUploadChecksum, lx + 340, y);
         g.Controls.Add(_requireChecksumBox);
-        y += 28;
+        y += 24;
 
         _autoProcessQueueBox = MkChk("Start uploads immediately when new clips arrive", settings.AutoProcessQueue, lx, y);
         g.Controls.Add(_autoProcessQueueBox);
@@ -860,94 +820,77 @@ public class SettingsForm : Form
         g.Controls.Add(_gameCompressionBox);
         _policySyncBox = MkChk("Sync upload settings from server on launch", settings.EnablePolicySync, lx + 340, y);
         g.Controls.Add(_policySyncBox);
-        y += 18;
+        y += 24;
 
         _selfSignedBox.CheckedChanged += (_, _) => UpdateTlsUi();
         _certPathBox.Inner.TextChanged += (_, _) => UpdateTlsUi();
         UpdateTlsUi();
 
-        AddSectionCard(g, lx - 10, 6, w + 20, 44);
-        AddSectionCard(g, lx - 10, 48, w + 20, 120, false);
-        AddSectionCard(g, lx - 10, 170, w + 20, 118, false);
-        AddSectionCard(g, lx - 10, 292, w + 20, 188, false);
-        AddSectionCard(g, lx - 10, 484, w + 20, 74, false);
-        AddSectionCard(g, lx - 10, 560, w + 20, 62, false);
-        AddSectionCard(g, lx - 10, 626, w + 20, 98, false);
+        // ─── RULES + FILTERS ───
+        Section(g, "RULES + FILTERS", lx, y); y += 18;
 
-        // ═══════════════════════════════════════
-        //  PAGE 1: SETTINGS — rules + filters
-        // ═══════════════════════════════════════
-        var f = _pages[1];
-        y += 64;
-
-        Section(f, "RULES + FILTERS", lx, y); y += 18;
-
-        Section(f, "IGNORED FOLDERS", lx, y);
-        f.Controls.Add(MkLabel("Clips in these folder names are skipped", lx + 130, y + 1, new Font("Segoe UI", 7.5f), C_T3));
+        Section(g, "IGNORED FOLDERS", lx, y);
+        g.Controls.Add(MkLabel("Clips in these folder names are skipped", lx + 130, y + 1, new Font("Segoe UI", 7.5f), C_T3));
         y += 18;
 
         _foldersList = new DarkListBox(lx, y, w - 82, 78);
         _foldersList.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         foreach (var fol in settings.IgnoredFolders) _foldersList.Inner.Items.Add(fol);
-        f.Controls.Add(_foldersList);
+        g.Controls.Add(_foldersList);
         var rmF = MkBtn("Remove", lx + w - 82, y, 82, 24, C_RED, Color.FromArgb(190, 50, 50));
         rmF.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         rmF.Click += (_, _) => { if (_foldersList.Inner.SelectedIndex >= 0) _foldersList.Inner.Items.RemoveAt(_foldersList.Inner.SelectedIndex); };
-        f.Controls.Add(rmF);
+        g.Controls.Add(rmF);
         y += 84;
 
         _addFolderBox = new DarkTextBox("", "Folder name (e.g. Desktop)", lx, y, w - 120);
         _addFolderBox.DrawRightBorder = false;
         _addFolderBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-        f.Controls.Add(_addFolderBox);
+        g.Controls.Add(_addFolderBox);
         var addF = MkBtn("Add", lx + w - 120, y, 50, 24, C_BTN, C_BTN_H, true);
         addF.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         addF.Click += (_, _) => { var t = _addFolderBox.Text.Trim(); if (t.Length > 0 && !_foldersList.Inner.Items.Contains(t)) { _foldersList.Inner.Items.Add(t); _addFolderBox.Text = ""; } };
-        f.Controls.Add(addF);
+        g.Controls.Add(addF);
         var brF = MkBtn("Browse", lx + w - 70, y, 70, 24, C_BTN, C_BTN_H, true);
         brF.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         brF.Click += (_, _) => { using var d = new FolderBrowserDialog(); if (d.ShowDialog() == DialogResult.OK) { var n = new DirectoryInfo(d.SelectedPath).Name; if (!_foldersList.Inner.Items.Contains(n)) _foldersList.Inner.Items.Add(n); } };
-        f.Controls.Add(brF);
+        g.Controls.Add(brF);
         y += 38;
 
-        Section(f, "IGNORED PATTERNS", lx, y);
-        f.Controls.Add(MkLabel("Wildcards: * any, ? single", lx + 140, y + 1, new Font("Segoe UI", 7.5f), C_T3));
+        Section(g, "IGNORED PATTERNS", lx, y);
+        g.Controls.Add(MkLabel("Wildcards: * any, ? single", lx + 140, y + 1, new Font("Segoe UI", 7.5f), C_T3));
         y += 18;
 
         _patternsList = new DarkListBox(lx, y, w - 82, 68);
         _patternsList.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         foreach (var p in settings.IgnoredPatterns) _patternsList.Inner.Items.Add(p);
-        f.Controls.Add(_patternsList);
+        g.Controls.Add(_patternsList);
         var rmP = MkBtn("Remove", lx + w - 82, y, 82, 24, C_RED, Color.FromArgb(190, 50, 50));
         rmP.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         rmP.Click += (_, _) => { if (_patternsList.Inner.SelectedIndex >= 0) _patternsList.Inner.Items.RemoveAt(_patternsList.Inner.SelectedIndex); };
-        f.Controls.Add(rmP);
+        g.Controls.Add(rmP);
         y += 74;
 
         _addPatternBox = new DarkTextBox("", "e.g. *_temp.mp4", lx, y, w - 56);
         _addPatternBox.DrawRightBorder = false;
         _addPatternBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-        f.Controls.Add(_addPatternBox);
+        g.Controls.Add(_addPatternBox);
         var addP = MkBtn("Add", lx + w - 56, y, 56, 24, C_BTN, C_BTN_H, true);
         addP.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         addP.Click += (_, _) => { var t = _addPatternBox.Text.Trim(); if (t.Length > 0 && !_patternsList.Inner.Items.Contains(t)) { _patternsList.Inner.Items.Add(t); _addPatternBox.Text = ""; } };
-        f.Controls.Add(addP);
-        y += 38;
+        g.Controls.Add(addP);
+        y += 32;
 
-        Section(f, "MAX FILE SIZE", lx, y); y += 18;
-        _maxSizeBox = new DarkNumeric(settings.MaxFileSizeMB, 0, 99999, lx, y, 80);
-        f.Controls.Add(_maxSizeBox);
-        Lbl(f, "MB  (0 = no limit)", lx + 90, y + 5);
-        y += 38;
+        Lbl(g, "Max File Size", lx, y);
+        _maxSizeBox = new DarkNumeric(settings.MaxFileSizeMB, 0, 99999, colB, y, 80);
+        g.Controls.Add(_maxSizeBox);
+        g.Controls.Add(new Label { Text = "MB  (0 = no limit)", Location = new Point(colB + 88, y + 4), AutoSize = true, ForeColor = C_T3, Font = new Font("Segoe UI", 7.5f), BackColor = Color.Transparent });
+        y += 32;
 
         var saveFilt = MkBtn("Save Filters", lx + w - 108, y, 108, 24, C_BTN, C_BTN_H);
         saveFilt.Font = new Font("Segoe UI", 8f, FontStyle.Bold);
         saveFilt.Click += (_, _) => SaveFilters();
-        f.Controls.Add(saveFilt);
-
-        AddSectionCard(f, lx - 10, y - 328, w + 20, 154);
-        AddSectionCard(f, lx - 10, y - 166, w + 20, 130, false);
-        AddSectionCard(f, lx - 10, y - 28, w + 20, 72, false);
+        g.Controls.Add(saveFilt);
 
         // ═══════════════════════════════════════
         //  PAGE 2: LOGS (activity + raw logs)
@@ -1079,7 +1022,6 @@ public class SettingsForm : Form
         _currentTaskPanel.Controls.Add(_taskSpeedLabel);
 
         s.Controls.Add(_currentTaskPanel);
-        AddSectionCard(s, lx - 10, sy - 4, w + 20, 102);
         sy += 100;
 
         // Stats Section (compact - single line each)
@@ -1094,7 +1036,6 @@ public class SettingsForm : Form
 
         _statsSizeLabel = MkLabel("📦 Total size: 0 MB", lx, sy, new Font("Segoe UI", 8.5f), C_T2);
         s.Controls.Add(_statsSizeLabel);
-        AddSectionCard(s, lx - 10, sy - 42, w + 20, 64);
         sy += 22;
 
         // System Status Section (2-column compact layout)
@@ -1118,7 +1059,6 @@ public class SettingsForm : Form
 
         _quotaStatusLabel = MkLedLabel("STORAGE CHECKING", lx, sy, C_T2);
         s.Controls.Add(_quotaStatusLabel);
-        AddSectionCard(s, lx - 10, sy - 42, w + 20, 66);
         sy += 24;
 
         // Version Section
@@ -1386,32 +1326,24 @@ public class SettingsForm : Form
         var bar = new Panel
         {
             Location = new Point(x, y),
-            Size = new Size(Math.Max(120, parent.ClientSize.Width - x - 12), filled ? 14 : 12),
-            BackColor = filled ? Color.FromArgb(26, 26, 26) : Color.Transparent,
+            Size = new Size(Math.Max(120, parent.ClientSize.Width - x - 12), filled ? 14 : 14),
+            BackColor = Color.Transparent,
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
             Margin = Padding.Empty,
         };
         bar.Paint += (_, e) =>
         {
-            using var pen = new Pen(C_BORDER, 1);
-            if (filled)
-            {
-                e.Graphics.DrawLine(pen, 0, 0, bar.Width - 1, 0);
-                e.Graphics.DrawLine(pen, 0, bar.Height - 1, bar.Width - 1, bar.Height - 1);
-            }
-            else
-            {
-                e.Graphics.DrawLine(pen, 0, bar.Height - 1, bar.Width - 1, bar.Height - 1);
-            }
+            using var pen = new Pen(Color.FromArgb(34, 34, 34), 1);
+            e.Graphics.DrawLine(pen, 0, 0, bar.Width - 1, 0);
         };
 
         var lbl = new Label
         {
             Text = title,
-            Location = new Point(0, filled ? 1 : 0),
+            Location = new Point(0, 1),
             AutoSize = true,
-            ForeColor = filled ? C_T2 : C_T3,
-            Font = new Font("Consolas", filled ? 7.5f : 7f, FontStyle.Bold),
+            ForeColor = C_T3,
+            Font = new Font("Consolas", 7f, FontStyle.Bold),
             UseMnemonic = false,
             BackColor = Color.Transparent,
         };
@@ -1427,7 +1359,7 @@ public class SettingsForm : Form
 
     static void Lbl(Control p, string text, int x, int y)
     {
-        p.Controls.Add(new Label { Text = text, Location = new Point(x, y), AutoSize = true, ForeColor = Color.FromArgb(102, 102, 102), Font = new Font("Segoe UI", 7.5f), BackColor = Color.Transparent });
+        p.Controls.Add(new Label { Text = text.ToUpperInvariant(), Location = new Point(x, y + 4), AutoSize = true, ForeColor = Color.FromArgb(136, 136, 136), Font = new Font("Segoe UI", 7.5f, FontStyle.Bold), BackColor = Color.Transparent });
     }
 
     static Button MkBtn(string text, int x, int y, int w, int h, Color bg, Color hover, bool joinLeft = false)
