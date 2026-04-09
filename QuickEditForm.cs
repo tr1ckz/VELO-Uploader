@@ -24,6 +24,8 @@ public sealed class QuickEditForm : Form
     private readonly Button _jumpForwardButton;
     private readonly Button _selectToolButton;
     private readonly Button _rippleToolButton;
+    private readonly Button _rollingToolButton;
+    private readonly Button _slipToolButton;
     private readonly Button _razorToolButton;
     private readonly Label _timelineModeLabel;
     private readonly Label _previewTimeLabel;
@@ -35,6 +37,13 @@ public sealed class QuickEditForm : Form
     private readonly NumericUpDown _cropYBox;
     private readonly NumericUpDown _cropWBox;
     private readonly NumericUpDown _cropHBox;
+    private readonly NumericUpDown _positionXBox;
+    private readonly NumericUpDown _positionYBox;
+    private readonly NumericUpDown _scaleBox;
+    private readonly NumericUpDown _opacityBox;
+    private readonly Button _positionKeyframeButton;
+    private readonly Button _scaleKeyframeButton;
+    private readonly Button _opacityKeyframeButton;
     private readonly Label _cropInfoLabel;
     private readonly TextBox _projectSearchBox;
     private readonly TextBox _outputNameBox;
@@ -70,8 +79,13 @@ public sealed class QuickEditForm : Form
     private Size _videoSize = Size.Empty;
     private bool _updatingCropFields;
     private bool _updatingTrimRange;
+    private bool _updatingTransformFields;
     private double _requestedPreviewTime;
     private TimelineEditMode _timelineEditMode = TimelineEditMode.Select;
+    private int _targetVideoTrack = 1;
+    private int _targetAudioTrack = 1;
+    private int _transportDirection;
+    private int _transportSpeedLevel;
     private CancellationTokenSource? _previewCts;
     private readonly List<TimelineSegment> _sequenceSegments = [];
     private readonly Dictionary<string, Image> _mediaThumbCache = new(StringComparer.OrdinalIgnoreCase);
@@ -85,17 +99,35 @@ public sealed class QuickEditForm : Form
     private static readonly string[] SupportedExtensions = [".mp4", ".mkv", ".mov", ".avi", ".webm"];
 
     private sealed record VideoDetails(double Duration, int Width, int Height);
-    private sealed record TimelineSegment(string SourceFile, double StartSec, double EndSec, int Track = 1)
+    private sealed record TransformKeyframe(double SequenceLocalSec, float PositionX, float PositionY, float Scale, float Opacity);
+    private sealed record ClipTransform(
+        float PositionX = 0f,
+        float PositionY = 0f,
+        float Scale = 1f,
+        float Opacity = 1f,
+        bool PositionKeyframed = false,
+        bool ScaleKeyframed = false,
+        bool OpacityKeyframed = false,
+        IReadOnlyList<TransformKeyframe>? Keyframes = null)
+    {
+        public IReadOnlyList<TransformKeyframe> SafeKeyframes => Keyframes ?? [];
+    }
+
+    private sealed record TimelineSegment(string SourceFile, double StartSec, double EndSec, int Track = 1, double SequenceStartSec = 0, ClipTransform? Transform = null)
     {
         public int SafeTrack => Math.Clamp(Track, 1, 2);
         public double Duration => Math.Max(0, EndSec - StartSec);
-        public override string ToString() => $"[V{SafeTrack}] {Path.GetFileName(SourceFile)}  •  {FormatTime(StartSec)} → {FormatTime(EndSec)}  ({FormatTime(Duration)})";
+        public double SequenceEndSec => SequenceStartSec + Duration;
+        public ClipTransform SafeTransform => Transform ?? new();
+        public override string ToString() => $"[V{SafeTrack} @ {FormatTime(SequenceStartSec)}] {Path.GetFileName(SourceFile)}  •  {FormatTime(StartSec)} → {FormatTime(EndSec)}  ({FormatTime(Duration)})";
     }
 
     private enum TimelineEditMode
     {
         Select,
         Ripple,
+        Rolling,
+        Slip,
         Razor,
     }
 
@@ -363,21 +395,27 @@ public sealed class QuickEditForm : Form
         _jumpForwardButton = BuildButton("5s ⏩", 170, 468, 64, (_, _) => SkipSeconds(5));
         centerPanel.Controls.Add(_jumpForwardButton);
 
-        _selectToolButton = BuildButton("⌖ Select (V)", 238, 468, 100, (_, _) => SetTimelineEditMode(TimelineEditMode.Select));
+        _selectToolButton = BuildButton("⌖ Select (V)", 238, 468, 96, (_, _) => SetTimelineEditMode(TimelineEditMode.Select));
         centerPanel.Controls.Add(_selectToolButton);
 
-        _rippleToolButton = BuildButton("⇄ Ripple (R)", 346, 468, 106, (_, _) => SetTimelineEditMode(TimelineEditMode.Ripple));
+        _rippleToolButton = BuildButton("⇄ Ripple (B)", 340, 468, 100, (_, _) => SetTimelineEditMode(TimelineEditMode.Ripple));
         centerPanel.Controls.Add(_rippleToolButton);
 
-        _razorToolButton = BuildButton("✂ Razor (C)", 460, 468, 100, (_, _) => SetTimelineEditMode(TimelineEditMode.Razor));
+        _rollingToolButton = BuildButton("⥮ Roll (N)", 446, 468, 94, (_, _) => SetTimelineEditMode(TimelineEditMode.Rolling));
+        centerPanel.Controls.Add(_rollingToolButton);
+
+        _slipToolButton = BuildButton("⇆ Slip (Y)", 546, 468, 92, (_, _) => SetTimelineEditMode(TimelineEditMode.Slip));
+        centerPanel.Controls.Add(_slipToolButton);
+
+        _razorToolButton = BuildButton("✂ Razor (C)", 644, 468, 96, (_, _) => SetTimelineEditMode(TimelineEditMode.Razor));
         centerPanel.Controls.Add(_razorToolButton);
 
-        _timelineModeLabel = BuildSmallLabel("Selection tool active — V Select, R Ripple, C Razor, Ctrl+K cut, Ctrl+Z undo.", 570, 466, 314);
+        _timelineModeLabel = BuildSmallLabel("Pro tools active — B Ripple, N Roll, Y Slip, C Razor, JKL transport, Ctrl+Z undo.", 14, 0, 720);
         centerPanel.Controls.Add(_timelineModeLabel);
 
         var sequenceSectionLabel = BuildSectionLabel("Sequence timeline", 14, 512);
         centerPanel.Controls.Add(sequenceSectionLabel);
-        var timelineHint = BuildSmallLabel("Premiere-style flow: Insert or Overwrite from the Source monitor, drag to reorder, Razor to cut, and use Ctrl+Left/Right for fine trims.", 14, 534, 720);
+        var timelineHint = BuildSmallLabel("Premiere-style flow: patch a target track, Insert/Overwrite from the Source monitor, B ripple, N roll, Y slip, C razor, and JKL for transport.", 14, 534, 720);
         centerPanel.Controls.Add(timelineHint);
 
         _sequenceTimelineView = new SequenceTimelineView
@@ -391,6 +429,14 @@ public sealed class QuickEditForm : Form
         _sequenceTimelineView.SegmentMoved += (fromIndex, toIndex, track) => MoveSequenceSegmentTo(fromIndex, toIndex, track);
         _sequenceTimelineView.SegmentSplitRequested += (index, splitTime) => SplitSelectedSegmentAtPlayhead(index, splitTime);
         _sequenceTimelineView.RippleDeleteRequested += (insertIndex, track) => RippleDeleteGapAt(insertIndex, track);
+        _sequenceTimelineView.SegmentSlipRequested += (index, deltaSeconds) => ApplySequenceSlipFromTimeline(index, deltaSeconds);
+        _sequenceTimelineView.TrackTargetChanged += (videoTrack, audioTrack) =>
+        {
+            _targetVideoTrack = Math.Clamp(videoTrack, 1, 2);
+            _targetAudioTrack = Math.Clamp(audioTrack, 1, 2);
+            if (_statusLabel is not null)
+                _statusLabel.Text = $"Source patching armed — V{_targetVideoTrack} / A{_targetAudioTrack} targeted.";
+        };
         _sequenceTimelineView.SeekRequested += async seconds => await ScrubSequenceToTimeAsync(seconds);
         _sequenceTimelineView.ZoomDeltaRequested += AdjustTimelineZoom;
         _sequenceTimelineView.SetWaveformProvider(file => _waveformCache.TryGetValue(file, out var waveform) ? waveform : null);
@@ -482,7 +528,7 @@ public sealed class QuickEditForm : Form
         rightPanel.Controls.Add(_trimButton);
         y += 36;
 
-        _markerHintLabel = BuildSmallLabel("Source first: mark IN/OUT, then Insert or Overwrite at the playhead. C = Razor, V = Select, Ctrl+Z = undo.", 14, y, 260);
+        _markerHintLabel = BuildSmallLabel("Source first: mark IN/OUT, then Insert or Overwrite at the playhead. B = Ripple, N = Roll, Y = Slip, C = Razor, Ctrl+Z = undo.", 14, y, 260);
         rightPanel.Controls.Add(_markerHintLabel);
         y += 42;
 
@@ -573,9 +619,46 @@ public sealed class QuickEditForm : Form
         rightPanel.Controls.Add(_cropButton);
         y += 50;
 
+        rightPanel.Controls.Add(BuildSectionLabel("Motion / keyframes", 14, y));
+        y += 22;
+        rightPanel.Controls.Add(BuildLabel("Position", 14, y));
+        _positionKeyframeButton = BuildButton("⏱", 202, y - 1, 32, (_, _) => ToggleKeyframingForSelection("position"));
+        rightPanel.Controls.Add(_positionKeyframeButton);
+        y += 18;
+        _positionXBox = BuildNumeric(0, -4000, 4000, 14, y, 124);
+        _positionYBox = BuildNumeric(0, -4000, 4000, 150, y, 124);
+        rightPanel.Controls.Add(_positionXBox);
+        rightPanel.Controls.Add(_positionYBox);
+        y += 36;
+
+        rightPanel.Controls.Add(BuildLabel("Scale %", 14, y));
+        _scaleKeyframeButton = BuildButton("⏱", 202, y - 1, 32, (_, _) => ToggleKeyframingForSelection("scale"));
+        rightPanel.Controls.Add(_scaleKeyframeButton);
+        y += 18;
+        _scaleBox = BuildNumeric(100, 10, 400, 14, y, 124);
+        rightPanel.Controls.Add(_scaleBox);
+        y += 36;
+
+        rightPanel.Controls.Add(BuildLabel("Opacity %", 14, y));
+        _opacityKeyframeButton = BuildButton("⏱", 202, y - 1, 32, (_, _) => ToggleKeyframingForSelection("opacity"));
+        rightPanel.Controls.Add(_opacityKeyframeButton);
+        y += 18;
+        _opacityBox = BuildNumeric(100, 0, 100, 14, y, 124);
+        rightPanel.Controls.Add(_opacityBox);
+        y += 36;
+
+        rightPanel.Controls.Add(BuildButton("Set/Update keyframe", 14, y, 124, (_, _) => CaptureTransformKeyframeAtPlayhead()));
+        rightPanel.Controls.Add(BuildButton("Reset motion", 150, y, 124, (_, _) => ResetSelectedMotion()));
+        y += 46;
+
+        _positionXBox.ValueChanged += (_, _) => SyncTransformFromFields();
+        _positionYBox.ValueChanged += (_, _) => SyncTransformFromFields();
+        _scaleBox.ValueChanged += (_, _) => SyncTransformFromFields();
+        _opacityBox.ValueChanged += (_, _) => SyncTransformFromFields();
+
         rightPanel.Controls.Add(BuildSectionLabel("Timeline / sequence", 14, y));
         y += 22;
-        _sequenceHintLabel = BuildSmallLabel("Insert or Overwrite into the timeline here, then move with Select, cut with Razor, and fine-trim with Ctrl+Left/Right.", 14, y, 260);
+        _sequenceHintLabel = BuildSmallLabel("Click V1/V2 or A1/A2 in the track headers to patch the target tracks. B ripple-edits, N rolls, Y slips, and JKL drives playback.", 14, y, 260);
         rightPanel.Controls.Add(_sequenceHintLabel);
         y += 34;
 
@@ -592,6 +675,7 @@ public sealed class QuickEditForm : Form
         {
             _sequenceTimelineView.SetSelectedIndex(_sequenceList.SelectedIndex);
             _splitPlayheadButton.Enabled = _sequenceList.SelectedIndex >= 0;
+            UpdateTransformInspectorUi();
         };
         _sequenceList.DoubleClick += async (_, _) => await LoadSequenceSegmentAsync(_sequenceList.SelectedIndex);
         rightPanel.Controls.Add(_sequenceList);
@@ -743,11 +827,13 @@ public sealed class QuickEditForm : Form
             _jumpForwardButton.Location = new Point(_jumpBackButton.Right + 6, transportY);
             _selectToolButton.Location = new Point(_jumpForwardButton.Right + 10, transportY);
             _rippleToolButton.Location = new Point(_selectToolButton.Right + 6, transportY);
-            _razorToolButton.Location = new Point(_rippleToolButton.Right + 6, transportY);
-            _timelineModeLabel.Location = new Point(_razorToolButton.Right + 8, transportY + 3);
-            _timelineModeLabel.Size = new Size(Math.Max(120, timelinePanel.ClientSize.Width - _timelineModeLabel.Left - margin), 18);
+            _rollingToolButton.Location = new Point(_rippleToolButton.Right + 6, transportY);
+            _slipToolButton.Location = new Point(_rollingToolButton.Right + 6, transportY);
+            _razorToolButton.Location = new Point(_slipToolButton.Right + 6, transportY);
+            _timelineModeLabel.Location = new Point(margin, _selectToolButton.Bottom + 6);
+            _timelineModeLabel.Size = new Size(Math.Max(120, timelinePanel.ClientSize.Width - (margin * 2)), 18);
 
-            var toolRowBottom = Math.Max(_playPauseButton.Bottom, Math.Max(_rippleToolButton.Bottom, _timelineModeLabel.Bottom));
+            var toolRowBottom = Math.Max(_timelineModeLabel.Bottom, Math.Max(_razorToolButton.Bottom, _playPauseButton.Bottom));
             sequenceSectionLabel.Location = new Point(margin, toolRowBottom + 8);
             timelineHint.Location = new Point(margin, sequenceSectionLabel.Bottom + 1);
             timelineHint.Size = new Size(timelinePanel.ClientSize.Width - (margin * 2), 22);
@@ -794,6 +880,7 @@ public sealed class QuickEditForm : Form
         ApplyObsidianScrollbarTheme(_markerList);
         ApplyObsidianScrollbarTheme(rightPanel);
         SetTimelineEditMode(TimelineEditMode.Select);
+        _sequenceTimelineView.SetTargetTracks(_targetVideoTrack, _targetAudioTrack);
 
         _previewDebounceTimer = new System.Windows.Forms.Timer { Interval = 280 };
         _previewDebounceTimer.Tick += async (_, _) =>
@@ -802,8 +889,8 @@ public sealed class QuickEditForm : Form
             await RefreshPreviewAsync(_requestedPreviewTime);
         };
 
-        _playerTimer = new System.Windows.Forms.Timer { Interval = 180 };
-        _playerTimer.Tick += (_, _) => UpdatePlayerPositionFromPlayback();
+        _playerTimer = new System.Windows.Forms.Timer { Interval = 120 };
+        _playerTimer.Tick += (_, _) => StepTransportPlayback();
 
         UpdateSequenceUi();
         UpdateMarkerUi();
@@ -1086,13 +1173,232 @@ public sealed class QuickEditForm : Form
         if (hasClipSelection)
         {
             _inspectorHeaderLabel.Text = "CLIP INSPECTOR";
-            _inspectorHintLabel.Text = "TRANSFORM, CROP, AND SOURCE-LINKED AUDIO DETAILS FOR THE SELECTED CLIP LIVE HERE. EXPORT REMAINS BELOW.";
+            _inspectorHintLabel.Text = "TRANSFORM, KEYFRAMES, CROP, AND SOURCE-LINKED DETAILS FOR THE SELECTED CLIP LIVE HERE.";
         }
         else
         {
             _inspectorHeaderLabel.Text = "EXPORT INSPECTOR";
             _inspectorHintLabel.Text = "NO CLIP SELECTED — SET YOUR OUTPUT NAME, FOLDER, AND RENDER/EXPORT CONTROLS HERE.";
         }
+
+        UpdateTransformInspectorUi();
+    }
+
+    private double GetSequenceTotalDuration()
+    {
+        return _sequenceSegments.Count == 0 ? 0 : _sequenceSegments.Max(segment => segment.SequenceEndSec);
+    }
+
+    private List<TimelineSegment> GetActiveSegmentsAtTime(double sequenceSeconds)
+    {
+        return _sequenceSegments
+            .Where(segment => sequenceSeconds >= segment.SequenceStartSec - 0.0001 && sequenceSeconds <= segment.SequenceEndSec + 0.0001)
+            .OrderBy(segment => segment.SafeTrack)
+            .ThenBy(segment => segment.SequenceStartSec)
+            .ToList();
+    }
+
+    private TimelineSegment? GetTopVisibleSegmentAtTime(double sequenceSeconds)
+    {
+        return GetActiveSegmentsAtTime(sequenceSeconds)
+            .OrderByDescending(segment => segment.SafeTrack)
+            .ThenByDescending(segment => segment.SequenceStartSec)
+            .FirstOrDefault();
+    }
+
+    private void UpdateTransformInspectorUi()
+    {
+        if (_positionXBox is null)
+            return;
+
+        var selectedIndex = _sequenceList?.SelectedIndex ?? -1;
+        var hasTimelineSelection = selectedIndex >= 0 && selectedIndex < _sequenceSegments.Count;
+
+        _positionXBox.Enabled = hasTimelineSelection;
+        _positionYBox.Enabled = hasTimelineSelection;
+        _scaleBox.Enabled = hasTimelineSelection;
+        _opacityBox.Enabled = hasTimelineSelection;
+        _positionKeyframeButton.Enabled = hasTimelineSelection;
+        _scaleKeyframeButton.Enabled = hasTimelineSelection;
+        _opacityKeyframeButton.Enabled = hasTimelineSelection;
+
+        if (!hasTimelineSelection)
+        {
+            _updatingTransformFields = true;
+            try
+            {
+                _positionXBox.Value = 0;
+                _positionYBox.Value = 0;
+                _scaleBox.Value = 100;
+                _opacityBox.Value = 100;
+            }
+            finally
+            {
+                _updatingTransformFields = false;
+            }
+
+            StyleToolButton(_positionKeyframeButton, false);
+            StyleToolButton(_scaleKeyframeButton, false);
+            StyleToolButton(_opacityKeyframeButton, false);
+            return;
+        }
+
+        var segment = _sequenceSegments[selectedIndex];
+        var transform = EvaluateTransformAtTime(segment, GetCurrentSequencePlayhead());
+        _updatingTransformFields = true;
+        try
+        {
+            _positionXBox.Value = Math.Clamp((decimal)transform.PositionX, _positionXBox.Minimum, _positionXBox.Maximum);
+            _positionYBox.Value = Math.Clamp((decimal)transform.PositionY, _positionYBox.Minimum, _positionYBox.Maximum);
+            _scaleBox.Value = Math.Clamp((decimal)(transform.Scale * 100f), _scaleBox.Minimum, _scaleBox.Maximum);
+            _opacityBox.Value = Math.Clamp((decimal)(transform.Opacity * 100f), _opacityBox.Minimum, _opacityBox.Maximum);
+        }
+        finally
+        {
+            _updatingTransformFields = false;
+        }
+
+        StyleToolButton(_positionKeyframeButton, segment.SafeTransform.PositionKeyframed);
+        StyleToolButton(_scaleKeyframeButton, segment.SafeTransform.ScaleKeyframed);
+        StyleToolButton(_opacityKeyframeButton, segment.SafeTransform.OpacityKeyframed);
+    }
+
+    private static float Lerp(float start, float end, double ratio)
+    {
+        return (float)(start + ((end - start) * Math.Clamp(ratio, 0, 1)));
+    }
+
+    private ClipTransform EvaluateTransformAtTime(TimelineSegment segment, double sequenceTime)
+    {
+        var transform = segment.SafeTransform;
+        var keyframes = transform.SafeKeyframes.OrderBy(frame => frame.SequenceLocalSec).ToList();
+        if (keyframes.Count == 0)
+            return transform;
+
+        var localTime = Math.Clamp(sequenceTime - segment.SequenceStartSec, 0, Math.Max(0.001, segment.Duration));
+        var previous = keyframes.LastOrDefault(frame => frame.SequenceLocalSec <= localTime) ?? keyframes[0];
+        var next = keyframes.FirstOrDefault(frame => frame.SequenceLocalSec >= localTime) ?? keyframes[^1];
+        var ratio = Math.Abs(next.SequenceLocalSec - previous.SequenceLocalSec) < 0.0001
+            ? 0
+            : (localTime - previous.SequenceLocalSec) / (next.SequenceLocalSec - previous.SequenceLocalSec);
+
+        return transform with
+        {
+            PositionX = transform.PositionKeyframed ? Lerp(previous.PositionX, next.PositionX, ratio) : transform.PositionX,
+            PositionY = transform.PositionKeyframed ? Lerp(previous.PositionY, next.PositionY, ratio) : transform.PositionY,
+            Scale = transform.ScaleKeyframed ? Lerp(previous.Scale, next.Scale, ratio) : transform.Scale,
+            Opacity = transform.OpacityKeyframed ? Lerp(previous.Opacity, next.Opacity, ratio) : transform.Opacity,
+        };
+    }
+
+    private ClipTransform UpsertKeyframe(TimelineSegment segment, ClipTransform transform)
+    {
+        var localTime = Math.Clamp(GetCurrentSequencePlayhead() - segment.SequenceStartSec, 0, Math.Max(0.001, segment.Duration));
+        var keyframes = transform.SafeKeyframes.ToList();
+        var keyframe = new TransformKeyframe(localTime, transform.PositionX, transform.PositionY, transform.Scale, transform.Opacity);
+        var existingIndex = keyframes.FindIndex(frame => Math.Abs(frame.SequenceLocalSec - localTime) <= (1d / 30d));
+        if (existingIndex >= 0)
+            keyframes[existingIndex] = keyframe;
+        else
+            keyframes.Add(keyframe);
+
+        keyframes = keyframes.OrderBy(frame => frame.SequenceLocalSec).ToList();
+        return transform with { Keyframes = keyframes };
+    }
+
+    private void SyncTransformFromFields()
+    {
+        if (_updatingTransformFields)
+            return;
+
+        var selectedIndex = _sequenceList.SelectedIndex;
+        if (selectedIndex < 0 || selectedIndex >= _sequenceSegments.Count)
+            return;
+
+        PushSequenceUndoState();
+        var segment = _sequenceSegments[selectedIndex];
+        var transform = segment.SafeTransform with
+        {
+            PositionX = (float)_positionXBox.Value,
+            PositionY = (float)_positionYBox.Value,
+            Scale = Math.Max(0.1f, (float)_scaleBox.Value / 100f),
+            Opacity = Math.Clamp((float)_opacityBox.Value / 100f, 0f, 1f),
+        };
+
+        if (transform.PositionKeyframed || transform.ScaleKeyframed || transform.OpacityKeyframed)
+            transform = UpsertKeyframe(segment, transform);
+
+        _sequenceSegments[selectedIndex] = segment with { Transform = transform };
+        UpdateSequenceUi(selectedIndex);
+        _ = RefreshPreviewAsync(GetCurrentPreviewTime());
+    }
+
+    private void ToggleKeyframingForSelection(string propertyName)
+    {
+        var selectedIndex = _sequenceList.SelectedIndex;
+        if (selectedIndex < 0 || selectedIndex >= _sequenceSegments.Count)
+        {
+            _statusLabel.Text = "Select a timeline clip first, then enable its stopwatch in the Inspector.";
+            return;
+        }
+
+        PushSequenceUndoState();
+        var segment = _sequenceSegments[selectedIndex];
+        var transform = segment.SafeTransform;
+        transform = propertyName switch
+        {
+            "position" => transform with { PositionKeyframed = !transform.PositionKeyframed },
+            "scale" => transform with { ScaleKeyframed = !transform.ScaleKeyframed },
+            "opacity" => transform with { OpacityKeyframed = !transform.OpacityKeyframed },
+            _ => transform,
+        };
+
+        if (transform.PositionKeyframed || transform.ScaleKeyframed || transform.OpacityKeyframed)
+            transform = UpsertKeyframe(segment, transform);
+
+        _sequenceSegments[selectedIndex] = segment with { Transform = transform };
+        UpdateSequenceUi(selectedIndex);
+        _statusLabel.Text = $"{propertyName.ToUpperInvariant()} keyframing {(propertyName switch { _ when transform.PositionKeyframed || transform.ScaleKeyframed || transform.OpacityKeyframed => "armed", _ => "updated" })} for the selected clip.";
+        _ = RefreshPreviewAsync(GetCurrentPreviewTime());
+    }
+
+    private void CaptureTransformKeyframeAtPlayhead()
+    {
+        var selectedIndex = _sequenceList.SelectedIndex;
+        if (selectedIndex < 0 || selectedIndex >= _sequenceSegments.Count)
+        {
+            _statusLabel.Text = "Select a timeline clip first, then set a keyframe.";
+            return;
+        }
+
+        var segment = _sequenceSegments[selectedIndex];
+        var transform = segment.SafeTransform;
+        if (!transform.PositionKeyframed && !transform.ScaleKeyframed && !transform.OpacityKeyframed)
+        {
+            _statusLabel.Text = "Enable at least one stopwatch before adding a keyframe.";
+            return;
+        }
+
+        PushSequenceUndoState();
+        transform = UpsertKeyframe(segment, transform);
+        _sequenceSegments[selectedIndex] = segment with { Transform = transform };
+        UpdateSequenceUi(selectedIndex);
+        _statusLabel.Text = $"Keyframe captured at {FormatTime(GetCurrentSequencePlayhead())}.";
+        _ = RefreshPreviewAsync(GetCurrentPreviewTime());
+    }
+
+    private void ResetSelectedMotion()
+    {
+        var selectedIndex = _sequenceList.SelectedIndex;
+        if (selectedIndex < 0 || selectedIndex >= _sequenceSegments.Count)
+            return;
+
+        PushSequenceUndoState();
+        var segment = _sequenceSegments[selectedIndex];
+        _sequenceSegments[selectedIndex] = segment with { Transform = new ClipTransform() };
+        UpdateSequenceUi(selectedIndex);
+        _statusLabel.Text = "Reset Position, Scale, and Opacity for the selected clip.";
+        _ = RefreshPreviewAsync(GetCurrentPreviewTime());
     }
 
     private async Task RefreshMediaBinThumbnailsAsync()
@@ -1260,18 +1566,80 @@ public sealed class QuickEditForm : Form
             return;
         }
 
-        if (_isPlaying)
+        if (_transportDirection != 0 || _isPlaying)
         {
             StopPlayback(resetToStart: false);
             return;
         }
 
+        _transportDirection = 1;
+        _transportSpeedLevel = 1;
+        StartTransportPlayback();
+    }
+
+    private void HandleTransportKey(Keys keyCode)
+    {
+        if (_mediaElement.Source == null)
+        {
+            _statusLabel.Text = "Select a clip first before using J/K/L transport.";
+            return;
+        }
+
+        switch (keyCode)
+        {
+            case Keys.K:
+                StopPlayback(resetToStart: false);
+                return;
+            case Keys.L:
+                if (_transportDirection == 1)
+                    _transportSpeedLevel = Math.Min(3, _transportSpeedLevel + 1);
+                else
+                {
+                    _transportDirection = 1;
+                    _transportSpeedLevel = 1;
+                }
+                StartTransportPlayback();
+                return;
+            case Keys.J:
+                if (_transportDirection == -1)
+                    _transportSpeedLevel = Math.Min(3, _transportSpeedLevel + 1);
+                else
+                {
+                    _transportDirection = -1;
+                    _transportSpeedLevel = 1;
+                }
+                StartTransportPlayback();
+                return;
+        }
+    }
+
+    private void StartTransportPlayback()
+    {
+        var speed = _transportSpeedLevel switch
+        {
+            >= 3 => 4.0,
+            2 => 2.0,
+            _ => 1.0,
+        };
+
         try
         {
-            _mediaElement.Play();
-            _isPlaying = true;
-            _playPauseButton.Text = "❚❚ Pause";
-            _playerStatusLabel.Text = "Playing…";
+            if (_transportDirection >= 0)
+            {
+                _mediaElement.SpeedRatio = speed;
+                _mediaElement.Play();
+                _isPlaying = true;
+                _playPauseButton.Text = speed > 1 ? $"▶ {speed:0}x" : "❚❚ Pause";
+                _playerStatusLabel.Text = speed > 1 ? $"Playing forward {speed:0}x (L to ramp, K to stop)." : "Playing…";
+            }
+            else
+            {
+                _mediaElement.Pause();
+                _isPlaying = false;
+                _playPauseButton.Text = $"◀ {speed:0}x";
+                _playerStatusLabel.Text = $"Playing backward {speed:0}x (J to ramp, K to stop).";
+            }
+
             _playerTimer.Start();
         }
         catch (Exception ex)
@@ -1285,6 +1653,7 @@ public sealed class QuickEditForm : Form
     {
         try
         {
+            _mediaElement.SpeedRatio = 1.0;
             _mediaElement.Pause();
         }
         catch
@@ -1302,6 +1671,8 @@ public sealed class QuickEditForm : Form
             }
         }
 
+        _transportDirection = 0;
+        _transportSpeedLevel = 0;
         _isPlaying = false;
         _playerTimer.Stop();
         _playPauseButton.Text = "▶ Play";
@@ -1318,6 +1689,32 @@ public sealed class QuickEditForm : Form
             _trimTimelineView.SetPlayhead(0);
             _sequenceTimelineView.SetPlayhead(0);
         }
+    }
+
+    private void StepTransportPlayback()
+    {
+        if (_transportDirection < 0)
+        {
+            var speed = _transportSpeedLevel switch
+            {
+                >= 3 => 4.0,
+                2 => 2.0,
+                _ => 1.0,
+            };
+            var target = GetCurrentPreviewTime() - (0.12 * speed);
+            if (target <= 0.01)
+            {
+                SeekToTime(0, refreshPreview: true);
+                StopPlayback(resetToStart: false);
+                return;
+            }
+
+            SeekToTime(target, refreshPreview: true);
+            return;
+        }
+
+        if (_transportDirection > 0)
+            UpdatePlayerPositionFromPlayback();
     }
 
     private void SkipSeconds(double deltaSeconds)
@@ -1347,6 +1744,7 @@ public sealed class QuickEditForm : Form
         _previewTimeLabel.Text = $"Playhead: {FormatTime(clamped)}";
         _trimTimelineView.SetPlayhead(clamped);
         _sequenceTimelineView.SetPlayhead(clamped);
+        UpdateTransformInspectorUi();
 
         if (refreshPreview)
         {
@@ -1372,6 +1770,7 @@ public sealed class QuickEditForm : Form
             _previewTimeLabel.Text = $"Playhead: {FormatTime(position)}";
             _trimTimelineView.SetPlayhead(position);
             _sequenceTimelineView.SetPlayhead(position);
+            UpdateTransformInspectorUi();
         }
         catch
         {
@@ -1685,30 +2084,98 @@ public sealed class QuickEditForm : Form
 
     private async Task RefreshOutputPreviewAsync(double time, CancellationToken ct)
     {
+        if (_sequenceSegments.Count > 0)
+        {
+            var sequenceTime = GetCurrentSequencePlayhead();
+            var activeSegments = GetActiveSegmentsAtTime(sequenceTime);
+            if (activeSegments.Count > 0)
+            {
+                var composite = await RenderCompositePreviewAsync(activeSegments, sequenceTime, ct);
+                if (!ct.IsCancellationRequested)
+                    ReplacePicture(_outputPreview, composite);
+                else
+                    composite.Dispose();
+                return;
+            }
+        }
+
         if (string.IsNullOrWhiteSpace(_selectedFile) || !File.Exists(_selectedFile))
         {
             ReplacePicture(_outputPreview, null);
             return;
         }
 
-        if (!_enableCropBox.Checked)
+        Image baseFrame;
+        if (_enableCropBox.Checked)
         {
-            ReplacePicture(_outputPreview, _sourcePreview.ClonePreviewImage());
-            return;
+            var cropRect = GetCropRectangle();
+            baseFrame = cropRect.Width >= 2 && cropRect.Height >= 2
+                ? await ExtractPreviewImageAsync(_selectedFile, time, ct, cropRect)
+                : (_sourcePreview.ClonePreviewImage() ?? await ExtractPreviewImageAsync(_selectedFile, time, ct));
         }
-
-        var cropRect = GetCropRectangle();
-        if (cropRect.Width < 2 || cropRect.Height < 2)
-        {
-            ReplacePicture(_outputPreview, _sourcePreview.ClonePreviewImage());
-            return;
-        }
-
-        var cropPreview = await ExtractPreviewImageAsync(_selectedFile, time, ct, cropRect);
-        if (!ct.IsCancellationRequested)
-            ReplacePicture(_outputPreview, cropPreview);
         else
-            cropPreview.Dispose();
+        {
+            baseFrame = _sourcePreview.ClonePreviewImage() ?? await ExtractPreviewImageAsync(_selectedFile, time, ct);
+        }
+
+        var selectedIndex = _sequenceList.SelectedIndex;
+        var transform = selectedIndex >= 0 && selectedIndex < _sequenceSegments.Count
+            ? EvaluateTransformAtTime(_sequenceSegments[selectedIndex], GetCurrentSequencePlayhead())
+            : new ClipTransform();
+        var transformed = ApplyTransformToCanvas(baseFrame, transform);
+        baseFrame.Dispose();
+
+        if (!ct.IsCancellationRequested)
+            ReplacePicture(_outputPreview, transformed);
+        else
+            transformed.Dispose();
+    }
+
+    private async Task<Image> RenderCompositePreviewAsync(IReadOnlyList<TimelineSegment> activeSegments, double sequenceTime, CancellationToken ct)
+    {
+        var canvas = new Bitmap(960, 540);
+        using var graphics = Graphics.FromImage(canvas);
+        graphics.Clear(Color.FromArgb(10, 10, 12));
+        graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+        graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+
+        foreach (var segment in activeSegments.OrderBy(segment => segment.SafeTrack))
+        {
+            var clipTime = Math.Clamp(segment.StartSec + Math.Max(0, sequenceTime - segment.SequenceStartSec), segment.StartSec, segment.EndSec);
+            Rectangle? crop = null;
+            if (_enableCropBox.Checked && string.Equals(segment.SourceFile, _selectedFile, StringComparison.OrdinalIgnoreCase))
+            {
+                var cropRect = GetCropRectangle();
+                if (cropRect.Width >= 2 && cropRect.Height >= 2)
+                    crop = cropRect;
+            }
+
+            using var frame = await ExtractPreviewImageAsync(segment.SourceFile, clipTime, ct, crop);
+            using var transformed = ApplyTransformToCanvas(frame, EvaluateTransformAtTime(segment, sequenceTime), canvas.Size);
+            graphics.DrawImage(transformed, 0, 0, canvas.Width, canvas.Height);
+        }
+
+        return canvas;
+    }
+
+    private Bitmap ApplyTransformToCanvas(Image source, ClipTransform transform, Size? canvasSize = null)
+    {
+        var targetSize = canvasSize ?? source.Size;
+        var canvas = new Bitmap(Math.Max(1, targetSize.Width), Math.Max(1, targetSize.Height));
+        using var graphics = Graphics.FromImage(canvas);
+        graphics.Clear(Color.Transparent);
+        graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+        graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+
+        var drawWidth = Math.Max(1, (int)Math.Round(source.Width * Math.Max(0.1f, transform.Scale)));
+        var drawHeight = Math.Max(1, (int)Math.Round(source.Height * Math.Max(0.1f, transform.Scale)));
+        var drawX = ((canvas.Width - drawWidth) / 2f) + transform.PositionX;
+        var drawY = ((canvas.Height - drawHeight) / 2f) + transform.PositionY;
+        using var attributes = new ImageAttributes();
+        var matrix = new ColorMatrix { Matrix33 = Math.Clamp(transform.Opacity, 0f, 1f) };
+        attributes.SetColorMatrix(matrix, ColorMatrixFlag.Default, ColorAdjustType.Bitmap);
+        graphics.DrawImage(source, new Rectangle((int)Math.Round(drawX), (int)Math.Round(drawY), drawWidth, drawHeight), 0, 0, source.Width, source.Height, GraphicsUnit.Pixel, attributes);
+        return canvas;
     }
 
     private void SetTrimBoundary(bool isStart)
@@ -1984,15 +2451,23 @@ public sealed class QuickEditForm : Form
         _timelineEditMode = mode;
         var razorActive = mode == TimelineEditMode.Razor;
         var rippleActive = mode == TimelineEditMode.Ripple;
+        var rollingActive = mode == TimelineEditMode.Rolling;
+        var slipActive = mode == TimelineEditMode.Slip;
         _sequenceTimelineView.SetRazorMode(razorActive);
         _sequenceTimelineView.SetRippleMode(rippleActive);
+        _sequenceTimelineView.SetRollingMode(rollingActive);
+        _sequenceTimelineView.SetSlipMode(slipActive);
         StyleToolButton(_selectToolButton, mode == TimelineEditMode.Select);
         StyleToolButton(_rippleToolButton, rippleActive);
+        StyleToolButton(_rollingToolButton, rollingActive);
+        StyleToolButton(_slipToolButton, slipActive);
         StyleToolButton(_razorToolButton, razorActive);
         _timelineModeLabel.Text = mode switch
         {
             TimelineEditMode.Razor => "RAZOR TOOL ACTIVE — CLICK ANY TIMELINE CUT TO SLICE IT INSTANTLY.",
-            TimelineEditMode.Ripple => "RIPPLE TOOL ACTIVE — DRAG CLIPS TO INSERT AND PUSH DOWNSTREAM EDITS.",
+            TimelineEditMode.Ripple => "RIPPLE TOOL ACTIVE — TRIM OR MOVE AND EVERYTHING DOWNSTREAM CLOSES THE GAP.",
+            TimelineEditMode.Rolling => "ROLLING TOOL ACTIVE — DRAG A CUT EDGE TO SHORTEN ONE CLIP AND LENGTHEN ITS NEIGHBOR.",
+            TimelineEditMode.Slip => "SLIP TOOL ACTIVE — SLIDE THE CONTENT INSIDE A CLIP WITHOUT MOVING ITS TIMELINE POSITION.",
             _ => "SELECTION TOOL ACTIVE — DRAG CLIPS TO OVERWRITE OR SWAP IN PLACE.",
         };
         _statusLabel.Text = _timelineModeLabel.Text;
@@ -2179,59 +2654,52 @@ public sealed class QuickEditForm : Form
             return;
         }
 
-        var totalDuration = _sequenceSegments.Sum(segment => segment.Duration);
+        var totalDuration = GetSequenceTotalDuration();
         var clampedSequenceTime = Math.Clamp(sequenceSeconds, 0, Math.Max(0.001, totalDuration));
-        var cursor = 0d;
+        var segment = GetTopVisibleSegmentAtTime(clampedSequenceTime)
+            ?? _sequenceSegments.OrderBy(segment => segment.SequenceStartSec).LastOrDefault();
+        if (segment is null)
+            return;
 
-        for (var index = 0; index < _sequenceSegments.Count; index++)
+        var index = _sequenceSegments.FindIndex(item => item == segment);
+        var localOffset = Math.Clamp(clampedSequenceTime - segment.SequenceStartSec, 0, Math.Max(0.001, segment.Duration));
+        var clipTime = Math.Clamp(segment.StartSec + localOffset, segment.StartSec, segment.EndSec);
+
+        if (_sequenceList.SelectedIndex != index)
+            _sequenceList.SelectedIndex = index;
+        _sequenceTimelineView.SetSelectedIndex(index);
+
+        var clipNeedsLoad = !string.Equals(_selectedFile, segment.SourceFile, StringComparison.OrdinalIgnoreCase) || _mediaElement.Source == null;
+        if (clipNeedsLoad)
         {
-            var segment = _sequenceSegments[index];
-            var segmentEnd = cursor + segment.Duration;
-            if (clampedSequenceTime <= segmentEnd || index == _sequenceSegments.Count - 1)
+            var existingIndex = _filesList.Items.IndexOf(segment.SourceFile);
+            if (existingIndex < 0)
             {
-                var localOffset = Math.Clamp(clampedSequenceTime - cursor, 0, Math.Max(0.001, segment.Duration));
-                var clipTime = Math.Clamp(segment.StartSec + localOffset, segment.StartSec, segment.EndSec);
-
-                if (_sequenceList.SelectedIndex != index)
-                    _sequenceList.SelectedIndex = index;
-                _sequenceTimelineView.SetSelectedIndex(index);
-
-                var clipNeedsLoad = !string.Equals(_selectedFile, segment.SourceFile, StringComparison.OrdinalIgnoreCase) || _mediaElement.Source == null;
-                if (clipNeedsLoad)
-                {
-                    var existingIndex = _filesList.Items.IndexOf(segment.SourceFile);
-                    if (existingIndex < 0)
-                    {
-                        _filesList.Items.Insert(0, segment.SourceFile);
-                        existingIndex = 0;
-                    }
-
-                    if (_filesList.SelectedIndex != existingIndex || !string.Equals(_filesList.SelectedItem?.ToString(), segment.SourceFile, StringComparison.OrdinalIgnoreCase))
-                    {
-                        _filesList.ClearSelected();
-                        _filesList.SelectedIndex = existingIndex;
-                        await HandleSelectionChangedAsync();
-                    }
-                }
-
-                _updatingTrimRange = true;
-                try
-                {
-                    _startBox.Value = Math.Clamp((decimal)segment.StartSec, _startBox.Minimum, _startBox.Maximum);
-                    _endBox.Value = Math.Clamp((decimal)segment.EndSec, _endBox.Minimum, _endBox.Maximum);
-                }
-                finally
-                {
-                    _updatingTrimRange = false;
-                }
-
-                UpdateTrimTimelineUi();
-                SeekToTime(clipTime, refreshPreview: true);
-                return;
+                _filesList.Items.Insert(0, segment.SourceFile);
+                existingIndex = 0;
             }
 
-            cursor = segmentEnd;
+            if (_filesList.SelectedIndex != existingIndex || !string.Equals(_filesList.SelectedItem?.ToString(), segment.SourceFile, StringComparison.OrdinalIgnoreCase))
+            {
+                _filesList.ClearSelected();
+                _filesList.SelectedIndex = existingIndex;
+                await HandleSelectionChangedAsync();
+            }
         }
+
+        _updatingTrimRange = true;
+        try
+        {
+            _startBox.Value = Math.Clamp((decimal)segment.StartSec, _startBox.Minimum, _startBox.Maximum);
+            _endBox.Value = Math.Clamp((decimal)segment.EndSec, _endBox.Minimum, _endBox.Maximum);
+        }
+        finally
+        {
+            _updatingTrimRange = false;
+        }
+
+        UpdateTrimTimelineUi();
+        SeekToTime(clipTime, refreshPreview: true);
     }
 
     private void AddMarkerAtPlayhead()
@@ -2310,129 +2778,102 @@ public sealed class QuickEditForm : Form
         {
             var segment = _sequenceSegments[selectedIndex];
             var localOffset = Math.Clamp(GetCurrentPreviewTime() - segment.StartSec, 0, segment.Duration);
-            return _sequenceSegments.Take(selectedIndex).Sum(item => item.Duration) + localOffset;
+            return Math.Clamp(segment.SequenceStartSec + localOffset, 0, Math.Max(0.001, GetSequenceTotalDuration()));
         }
 
-        return _sequenceSegments.Sum(item => item.Duration);
+        return GetSequenceTotalDuration();
     }
 
     private int InsertCutAtSequenceTime(TimelineSegment newSegment, double sequenceTime)
     {
-        if (_sequenceSegments.Count == 0)
-        {
-            _sequenceSegments.Add(newSegment);
-            return 0;
-        }
-
-        var totalDuration = _sequenceSegments.Sum(segment => segment.Duration);
-        var clampedTime = Math.Clamp(sequenceTime, 0, totalDuration);
+        var clampedTime = Math.Max(0, sequenceTime);
+        newSegment = newSegment with { SequenceStartSec = clampedTime };
         var updated = new List<TimelineSegment>();
-        var cursor = 0d;
-        var inserted = false;
 
         foreach (var segment in _sequenceSegments)
         {
-            var segStart = cursor;
-            var segEnd = cursor + segment.Duration;
-
-            if (!inserted && clampedTime <= segStart + 0.0001)
-            {
-                updated.Add(newSegment);
-                inserted = true;
-            }
-
-            if (!inserted && clampedTime > segStart + 0.05 && clampedTime < segEnd - 0.05)
-            {
-                var splitPoint = segment.StartSec + (clampedTime - segStart);
-                var left = segment with { EndSec = splitPoint };
-                var right = segment with { StartSec = splitPoint };
-                if (left.Duration > 0.05)
-                    updated.Add(left);
-                updated.Add(newSegment);
-                if (right.Duration > 0.05)
-                    updated.Add(right);
-                inserted = true;
-            }
-            else
+            if (segment.SafeTrack != newSegment.SafeTrack)
             {
                 updated.Add(segment);
+                continue;
             }
 
-            cursor = segEnd;
+            if (segment.SequenceStartSec >= clampedTime - 0.0001)
+            {
+                updated.Add(segment with { SequenceStartSec = segment.SequenceStartSec + newSegment.Duration });
+                continue;
+            }
+
+            if (segment.SequenceStartSec < clampedTime && segment.SequenceEndSec > clampedTime + 0.0001)
+            {
+                var splitOffset = clampedTime - segment.SequenceStartSec;
+                var splitPoint = segment.StartSec + splitOffset;
+                var left = segment with { EndSec = splitPoint };
+                var right = segment with { StartSec = splitPoint, SequenceStartSec = clampedTime + newSegment.Duration };
+                if (left.Duration > 0.05)
+                    updated.Add(left);
+                if (right.Duration > 0.05)
+                    updated.Add(right);
+                continue;
+            }
+
+            updated.Add(segment);
         }
 
-        if (!inserted)
-            updated.Add(newSegment);
-
+        updated.Add(newSegment);
+        updated = updated.OrderBy(segment => segment.SequenceStartSec).ThenBy(segment => segment.SafeTrack).ToList();
         _sequenceSegments.Clear();
         _sequenceSegments.AddRange(updated);
-        return Math.Max(0, updated.IndexOf(newSegment));
+        return Math.Max(0, updated.FindIndex(segment => segment == newSegment));
     }
 
     private int OverwriteCutAtSequenceTime(TimelineSegment newSegment, double sequenceTime)
     {
-        if (_sequenceSegments.Count == 0)
-        {
-            _sequenceSegments.Add(newSegment);
-            return 0;
-        }
-
-        var totalDuration = _sequenceSegments.Sum(segment => segment.Duration);
-        var clampedTime = Math.Clamp(sequenceTime, 0, totalDuration);
+        var clampedTime = Math.Max(0, sequenceTime);
         var overwriteEnd = clampedTime + newSegment.Duration;
+        newSegment = newSegment with { SequenceStartSec = clampedTime };
         var updated = new List<TimelineSegment>();
-        var cursor = 0d;
-        var inserted = false;
 
         foreach (var segment in _sequenceSegments)
         {
-            var segStart = cursor;
-            var segEnd = cursor + segment.Duration;
-
-            if (segEnd <= clampedTime + 0.0001 || segStart >= overwriteEnd - 0.0001)
+            if (segment.SafeTrack != newSegment.SafeTrack)
             {
-                if (!inserted && segStart >= overwriteEnd - 0.0001)
-                {
-                    updated.Add(newSegment);
-                    inserted = true;
-                }
-
                 updated.Add(segment);
+                continue;
             }
-            else
+
+            if (segment.SequenceEndSec <= clampedTime + 0.0001 || segment.SequenceStartSec >= overwriteEnd - 0.0001)
             {
-                if (segStart < clampedTime - 0.0001)
-                {
-                    var leftKeep = clampedTime - segStart;
-                    var left = segment with { EndSec = segment.StartSec + leftKeep };
-                    if (left.Duration > 0.05)
-                        updated.Add(left);
-                }
-
-                if (!inserted)
-                {
-                    updated.Add(newSegment);
-                    inserted = true;
-                }
-
-                if (segEnd > overwriteEnd + 0.0001)
-                {
-                    var rightKeepOffset = overwriteEnd - segStart;
-                    var right = segment with { StartSec = segment.StartSec + rightKeepOffset };
-                    if (right.Duration > 0.05)
-                        updated.Add(right);
-                }
+                updated.Add(segment);
+                continue;
             }
 
-            cursor = segEnd;
+            if (segment.SequenceStartSec < clampedTime - 0.0001)
+            {
+                var leftKeep = clampedTime - segment.SequenceStartSec;
+                var left = segment with { EndSec = segment.StartSec + leftKeep };
+                if (left.Duration > 0.05)
+                    updated.Add(left);
+            }
+
+            if (segment.SequenceEndSec > overwriteEnd + 0.0001)
+            {
+                var rightKeep = segment.SequenceEndSec - overwriteEnd;
+                var right = segment with
+                {
+                    StartSec = segment.EndSec - rightKeep,
+                    SequenceStartSec = overwriteEnd,
+                };
+                if (right.Duration > 0.05)
+                    updated.Add(right);
+            }
         }
 
-        if (!inserted)
-            updated.Add(newSegment);
-
+        updated.Add(newSegment);
+        updated = updated.OrderBy(segment => segment.SequenceStartSec).ThenBy(segment => segment.SafeTrack).ToList();
         _sequenceSegments.Clear();
         _sequenceSegments.AddRange(updated);
-        return Math.Max(0, updated.IndexOf(newSegment));
+        return Math.Max(0, updated.FindIndex(segment => segment == newSegment));
     }
 
     private void SplitSelectedSegmentAtPlayhead(int? requestedIndex = null, double? requestedTime = null)
@@ -2459,8 +2900,9 @@ public sealed class QuickEditForm : Form
         }
 
         PushSequenceUndoState();
+        var splitOffset = playhead - segment.StartSec;
         var left = segment with { EndSec = playhead };
-        var right = segment with { StartSec = playhead };
+        var right = segment with { StartSec = playhead, SequenceStartSec = segment.SequenceStartSec + splitOffset };
         _sequenceSegments[selectedIndex] = left;
         _sequenceSegments.Insert(selectedIndex + 1, right);
         UpdateSequenceUi(selectedIndex + 1);
@@ -2476,16 +2918,88 @@ public sealed class QuickEditForm : Form
         var segment = _sequenceSegments[index];
         var safeStart = SnapToFrame(Math.Max(0, Math.Min(start, end - (1d / 30d))));
         var safeEnd = Math.Max(safeStart + (1d / 30d), SnapToFrame(end));
-        _sequenceSegments[index] = segment with { StartSec = safeStart, EndSec = safeEnd };
-        UpdateSequenceUi(index);
+        var changingLeftEdge = Math.Abs(safeStart - segment.StartSec) > Math.Abs(safeEnd - segment.EndSec);
+        var updatedSegment = segment;
 
-        if (index == _sequenceList.SelectedIndex && string.Equals(_selectedFile, segment.SourceFile, StringComparison.OrdinalIgnoreCase))
+        if (changingLeftEdge)
+        {
+            var leftDelta = safeStart - segment.StartSec;
+            updatedSegment = segment with
+            {
+                StartSec = safeStart,
+                SequenceStartSec = Math.Max(0, segment.SequenceStartSec + leftDelta),
+            };
+
+            if (_timelineEditMode == TimelineEditMode.Rolling)
+            {
+                var previousIndex = _sequenceSegments
+                    .Select((item, itemIndex) => (item, itemIndex))
+                    .Where(entry => entry.itemIndex != index && entry.item.SafeTrack == segment.SafeTrack && Math.Abs(entry.item.SequenceEndSec - segment.SequenceStartSec) <= 0.12)
+                    .OrderByDescending(entry => entry.item.SequenceEndSec)
+                    .Select(entry => entry.itemIndex)
+                    .FirstOrDefault(-1);
+                if (previousIndex >= 0)
+                {
+                    var previous = _sequenceSegments[previousIndex];
+                    _sequenceSegments[previousIndex] = previous with { EndSec = Math.Max(previous.StartSec + 0.05, previous.EndSec + leftDelta) };
+                }
+            }
+        }
+        else
+        {
+            var rightDelta = safeEnd - segment.EndSec;
+            updatedSegment = segment with { EndSec = safeEnd };
+
+            if (_timelineEditMode == TimelineEditMode.Rolling)
+            {
+                var nextIndex = _sequenceSegments
+                    .Select((item, itemIndex) => (item, itemIndex))
+                    .Where(entry => entry.itemIndex != index && entry.item.SafeTrack == segment.SafeTrack && Math.Abs(entry.item.SequenceStartSec - segment.SequenceEndSec) <= 0.12)
+                    .OrderBy(entry => entry.item.SequenceStartSec)
+                    .Select(entry => entry.itemIndex)
+                    .FirstOrDefault(-1);
+                if (nextIndex >= 0)
+                {
+                    var next = _sequenceSegments[nextIndex];
+                    _sequenceSegments[nextIndex] = next with
+                    {
+                        StartSec = Math.Clamp(next.StartSec + rightDelta, 0, next.EndSec - 0.05),
+                        SequenceStartSec = Math.Max(segment.SequenceStartSec + updatedSegment.Duration, next.SequenceStartSec + rightDelta),
+                    };
+                }
+            }
+        }
+
+        var durationDelta = updatedSegment.Duration - segment.Duration;
+        _sequenceSegments[index] = updatedSegment;
+
+        if (_timelineEditMode == TimelineEditMode.Ripple && Math.Abs(durationDelta) > 0.0001)
+        {
+            for (var segmentIndex = 0; segmentIndex < _sequenceSegments.Count; segmentIndex++)
+            {
+                if (segmentIndex == index)
+                    continue;
+
+                var downstream = _sequenceSegments[segmentIndex];
+                if (downstream.SafeTrack == updatedSegment.SafeTrack && downstream.SequenceStartSec > segment.SequenceStartSec + 0.0001)
+                    _sequenceSegments[segmentIndex] = downstream with { SequenceStartSec = Math.Max(0, downstream.SequenceStartSec + durationDelta) };
+            }
+        }
+
+        var selectedSegment = _sequenceSegments[index];
+        var ordered = _sequenceSegments.OrderBy(item => item.SequenceStartSec).ThenBy(item => item.SafeTrack).ToList();
+        _sequenceSegments.Clear();
+        _sequenceSegments.AddRange(ordered);
+        var newIndex = Math.Max(0, _sequenceSegments.FindIndex(item => item == selectedSegment));
+        UpdateSequenceUi(newIndex);
+
+        if (newIndex == _sequenceList.SelectedIndex && string.Equals(_selectedFile, selectedSegment.SourceFile, StringComparison.OrdinalIgnoreCase))
         {
             _updatingTrimRange = true;
             try
             {
-                _startBox.Value = Math.Clamp((decimal)safeStart, _startBox.Minimum, _startBox.Maximum);
-                _endBox.Value = Math.Clamp((decimal)safeEnd, _endBox.Minimum, _endBox.Maximum);
+                _startBox.Value = Math.Clamp((decimal)selectedSegment.StartSec, _startBox.Minimum, _startBox.Maximum);
+                _endBox.Value = Math.Clamp((decimal)selectedSegment.EndSec, _endBox.Minimum, _endBox.Maximum);
             }
             finally
             {
@@ -2493,6 +3007,40 @@ public sealed class QuickEditForm : Form
             }
             UpdateTrimTimelineUi();
         }
+    }
+
+    private void ApplySequenceSlipFromTimeline(int index, double deltaSeconds)
+    {
+        if (index < 0 || index >= _sequenceSegments.Count)
+            return;
+
+        PushSequenceUndoState();
+        var segment = _sequenceSegments[index];
+        var duration = segment.Duration;
+        var maxSourceEnd = string.Equals(segment.SourceFile, _selectedFile, StringComparison.OrdinalIgnoreCase) && _videoDuration > 0
+            ? _videoDuration
+            : segment.EndSec + 30;
+        var newStart = Math.Clamp(segment.StartSec + deltaSeconds, 0, Math.Max(0, maxSourceEnd - duration));
+        var newEnd = Math.Max(newStart + 0.05, newStart + duration);
+        _sequenceSegments[index] = segment with { StartSec = newStart, EndSec = newEnd };
+        UpdateSequenceUi(index);
+
+        if (index == _sequenceList.SelectedIndex)
+        {
+            _updatingTrimRange = true;
+            try
+            {
+                _startBox.Value = Math.Clamp((decimal)newStart, _startBox.Minimum, _startBox.Maximum);
+                _endBox.Value = Math.Clamp((decimal)newEnd, _endBox.Minimum, _endBox.Maximum);
+            }
+            finally
+            {
+                _updatingTrimRange = false;
+            }
+            UpdateTrimTimelineUi();
+        }
+
+        _statusLabel.Text = $"Slipped the selected clip contents by {(deltaSeconds >= 0 ? "+" : string.Empty)}{deltaSeconds:F2}s without moving its timeline position.";
     }
 
     private void AddCurrentCutToSequence(bool overwrite = false)
@@ -2513,11 +3061,9 @@ public sealed class QuickEditForm : Form
 
         var sequencePlayhead = GetCurrentSequencePlayhead();
         var selectedIndex = _sequenceList.SelectedIndex;
-        var targetTrack = selectedIndex >= 0 && selectedIndex < _sequenceSegments.Count
-            ? _sequenceSegments[selectedIndex].SafeTrack
-            : ((_sequenceSegments.Count % 2) + 1);
+        var targetTrack = Math.Clamp(_targetVideoTrack, 1, 2);
 
-        var newSegment = new TimelineSegment(input, start, end, targetTrack);
+        var newSegment = new TimelineSegment(input, start, end, targetTrack, sequencePlayhead, new ClipTransform());
         PushSequenceUndoState();
         var insertedIndex = overwrite
             ? OverwriteCutAtSequenceTime(newSegment, sequencePlayhead)
@@ -2536,7 +3082,16 @@ public sealed class QuickEditForm : Form
 
         PushSequenceUndoState();
         var index = _sequenceList.SelectedIndex;
+        var removed = _sequenceSegments[index];
         _sequenceSegments.RemoveAt(index);
+
+        for (var segmentIndex = 0; segmentIndex < _sequenceSegments.Count; segmentIndex++)
+        {
+            var segment = _sequenceSegments[segmentIndex];
+            if (segment.SafeTrack == removed.SafeTrack && segment.SequenceStartSec >= removed.SequenceEndSec - 0.0001)
+                _sequenceSegments[segmentIndex] = segment with { SequenceStartSec = Math.Max(0, segment.SequenceStartSec - removed.Duration) };
+        }
+
         UpdateSequenceUi(selectedIndex: Math.Min(index, _sequenceSegments.Count - 1));
         _statusLabel.Text = "Ripple deleted the selected timeline cut.";
     }
@@ -2576,18 +3131,25 @@ public sealed class QuickEditForm : Form
 
         PushSequenceUndoState();
         var clampedTrack = Math.Clamp(targetTrack, 1, 2);
+        var moving = _sequenceSegments[fromIndex];
+        _sequenceSegments.RemoveAt(fromIndex);
 
-        if (_timelineEditMode == TimelineEditMode.Ripple)
-        {
-            var rippleIndex = RippleMoveSequenceSegment(fromIndex, targetIndex, clampedTrack);
-            UpdateSequenceUi(rippleIndex);
-            _statusLabel.Text = $"Ripple-inserted timeline cut on V{clampedTrack} and pushed downstream edits.";
-            return;
-        }
+        var ordered = _sequenceSegments.OrderBy(segment => segment.SequenceStartSec).ThenBy(segment => segment.SafeTrack).ToList();
+        var targetTime = targetIndex <= 0
+            ? 0
+            : targetIndex >= ordered.Count
+                ? GetSequenceTotalDuration()
+                : ordered[targetIndex].SequenceStartSec;
 
-        var overwriteIndex = OverwriteMoveSequenceSegment(fromIndex, targetIndex, clampedTrack);
-        UpdateSequenceUi(overwriteIndex);
-        _statusLabel.Text = $"Overwrite-moved timeline cut to V{clampedTrack} without rippling the rest of the edit.";
+        moving = moving with { Track = clampedTrack, SequenceStartSec = Math.Max(0, targetTime) };
+        var movedIndex = _timelineEditMode == TimelineEditMode.Ripple
+            ? InsertCutAtSequenceTime(moving, moving.SequenceStartSec)
+            : OverwriteCutAtSequenceTime(moving, moving.SequenceStartSec);
+
+        UpdateSequenceUi(movedIndex);
+        _statusLabel.Text = _timelineEditMode == TimelineEditMode.Ripple
+            ? $"Ripple-inserted timeline cut on V{clampedTrack} and pushed downstream edits."
+            : $"Overwrite-moved timeline cut to V{clampedTrack}.";
     }
 
     private int RippleMoveSequenceSegment(int fromIndex, int targetIndex, int targetTrack)
@@ -2634,28 +3196,50 @@ public sealed class QuickEditForm : Form
             return;
 
         var clampedTrack = Math.Clamp(targetTrack, 1, 2);
-        var gapTargetIndex = -1;
-        for (var index = Math.Clamp(insertIndex, 0, _sequenceSegments.Count - 1); index < _sequenceSegments.Count; index++)
+        var orderedTrackSegments = _sequenceSegments
+            .Select((segment, index) => (segment, index))
+            .Where(entry => entry.segment.SafeTrack == clampedTrack)
+            .OrderBy(entry => entry.segment.SequenceStartSec)
+            .ToList();
+
+        if (orderedTrackSegments.Count < 2)
         {
-            if (_sequenceSegments[index].SafeTrack == clampedTrack)
+            _statusLabel.Text = $"No removable gap found on V{clampedTrack}.";
+            return;
+        }
+
+        var chosenGapIndex = -1;
+        var gapAmount = 0d;
+        for (var index = 1; index < orderedTrackSegments.Count; index++)
+        {
+            var previous = orderedTrackSegments[index - 1].segment;
+            var current = orderedTrackSegments[index].segment;
+            var gap = current.SequenceStartSec - previous.SequenceEndSec;
+            if (gap > 0.05)
             {
-                gapTargetIndex = index;
-                break;
+                chosenGapIndex = index;
+                gapAmount = gap;
+                if (index >= Math.Max(1, insertIndex))
+                    break;
             }
         }
 
-        if (gapTargetIndex < 0 || gapTargetIndex == insertIndex)
+        if (chosenGapIndex < 0 || gapAmount <= 0.05)
         {
             _statusLabel.Text = $"No removable gap found on V{clampedTrack}.";
             return;
         }
 
         PushSequenceUndoState();
-        var segment = _sequenceSegments[gapTargetIndex];
-        _sequenceSegments.RemoveAt(gapTargetIndex);
-        var newIndex = Math.Clamp(insertIndex, 0, _sequenceSegments.Count);
-        _sequenceSegments.Insert(newIndex, segment);
-        UpdateSequenceUi(newIndex);
+        var shiftFrom = orderedTrackSegments[chosenGapIndex].segment.SequenceStartSec;
+        for (var index = 0; index < _sequenceSegments.Count; index++)
+        {
+            var segment = _sequenceSegments[index];
+            if (segment.SafeTrack == clampedTrack && segment.SequenceStartSec >= shiftFrom - 0.0001)
+                _sequenceSegments[index] = segment with { SequenceStartSec = Math.Max(0, segment.SequenceStartSec - gapAmount) };
+        }
+
+        UpdateSequenceUi();
         _statusLabel.Text = $"Ripple deleted the gap on V{clampedTrack} and pulled later clips left.";
     }
 
@@ -2701,10 +3285,11 @@ public sealed class QuickEditForm : Form
             var safeIndex = selectedIndex >= 0 && selectedIndex < _sequenceSegments.Count
                 ? selectedIndex
                 : Math.Min(_sequenceList.SelectedIndex, _sequenceSegments.Count - 1);
-            var totalDuration = _sequenceSegments.Sum(segment => segment.Duration);
+            var totalDuration = GetSequenceTotalDuration();
             var v1Count = _sequenceSegments.Count(segment => segment.SafeTrack == 1);
             var v2Count = _sequenceSegments.Count(segment => segment.SafeTrack == 2);
-            _sequenceSummaryLabel.Text = $"{_sequenceSegments.Count} cut(s) • V1 {v1Count} / V2 {v2Count} • {FormatTime(totalDuration)} total";
+            _sequenceSummaryLabel.Text = $"{_sequenceSegments.Count} cut(s) • V1 {v1Count} / V2 {v2Count} • {FormatTime(totalDuration)} seq";
+            _sequenceTimelineView.SetTargetTracks(_targetVideoTrack, _targetAudioTrack);
             _sequenceTimelineView.SetSegments(_sequenceSegments, safeIndex);
             if (safeIndex >= 0 && safeIndex < _sequenceList.Items.Count)
                 _sequenceList.SelectedIndex = safeIndex;
@@ -2729,7 +3314,8 @@ public sealed class QuickEditForm : Form
             return;
         }
 
-        var outputPath = BuildOutputPath(_sequenceSegments[0].SourceFile, "timeline", forceMp4: true);
+        var orderedSegments = _sequenceSegments.OrderBy(segment => segment.SequenceStartSec).ThenBy(segment => segment.SafeTrack).ToList();
+        var outputPath = BuildOutputPath(orderedSegments[0].SourceFile, "timeline", forceMp4: true);
         var ffmpegPath = FFmpegHelper.GetFFmpegPath() ?? "ffmpeg";
         var tempDir = Path.Combine(Path.GetTempPath(), $"velo-sequence-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempDir);
@@ -2739,13 +3325,36 @@ public sealed class QuickEditForm : Form
 
         try
         {
-            for (var index = 0; index < _sequenceSegments.Count; index++)
+            var boundaries = orderedSegments
+                .SelectMany(segment => new[] { segment.SequenceStartSec, segment.SequenceEndSec })
+                .Append(0d)
+                .Distinct()
+                .OrderBy(value => value)
+                .ToList();
+            var firstDetails = await GetVideoDetailsAsync(orderedSegments[0].SourceFile, CancellationToken.None);
+
+            for (var index = 0; index < boundaries.Count - 1; index++)
             {
-                var segment = _sequenceSegments[index];
+                var intervalStart = boundaries[index];
+                var intervalEnd = boundaries[index + 1];
+                var intervalDuration = intervalEnd - intervalStart;
+                if (intervalDuration <= 0.03)
+                    continue;
+
                 var tempFile = Path.Combine(tempDir, $"segment-{index:D2}.mp4");
                 tempFiles.Add(tempFile);
+                var activeSegment = GetTopVisibleSegmentAtTime(intervalStart + (intervalDuration / 2d));
 
-                var extractArgs = $"-ss {segment.StartSec.ToString(CultureInfo.InvariantCulture)} -i {Quote(segment.SourceFile)} -t {segment.Duration.ToString(CultureInfo.InvariantCulture)} -c copy -avoid_negative_ts make_zero -y {Quote(tempFile)}";
+                if (activeSegment is null)
+                {
+                    var fillerArgs = $"-f lavfi -i color=c=black:s={firstDetails.Width}x{firstDetails.Height}:d={intervalDuration.ToString(CultureInfo.InvariantCulture)} -f lavfi -i anullsrc=r=48000:cl=stereo -shortest -c:v libx264 -pix_fmt yuv420p -c:a aac -movflags +faststart -y {Quote(tempFile)}";
+                    await RunFfmpegProcessAsync(ffmpegPath, fillerArgs);
+                    continue;
+                }
+
+                var clipOffset = Math.Max(0, intervalStart - activeSegment.SequenceStartSec);
+                var extractStart = activeSegment.StartSec + clipOffset;
+                var extractArgs = $"-ss {extractStart.ToString(CultureInfo.InvariantCulture)} -i {Quote(activeSegment.SourceFile)} -t {intervalDuration.ToString(CultureInfo.InvariantCulture)} -c copy -avoid_negative_ts make_zero -y {Quote(tempFile)}";
                 await RunFfmpegProcessAsync(ffmpegPath, extractArgs);
             }
 
@@ -2932,9 +3541,23 @@ public sealed class QuickEditForm : Form
             return;
         }
 
-        if (e.KeyCode == Keys.R && !e.Control && !e.Alt)
+        if ((e.KeyCode == Keys.R || e.KeyCode == Keys.B) && !e.Control && !e.Alt)
         {
             SetTimelineEditMode(TimelineEditMode.Ripple);
+            e.SuppressKeyPress = true;
+            return;
+        }
+
+        if (e.KeyCode == Keys.N && !e.Control && !e.Alt)
+        {
+            SetTimelineEditMode(TimelineEditMode.Rolling);
+            e.SuppressKeyPress = true;
+            return;
+        }
+
+        if (e.KeyCode == Keys.Y && !e.Control && !e.Alt)
+        {
+            SetTimelineEditMode(TimelineEditMode.Slip);
             e.SuppressKeyPress = true;
             return;
         }
@@ -2946,24 +3569,9 @@ public sealed class QuickEditForm : Form
             return;
         }
 
-        if (e.KeyCode == Keys.J && !e.Control && !e.Alt)
+        if ((e.KeyCode == Keys.J || e.KeyCode == Keys.K || e.KeyCode == Keys.L) && !e.Control && !e.Alt)
         {
-            SkipSeconds(-1);
-            e.SuppressKeyPress = true;
-            return;
-        }
-
-        if (e.KeyCode == Keys.K && !e.Control && !e.Alt)
-        {
-            if (_isPlaying)
-                StopPlayback(resetToStart: false);
-            e.SuppressKeyPress = true;
-            return;
-        }
-
-        if (e.KeyCode == Keys.L && !e.Control && !e.Alt)
-        {
-            SkipSeconds(1);
+            HandleTransportKey(e.KeyCode);
             e.SuppressKeyPress = true;
             return;
         }
@@ -3556,7 +4164,16 @@ public sealed class QuickEditForm : Form
         private int _previewTrack = 1;
         private bool _razorMode;
         private bool _rippleMoveMode;
+        private bool _rollingMode;
+        private bool _slipMode;
         private bool _snappingEnabled = true;
+        private double _dragAnchorSequenceSeconds;
+        private int _targetVideoTrack = 1;
+        private int _targetAudioTrack = 1;
+        private Rectangle _v1BadgeRect;
+        private Rectangle _v2BadgeRect;
+        private Rectangle _a1BadgeRect;
+        private Rectangle _a2BadgeRect;
         private double _snapIndicatorSeconds = double.NaN;
         private string _snapIndicatorLabel = string.Empty;
         private readonly ContextMenuStrip _gapContextMenu = new();
@@ -3571,6 +4188,8 @@ public sealed class QuickEditForm : Form
         public event Action<int, int, int>? SegmentMoved;
         public event Action<int, double>? SegmentSplitRequested;
         public event Action<int, int>? RippleDeleteRequested;
+        public event Action<int, double>? SegmentSlipRequested;
+        public event Action<int, int>? TrackTargetChanged;
         public event Action<double>? SeekRequested;
         public event Action<double>? ZoomDeltaRequested;
 
@@ -3651,10 +4270,66 @@ public sealed class QuickEditForm : Form
             Invalidate();
         }
 
+        public void SetRollingMode(bool enabled)
+        {
+            _rollingMode = enabled;
+            if (!_razorMode && !_slipMode)
+                Cursor = enabled ? Cursors.SizeWE : Cursors.SizeAll;
+            Invalidate();
+        }
+
+        public void SetSlipMode(bool enabled)
+        {
+            _slipMode = enabled;
+            if (!_razorMode)
+                Cursor = enabled ? Cursors.SizeAll : (_rippleMoveMode ? Cursors.Hand : Cursors.SizeAll);
+            Invalidate();
+        }
+
+        public void SetTargetTracks(int videoTrack, int audioTrack)
+        {
+            _targetVideoTrack = Math.Clamp(videoTrack, 1, 2);
+            _targetAudioTrack = Math.Clamp(audioTrack, 1, 2);
+            Invalidate();
+        }
+
         protected override void OnMouseDown(MouseEventArgs e)
         {
             base.OnMouseDown(e);
             Focus();
+
+            if (_v1BadgeRect.Contains(e.Location))
+            {
+                _targetVideoTrack = 1;
+                TrackTargetChanged?.Invoke(_targetVideoTrack, _targetAudioTrack);
+                Invalidate();
+                return;
+            }
+
+            if (_v2BadgeRect.Contains(e.Location))
+            {
+                _targetVideoTrack = 2;
+                TrackTargetChanged?.Invoke(_targetVideoTrack, _targetAudioTrack);
+                Invalidate();
+                return;
+            }
+
+            if (_a1BadgeRect.Contains(e.Location))
+            {
+                _targetAudioTrack = 1;
+                TrackTargetChanged?.Invoke(_targetVideoTrack, _targetAudioTrack);
+                Invalidate();
+                return;
+            }
+
+            if (_a2BadgeRect.Contains(e.Location))
+            {
+                _targetAudioTrack = 2;
+                TrackTargetChanged?.Invoke(_targetVideoTrack, _targetAudioTrack);
+                Invalidate();
+                return;
+            }
+
             var hit = _hitTargets.FirstOrDefault(target => target.Rect.Contains(e.Location));
             if (hit.Rect == Rectangle.Empty)
             {
@@ -3690,6 +4365,7 @@ public sealed class QuickEditForm : Form
                 _dragMode = SegmentDragMode.Move;
                 _dragIndex = hit.Index;
                 _dragOriginSegment = _segments[hit.Index];
+                _dragAnchorSequenceSeconds = _dragOriginSegment.SequenceStartSec + (_dragOriginSegment.Duration * Math.Clamp((e.X - hit.Rect.Left) / (double)Math.Max(1, hit.Rect.Width), 0, 1));
                 _previewInsertIndex = hit.Index;
                 _previewTrack = _segments[hit.Index].SafeTrack;
             }
@@ -3713,17 +4389,16 @@ public sealed class QuickEditForm : Form
             if (_dragOriginSegment == null || _dragIndex < 0 || _dragIndex >= _segments.Count)
                 return;
 
-            var totalDuration = Math.Max(0.1, _segments.Sum(segment => segment.Duration));
+            var totalDuration = Math.Max(0.1, _segments.Max(segment => segment.SequenceEndSec));
             var timelineLeft = 72;
             var timelineWidth = Math.Max(120, Width - timelineLeft - 14);
             var (visibleStart, visibleDuration) = GetVisibleRange(totalDuration);
             var absoluteSeconds = visibleStart + (((e.X - timelineLeft) / (double)Math.Max(1, timelineWidth)) * visibleDuration);
-            var priorDuration = _segments.Take(_dragIndex).Sum(segment => segment.Duration);
             absoluteSeconds = SnapToBoundary(absoluteSeconds, totalDuration, out var snapped);
-            var localPosition = absoluteSeconds - priorDuration;
+            var localPosition = absoluteSeconds - _dragOriginSegment.SequenceStartSec;
             _snapIndicatorSeconds = snapped ? absoluteSeconds : double.NaN;
             _snapIndicatorLabel = snapped
-                ? (_dragMode == SegmentDragMode.Move ? (_rippleMoveMode ? "RIPPLE" : "OVR") : "TRIM")
+                ? (_dragMode == SegmentDragMode.Move ? (_rippleMoveMode ? "RIPPLE" : (_slipMode ? "SLIP" : "OVR")) : (_rollingMode ? "ROLL" : "TRIM"))
                 : string.Empty;
 
             if (_dragMode == SegmentDragMode.ResizeLeft)
@@ -3737,6 +4412,13 @@ public sealed class QuickEditForm : Form
             {
                 var newEnd = Math.Max(_dragOriginSegment.StartSec + 0.10, _dragOriginSegment.StartSec + localPosition);
                 SegmentTrimChanged?.Invoke(_dragIndex, _dragOriginSegment.StartSec, newEnd);
+                return;
+            }
+
+            if (_dragMode == SegmentDragMode.Move && _slipMode)
+            {
+                var slipDelta = SnapToFrame(absoluteSeconds - _dragAnchorSequenceSeconds);
+                SegmentSlipRequested?.Invoke(_dragIndex, slipDelta);
                 return;
             }
 
@@ -3755,7 +4437,7 @@ public sealed class QuickEditForm : Form
                 return;
             }
 
-            if (_dragMode == SegmentDragMode.Move && _dragIndex >= 0)
+            if (_dragMode == SegmentDragMode.Move && _dragIndex >= 0 && !_slipMode)
                 SegmentMoved?.Invoke(_dragIndex, _previewInsertIndex < 0 ? _dragIndex : _previewInsertIndex, _previewTrack);
             else if (_dragMode == SegmentDragMode.Seek)
                 UpdatePlayheadFromPoint(e.Location);
@@ -3803,7 +4485,7 @@ public sealed class QuickEditForm : Form
                 return;
             }
 
-            var totalDuration = Math.Max(0.1, _segments.Sum(segment => segment.Duration));
+            var totalDuration = Math.Max(0.1, _segments.Max(segment => segment.SequenceEndSec));
             var timelineLeft = 72;
             var timelineWidth = Math.Max(120, Width - timelineLeft - 14);
             var (visibleStart, visibleDuration) = GetVisibleRange(totalDuration);
@@ -3825,22 +4507,23 @@ public sealed class QuickEditForm : Form
             e.Graphics.FillRectangle(rulerBrush, rulerRect);
             e.Graphics.DrawRectangle(borderPen, rulerRect);
 
-            var v1Badge = new Rectangle(10, v1.Top + 6, 42, 18);
-            var v2Badge = new Rectangle(10, v2.Top + 6, 42, 18);
-            var a1Badge = new Rectangle(10, a1.Top, 42, 16);
-            var a2Badge = new Rectangle(10, a2.Top, 42, 16);
-            e.Graphics.FillRectangle(labelBadgeBrush, v1Badge);
-            e.Graphics.FillRectangle(labelBadgeBrush, v2Badge);
-            e.Graphics.FillRectangle(labelBadgeBrush, a1Badge);
-            e.Graphics.FillRectangle(labelBadgeBrush, a2Badge);
-            e.Graphics.DrawRectangle(labelBorderPen, v1Badge);
-            e.Graphics.DrawRectangle(labelBorderPen, v2Badge);
-            e.Graphics.DrawRectangle(labelBorderPen, a1Badge);
-            e.Graphics.DrawRectangle(labelBorderPen, a2Badge);
-            TextRenderer.DrawText(e.Graphics, "V1", Font, v1Badge, Color.FromArgb(191, 219, 254), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
-            TextRenderer.DrawText(e.Graphics, "V2", Font, v2Badge, Color.FromArgb(191, 219, 254), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
-            TextRenderer.DrawText(e.Graphics, "A1", Font, a1Badge, Color.FromArgb(191, 219, 254), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
-            TextRenderer.DrawText(e.Graphics, "A2", Font, a2Badge, Color.FromArgb(191, 219, 254), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            _v1BadgeRect = new Rectangle(10, v1.Top + 6, 42, 18);
+            _v2BadgeRect = new Rectangle(10, v2.Top + 6, 42, 18);
+            _a1BadgeRect = new Rectangle(10, a1.Top, 42, 16);
+            _a2BadgeRect = new Rectangle(10, a2.Top, 42, 16);
+            using var activeBadgeBrush = new SolidBrush(Color.FromArgb(124, 58, 237));
+            e.Graphics.FillRectangle(_targetVideoTrack == 1 ? activeBadgeBrush : labelBadgeBrush, _v1BadgeRect);
+            e.Graphics.FillRectangle(_targetVideoTrack == 2 ? activeBadgeBrush : labelBadgeBrush, _v2BadgeRect);
+            e.Graphics.FillRectangle(_targetAudioTrack == 1 ? activeBadgeBrush : labelBadgeBrush, _a1BadgeRect);
+            e.Graphics.FillRectangle(_targetAudioTrack == 2 ? activeBadgeBrush : labelBadgeBrush, _a2BadgeRect);
+            e.Graphics.DrawRectangle(labelBorderPen, _v1BadgeRect);
+            e.Graphics.DrawRectangle(labelBorderPen, _v2BadgeRect);
+            e.Graphics.DrawRectangle(labelBorderPen, _a1BadgeRect);
+            e.Graphics.DrawRectangle(labelBorderPen, _a2BadgeRect);
+            TextRenderer.DrawText(e.Graphics, $"V1{(_targetVideoTrack == 1 ? "*" : string.Empty)}", Font, _v1BadgeRect, Color.FromArgb(191, 219, 254), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            TextRenderer.DrawText(e.Graphics, $"V2{(_targetVideoTrack == 2 ? "*" : string.Empty)}", Font, _v2BadgeRect, Color.FromArgb(191, 219, 254), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            TextRenderer.DrawText(e.Graphics, $"A1{(_targetAudioTrack == 1 ? "*" : string.Empty)}", Font, _a1BadgeRect, Color.FromArgb(191, 219, 254), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            TextRenderer.DrawText(e.Graphics, $"A2{(_targetAudioTrack == 2 ? "*" : string.Empty)}", Font, _a2BadgeRect, Color.FromArgb(191, 219, 254), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
 
             e.Graphics.FillRectangle(railBrush, v1);
             e.Graphics.FillRectangle(railBrush, v2);
@@ -3880,17 +4563,13 @@ public sealed class QuickEditForm : Form
                 TextRenderer.DrawText(e.Graphics, "RAZOR MODE • click to cut", new Font("Segoe UI", 7f, FontStyle.Bold), badgeRect, Color.White, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
             }
 
-            var cursorSeconds = 0d;
             for (var index = 0; index < _segments.Count; index++)
             {
                 var segment = _segments[index];
-                var segmentStartInSequence = cursorSeconds;
-                var segmentEndInSequence = cursorSeconds + segment.Duration;
+                var segmentStartInSequence = segment.SequenceStartSec;
+                var segmentEndInSequence = segment.SequenceEndSec;
                 if (segmentEndInSequence < visibleStart || segmentStartInSequence > visibleStart + visibleDuration)
-                {
-                    cursorSeconds += segment.Duration;
                     continue;
-                }
 
                 var startRatio = (segmentStartInSequence - visibleStart) / visibleDuration;
                 var endRatio = (segmentEndInSequence - visibleStart) / visibleDuration;
@@ -3939,7 +4618,7 @@ public sealed class QuickEditForm : Form
                     }
                 }
 
-                var tagRect = new Rectangle(rect.Left + 6, rect.Top + Math.Max(16, rect.Height - 18), 34, 12);
+                var tagRect = new Rectangle(rect.Left + 6, rect.Top + Math.Max(16, rect.Height - 18), Math.Min(Math.Max(52, rect.Width - 12), 78), 12);
                 using var tagBrush = new SolidBrush(Color.FromArgb(96, 15, 23, 42));
                 using var labelBackBrush = new SolidBrush(Color.FromArgb(165, 0, 0, 0));
                 var label = Path.GetFileName(segment.SourceFile);
@@ -3947,9 +4626,8 @@ public sealed class QuickEditForm : Form
                 e.Graphics.FillRectangle(labelBackBrush, labelRect);
                 TextRenderer.DrawText(e.Graphics, label, new Font("Segoe UI", 7f, FontStyle.Bold), labelRect, Color.White, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine);
                 e.Graphics.FillRectangle(tagBrush, tagRect);
-                TextRenderer.DrawText(e.Graphics, $"{segment.SafeTrack}:{index + 1}", new Font("Segoe UI", 6.25f, FontStyle.Bold), tagRect, Color.FromArgb(226, 232, 240), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+                TextRenderer.DrawText(e.Graphics, $"V{segment.SafeTrack} @ {FormatTime(segment.SequenceStartSec)}", new Font("Segoe UI", 6.25f, FontStyle.Bold), tagRect, Color.FromArgb(226, 232, 240), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
                 _hitTargets.Add((rect, index));
-                cursorSeconds += segment.Duration;
             }
 
             if (_dragMode == SegmentDragMode.Move && _previewInsertIndex >= 0)
@@ -4001,10 +4679,9 @@ public sealed class QuickEditForm : Form
             var selectedOffset = Math.Clamp(_playheadSeconds, 0, totalDuration);
             if (_selectedIndex >= 0 && _selectedIndex < _segments.Count)
             {
-                var priorDuration = _segments.Take(_selectedIndex).Sum(segment => segment.Duration);
                 var selectedSegment = _segments[_selectedIndex];
                 var localOffset = Math.Clamp(_playheadSeconds - selectedSegment.StartSec, 0, selectedSegment.Duration);
-                selectedOffset = Math.Clamp(priorDuration + localOffset, 0, totalDuration);
+                selectedOffset = Math.Clamp(selectedSegment.SequenceStartSec + localOffset, 0, totalDuration);
             }
 
             var playheadX = timelineLeft + (int)Math.Round(((selectedOffset - visibleStart) / visibleDuration) * timelineWidth);
@@ -4029,7 +4706,7 @@ public sealed class QuickEditForm : Form
             if (hit.Rect != Rectangle.Empty || location.X < 72 || location.Y < 30)
                 return;
 
-            var totalDuration = Math.Max(0.1, _segments.Sum(segment => segment.Duration));
+            var totalDuration = Math.Max(0.1, _segments.Max(segment => segment.SequenceEndSec));
             var timelineLeft = 72;
             var timelineWidth = Math.Max(120, Width - timelineLeft - 14);
             _gapContextInsertIndex = GetInsertIndex(location.X, timelineLeft, timelineWidth, totalDuration);
@@ -4064,7 +4741,7 @@ public sealed class QuickEditForm : Form
 
         private void UpdatePlayheadFromPoint(Point location)
         {
-            var totalDuration = Math.Max(0.1, _segments.Sum(segment => segment.Duration));
+            var totalDuration = Math.Max(0.1, _segments.Max(segment => segment.SequenceEndSec));
             var timelineLeft = 72;
             var timelineWidth = Math.Max(120, Width - timelineLeft - 14);
             var (visibleStart, visibleDuration) = GetVisibleRange(totalDuration);
@@ -4138,12 +4815,10 @@ public sealed class QuickEditForm : Form
             var (visibleStart, visibleDuration) = GetVisibleRange(totalDuration);
             var threshold = Math.Max(0.05, visibleDuration * 0.02);
             var snapPoints = new List<double> { 0, totalDuration };
-            var cursor = 0d;
             foreach (var segment in _segments)
             {
-                snapPoints.Add(cursor);
-                cursor += segment.Duration;
-                snapPoints.Add(cursor);
+                snapPoints.Add(segment.SequenceStartSec);
+                snapPoints.Add(segment.SequenceEndSec);
             }
 
             for (var tick = Math.Ceiling(visibleStart); tick <= visibleStart + visibleDuration; tick += 1d)
@@ -4157,31 +4832,31 @@ public sealed class QuickEditForm : Form
         private int GetInsertIndex(int x, int timelineLeft, int timelineWidth, double totalDuration)
         {
             var (visibleStart, visibleDuration) = GetVisibleRange(totalDuration);
-            var cursorSeconds = 0d;
-            for (var index = 0; index < _segments.Count; index++)
+            var ordered = _segments.OrderBy(segment => segment.SequenceStartSec).ThenBy(segment => segment.SafeTrack).ToList();
+            for (var index = 0; index < ordered.Count; index++)
             {
-                var segment = _segments[index];
-                var midpointRatio = ((cursorSeconds + (segment.Duration / 2d)) - visibleStart) / visibleDuration;
+                var segment = ordered[index];
+                var midpointRatio = ((segment.SequenceStartSec + (segment.Duration / 2d)) - visibleStart) / visibleDuration;
                 var midpointX = timelineLeft + (int)Math.Round(midpointRatio * timelineWidth);
                 if (x < midpointX)
                     return index;
-                cursorSeconds += segment.Duration;
             }
-            return _segments.Count;
+            return ordered.Count;
         }
 
         private double GetInsertRatio(int insertIndex, double totalDuration, double visibleStart, double visibleDuration)
         {
-            if (_segments.Count == 0 || insertIndex <= 0)
+            var ordered = _segments.OrderBy(segment => segment.SequenceStartSec).ThenBy(segment => segment.SafeTrack).ToList();
+            if (ordered.Count == 0 || insertIndex <= 0)
                 return Math.Clamp((0 - visibleStart) / visibleDuration, 0, 1);
-            if (insertIndex >= _segments.Count)
+            if (insertIndex >= ordered.Count)
             {
-                var total = _segments.Sum(segment => segment.Duration);
+                var total = ordered.Max(segment => segment.SequenceEndSec);
                 return Math.Clamp((total - visibleStart) / visibleDuration, 0, 1);
             }
 
-            var durationBefore = _segments.Take(insertIndex).Sum(segment => segment.Duration);
-            return Math.Clamp((durationBefore - visibleStart) / visibleDuration, 0, 1);
+            var insertTime = ordered[insertIndex].SequenceStartSec;
+            return Math.Clamp((insertTime - visibleStart) / visibleDuration, 0, 1);
         }
 
         private int GetTrackForY(int y)

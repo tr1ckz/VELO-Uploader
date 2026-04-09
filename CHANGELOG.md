@@ -1,5 +1,12 @@
 # VELO Uploader - Changelog
 
+## Version 1.7.45 (2026-04-09)
+- NLE: add true sequence-time positioning with V2-over-V1 visual priority during timeline scrubbing and export flattening, enabling layered B-roll/overlay behavior
+- NLE: add pro edit tools and shortcuts — `B` ripple edit, `N` rolling edit, `Y` slip tool, while keeping `V` select and `C` razor
+- NLE: add inspector keyframing controls for Position, Scale, and Opacity with stopwatch toggles and linear interpolation between keyframes
+- NLE: add source patch targeting in the timeline headers — click `V1` / `V2` and `A1` / `A2` badges to choose where inserts land
+- NLE: upgrade JKL transport — `L` ramps forward playback speed, `J` ramps reverse shuttle playback, and `K` stops cleanly
+
 ## Version 1.7.44 (2026-04-09)
 - UI: sync both apps to exact `#0c0c0c` background and `#2d2d2d` border palette for pixel-matched Pro-Suite theming
 - UI: force dark Windows title bar on both Uploader and NLE Studio regardless of system theme
