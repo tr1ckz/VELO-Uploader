@@ -1,5 +1,10 @@
 # VELO Uploader - Changelog
 
+## Version 1.7.46 (2026-04-09)
+- NLE: switch the media bin to a files-only import flow by removing the folder import action and routing import entry points through the file picker
+- NLE: stop auto-loading the watch/output folder into the editor on launch; media-bin population is now fully manual unless you click `Load watch`
+- NLE: update the empty-state and status messaging so the new manual import behavior is explicit
+
 ## Version 1.7.45 (2026-04-09)
 - NLE: add true sequence-time positioning with V2-over-V1 visual priority during timeline scrubbing and export flattening, enabling layered B-roll/overlay behavior
 - NLE: add pro edit tools and shortcuts — `B` ripple edit, `N` rolling edit, `Y` slip tool, while keeping `V` select and `C` razor

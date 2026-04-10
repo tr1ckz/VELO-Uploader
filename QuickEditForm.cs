@@ -216,7 +216,7 @@ public sealed class QuickEditForm : Form
         Controls.Add(leftSplitter);
 
         leftPanel.Controls.Add(BuildSectionLabel("Project / media bin", 12, 12));
-        leftPanel.Controls.Add(BuildSmallLabel("Import clips, search fast, then patch ranges into the timeline.", 12, 34, 248));
+        leftPanel.Controls.Add(BuildSmallLabel("Import files manually, search fast, then patch ranges into the timeline.", 12, 34, 248));
 
         _projectSearchBox = BuildTextBox(string.Empty, 12, 68, 144);
         _projectSearchBox.PlaceholderText = "Search clips...";
@@ -265,12 +265,11 @@ public sealed class QuickEditForm : Form
         _filesList.DragDrop += OnFilesListDragDrop;
         leftPanel.Controls.Add(_filesList);
 
-        leftPanel.Controls.Add(BuildButton("Import files...", 12, 584, 112, (_, _) => AddFiles()));
-        leftPanel.Controls.Add(BuildButton("Import folder", 132, 584, 116, (_, _) => ImportFolder()));
-        leftPanel.Controls.Add(BuildButton("Watch", 12, 620, 62, (_, _) => LoadExistingClipsFromFolder(outputFolder)));
-        leftPanel.Controls.Add(BuildButton("Remove", 82, 620, 72, (_, _) => RemoveSelected()));
-        leftPanel.Controls.Add(BuildButton("Up", 162, 620, 38, (_, _) => MoveSelected(-1)));
-        leftPanel.Controls.Add(BuildButton("Down", 208, 620, 40, (_, _) => MoveSelected(1)));
+        leftPanel.Controls.Add(BuildButton("Import files...", 12, 584, 116, (_, _) => AddFiles()));
+        leftPanel.Controls.Add(BuildButton("Load watch", 136, 584, 112, (_, _) => LoadExistingClipsFromFolder(outputFolder)));
+        leftPanel.Controls.Add(BuildButton("Remove", 12, 620, 72, (_, _) => RemoveSelected()));
+        leftPanel.Controls.Add(BuildButton("Up", 92, 620, 42, (_, _) => MoveSelected(-1)));
+        leftPanel.Controls.Add(BuildButton("Down", 142, 620, 52, (_, _) => MoveSelected(1)));
 
         var centerPanel = new Panel
         {
@@ -895,7 +894,7 @@ public sealed class QuickEditForm : Form
         UpdateSequenceUi();
         UpdateMarkerUi();
         UpdateInspectorModeUi();
-        LoadExistingClipsFromFolder(outputFolder);
+        _statusLabel.Text = "Ready — import files to populate the media bin. Watch-folder loading is now manual only.";
     }
 
     protected override void Dispose(bool disposing)
@@ -1469,7 +1468,7 @@ public sealed class QuickEditForm : Form
                 {
                     AutoSize = false,
                     Size = new Size(Math.Max(120, _mediaThumbStrip.ClientSize.Width - 12), 72),
-                    Text = "IMPORT CLIPS OR LOAD YOUR WATCH FOLDER TO POPULATE THE MEDIA BIN.",
+                    Text = "IMPORT FILES TO POPULATE THE MEDIA BIN. WATCH-FOLDER LOADING IS MANUAL ONLY.",
                     ForeColor = Color.FromArgb(150, 150, 160),
                     BackColor = Color.Transparent,
                     Font = new Font("Segoe UI", 8.25f, FontStyle.Bold),
@@ -1821,29 +1820,7 @@ public sealed class QuickEditForm : Form
 
     private void ImportFolder()
     {
-        using var dialog = new FolderBrowserDialog
-        {
-            Description = "Choose a folder of clips to import into the media bin",
-            SelectedPath = Directory.Exists(_outputFolderBox.Text)
-                ? _outputFolderBox.Text
-                : Environment.GetFolderPath(Environment.SpecialFolder.MyVideos),
-        };
-
-        if (dialog.ShowDialog(this) != DialogResult.OK)
-            return;
-
-        var files = Directory
-            .EnumerateFiles(dialog.SelectedPath, "*.*", SearchOption.AllDirectories)
-            .Where(file => SupportedExtensions.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase))
-            .OrderByDescending(File.GetLastWriteTimeUtc)
-            .Take(200)
-            .ToList();
-
-        var added = AddMediaFiles(files);
-        _statusLabel.Text = files.Count == 0
-            ? "That folder does not contain supported video files."
-            : $"Imported {added} clip(s) from {Path.GetFileName(dialog.SelectedPath)}.";
-        _ = RefreshMediaBinThumbnailsAsync();
+        AddFiles();
     }
 
     private void RemoveSelected()
