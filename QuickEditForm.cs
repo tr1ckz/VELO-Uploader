@@ -216,14 +216,14 @@ public sealed class QuickEditForm : Form
         Controls.Add(leftSplitter);
 
         leftPanel.Controls.Add(BuildSectionLabel("Project / media bin", 12, 12));
-        leftPanel.Controls.Add(BuildSmallLabel("Import files manually, search fast, then patch ranges into the timeline.", 12, 34, 248));
+        leftPanel.Controls.Add(BuildSmallLabel("Files only • drag/drop or click Add Files, then patch ranges into the timeline.", 12, 34, 248));
 
-        _projectSearchBox = BuildTextBox(string.Empty, 12, 68, 144);
+        _projectSearchBox = BuildTextBox(string.Empty, 12, 68, 136);
         _projectSearchBox.PlaceholderText = "Search clips...";
         _projectSearchBox.TextChanged += (_, _) => ApplyProjectBinSearch();
         leftPanel.Controls.Add(_projectSearchBox);
 
-        var projectImportButton = BuildButton("Import", 160, 66, 88, (_, _) => AddFiles());
+        var projectImportButton = BuildButton("Add Files", 156, 66, 92, (_, _) => AddFiles());
         leftPanel.Controls.Add(projectImportButton);
 
         _mediaThumbStrip = new FlowLayoutPanel
@@ -265,11 +265,10 @@ public sealed class QuickEditForm : Form
         _filesList.DragDrop += OnFilesListDragDrop;
         leftPanel.Controls.Add(_filesList);
 
-        leftPanel.Controls.Add(BuildButton("Import files...", 12, 584, 116, (_, _) => AddFiles()));
-        leftPanel.Controls.Add(BuildButton("Load watch", 136, 584, 112, (_, _) => LoadExistingClipsFromFolder(outputFolder)));
-        leftPanel.Controls.Add(BuildButton("Remove", 12, 620, 72, (_, _) => RemoveSelected()));
-        leftPanel.Controls.Add(BuildButton("Up", 92, 620, 42, (_, _) => MoveSelected(-1)));
-        leftPanel.Controls.Add(BuildButton("Down", 142, 620, 52, (_, _) => MoveSelected(1)));
+        leftPanel.Controls.Add(BuildButton("Load Watch", 12, 584, 116, (_, _) => LoadExistingClipsFromFolder(outputFolder)));
+        leftPanel.Controls.Add(BuildButton("Remove Selected", 132, 584, 116, (_, _) => RemoveSelected()));
+        leftPanel.Controls.Add(BuildButton("Move Up", 12, 616, 116, (_, _) => MoveSelected(-1)));
+        leftPanel.Controls.Add(BuildButton("Move Down", 132, 616, 116, (_, _) => MoveSelected(1)));
 
         var centerPanel = new Panel
         {
@@ -425,7 +424,7 @@ public sealed class QuickEditForm : Form
         };
         _sequenceTimelineView.SegmentClicked += async index => await LoadSequenceSegmentAsync(index);
         _sequenceTimelineView.SegmentTrimChanged += (index, start, end) => ApplySequenceTrimFromTimeline(index, start, end);
-        _sequenceTimelineView.SegmentMoved += (fromIndex, toIndex, track) => MoveSequenceSegmentTo(fromIndex, toIndex, track);
+        _sequenceTimelineView.SegmentMoved += (fromIndex, dropTime, track) => MoveSequenceSegmentTo(fromIndex, dropTime, track);
         _sequenceTimelineView.SegmentSplitRequested += (index, splitTime) => SplitSelectedSegmentAtPlayhead(index, splitTime);
         _sequenceTimelineView.RippleDeleteRequested += (insertIndex, track) => RippleDeleteGapAt(insertIndex, track);
         _sequenceTimelineView.SegmentSlipRequested += (index, deltaSeconds) => ApplySequenceSlipFromTimeline(index, deltaSeconds);
@@ -784,10 +783,10 @@ public sealed class QuickEditForm : Form
             rightSplitter.Bounds = new Rectangle(ClientSize.Width - sideWidth - separator, top, separator, panelHeight);
             rightPanel.Bounds = new Rectangle(ClientSize.Width - sideWidth, top, sideWidth, panelHeight);
 
-            _projectSearchBox.Bounds = new Rectangle(8, 64, Math.Max(120, leftPanel.ClientSize.Width - 84), 24);
-            projectImportButton.Location = new Point(leftPanel.ClientSize.Width - 68, 64);
-            projectImportButton.Size = new Size(60, 24);
-            _mediaThumbStrip.Bounds = new Rectangle(8, 96, leftPanel.ClientSize.Width - 16, Math.Max(140, leftPanel.ClientSize.Height - 180));
+            _projectSearchBox.Bounds = new Rectangle(8, 64, Math.Max(120, leftPanel.ClientSize.Width - 108), 24);
+            projectImportButton.Location = new Point(leftPanel.ClientSize.Width - 92, 64);
+            projectImportButton.Size = new Size(84, 24);
+            _mediaThumbStrip.Bounds = new Rectangle(8, 96, leftPanel.ClientSize.Width - 16, Math.Max(140, leftPanel.ClientSize.Height - 214));
             _filesList.Bounds = new Rectangle(-2000, -2000, 1, 1);
             _filesList.Visible = false;
 
@@ -1468,7 +1467,7 @@ public sealed class QuickEditForm : Form
                 {
                     AutoSize = false,
                     Size = new Size(Math.Max(120, _mediaThumbStrip.ClientSize.Width - 12), 72),
-                    Text = "IMPORT FILES TO POPULATE THE MEDIA BIN. WATCH-FOLDER LOADING IS MANUAL ONLY.",
+                    Text = "ADD FILES TO POPULATE THE MEDIA BIN. WATCH-FOLDER LOADING IS MANUAL ONLY.",
                     ForeColor = Color.FromArgb(150, 150, 160),
                     BackColor = Color.Transparent,
                     Font = new Font("Segoe UI", 8.25f, FontStyle.Bold),
@@ -3101,7 +3100,7 @@ public sealed class QuickEditForm : Form
         _statusLabel.Text = "Cleared the timeline.";
     }
 
-    private void MoveSequenceSegmentTo(int fromIndex, int targetIndex, int targetTrack)
+    private void MoveSequenceSegmentTo(int fromIndex, double targetTime, int targetTrack)
     {
         if (fromIndex < 0 || fromIndex >= _sequenceSegments.Count)
             return;
@@ -3111,22 +3110,16 @@ public sealed class QuickEditForm : Form
         var moving = _sequenceSegments[fromIndex];
         _sequenceSegments.RemoveAt(fromIndex);
 
-        var ordered = _sequenceSegments.OrderBy(segment => segment.SequenceStartSec).ThenBy(segment => segment.SafeTrack).ToList();
-        var targetTime = targetIndex <= 0
-            ? 0
-            : targetIndex >= ordered.Count
-                ? GetSequenceTotalDuration()
-                : ordered[targetIndex].SequenceStartSec;
-
-        moving = moving with { Track = clampedTrack, SequenceStartSec = Math.Max(0, targetTime) };
+        var clampedTime = Math.Max(0, Math.Min(targetTime, GetSequenceTotalDuration()));
+        moving = moving with { Track = clampedTrack, SequenceStartSec = clampedTime };
         var movedIndex = _timelineEditMode == TimelineEditMode.Ripple
             ? InsertCutAtSequenceTime(moving, moving.SequenceStartSec)
             : OverwriteCutAtSequenceTime(moving, moving.SequenceStartSec);
 
         UpdateSequenceUi(movedIndex);
         _statusLabel.Text = _timelineEditMode == TimelineEditMode.Ripple
-            ? $"Ripple-inserted timeline cut on V{clampedTrack} and pushed downstream edits."
-            : $"Overwrite-moved timeline cut to V{clampedTrack}.";
+            ? $"Ripple-moved timeline cut to {FormatTime(clampedTime)} on V{clampedTrack}."
+            : $"Moved timeline cut to {FormatTime(clampedTime)} on V{clampedTrack}.";
     }
 
     private int RippleMoveSequenceSegment(int fromIndex, int targetIndex, int targetTrack)
@@ -4073,7 +4066,7 @@ public sealed class QuickEditForm : Form
             for (var tick = Math.Ceiling(visibleStart); tick <= visibleStart + visibleDuration; tick += 1d)
                 snapCandidates.Add(tick);
 
-            var threshold = Math.Max(0.05, visibleDuration * 0.02);
+            var threshold = Math.Max(0.02, visibleDuration * 0.01);
             var nearest = snapCandidates.OrderBy(value => Math.Abs(value - seconds)).FirstOrDefault();
             var snapped = Math.Abs(nearest - seconds) <= threshold;
             _snapIndicatorSeconds = snapped ? nearest : double.NaN;
@@ -4139,6 +4132,9 @@ public sealed class QuickEditForm : Form
         private TimelineSegment? _dragOriginSegment;
         private int _previewInsertIndex = -1;
         private int _previewTrack = 1;
+        private double _previewDropSeconds = double.NaN;
+        private Point _dragStartPoint;
+        private bool _dragActivated;
         private bool _razorMode;
         private bool _rippleMoveMode;
         private bool _rollingMode;
@@ -4162,7 +4158,7 @@ public sealed class QuickEditForm : Form
 
         public event Action<int>? SegmentClicked;
         public event Action<int, double, double>? SegmentTrimChanged;
-        public event Action<int, int, int>? SegmentMoved;
+        public event Action<int, double, int>? SegmentMoved;
         public event Action<int, double>? SegmentSplitRequested;
         public event Action<int, int>? RippleDeleteRequested;
         public event Action<int, double>? SegmentSlipRequested;
@@ -4316,8 +4312,9 @@ public sealed class QuickEditForm : Form
             }
 
             _selectedIndex = hit.Index;
+            _dragStartPoint = e.Location;
+            _dragActivated = false;
             Invalidate();
-            SegmentClicked?.Invoke(hit.Index);
 
             if (_razorMode)
             {
@@ -4345,6 +4342,7 @@ public sealed class QuickEditForm : Form
                 _dragAnchorSequenceSeconds = _dragOriginSegment.SequenceStartSec + (_dragOriginSegment.Duration * Math.Clamp((e.X - hit.Rect.Left) / (double)Math.Max(1, hit.Rect.Width), 0, 1));
                 _previewInsertIndex = hit.Index;
                 _previewTrack = _segments[hit.Index].SafeTrack;
+                _previewDropSeconds = _dragOriginSegment.SequenceStartSec;
             }
         }
 
@@ -4365,6 +4363,9 @@ public sealed class QuickEditForm : Form
 
             if (_dragOriginSegment == null || _dragIndex < 0 || _dragIndex >= _segments.Count)
                 return;
+
+            if (!_dragActivated && (Math.Abs(e.X - _dragStartPoint.X) > 4 || Math.Abs(e.Y - _dragStartPoint.Y) > 4))
+                _dragActivated = true;
 
             var totalDuration = Math.Max(0.1, _segments.Max(segment => segment.SequenceEndSec));
             var timelineLeft = 72;
@@ -4399,7 +4400,9 @@ public sealed class QuickEditForm : Form
                 return;
             }
 
-            var snappedX = timelineLeft + (int)Math.Round(((absoluteSeconds - visibleStart) / Math.Max(0.001, visibleDuration)) * timelineWidth);
+            var grabOffset = _dragAnchorSequenceSeconds - _dragOriginSegment.SequenceStartSec;
+            _previewDropSeconds = Math.Max(0, absoluteSeconds - grabOffset);
+            var snappedX = timelineLeft + (int)Math.Round(((_previewDropSeconds - visibleStart) / Math.Max(0.001, visibleDuration)) * timelineWidth);
             _previewInsertIndex = GetInsertIndex(snappedX, timelineLeft, timelineWidth, totalDuration);
             _previewTrack = GetTrackForY(e.Y);
             Invalidate();
@@ -4415,14 +4418,23 @@ public sealed class QuickEditForm : Form
             }
 
             if (_dragMode == SegmentDragMode.Move && _dragIndex >= 0 && !_slipMode)
-                SegmentMoved?.Invoke(_dragIndex, _previewInsertIndex < 0 ? _dragIndex : _previewInsertIndex, _previewTrack);
+            {
+                if (_dragActivated)
+                    SegmentMoved?.Invoke(_dragIndex, double.IsNaN(_previewDropSeconds) ? _segments[_dragIndex].SequenceStartSec : _previewDropSeconds, _previewTrack);
+                else
+                    SegmentClicked?.Invoke(_dragIndex);
+            }
             else if (_dragMode == SegmentDragMode.Seek)
                 UpdatePlayheadFromPoint(e.Location);
+            else if (_dragIndex >= 0 && !_dragActivated)
+                SegmentClicked?.Invoke(_dragIndex);
 
             _dragMode = SegmentDragMode.None;
             _dragIndex = -1;
             _dragOriginSegment = null;
             _previewInsertIndex = -1;
+            _previewDropSeconds = double.NaN;
+            _dragActivated = false;
             _snapIndicatorSeconds = double.NaN;
             _snapIndicatorLabel = string.Empty;
             UpdateCursor(e.Location);
@@ -4609,7 +4621,7 @@ public sealed class QuickEditForm : Form
 
             if (_dragMode == SegmentDragMode.Move && _previewInsertIndex >= 0)
             {
-                var insertRatio = GetInsertRatio(_previewInsertIndex, totalDuration, visibleStart, visibleDuration);
+                var insertRatio = Math.Clamp((_previewDropSeconds - visibleStart) / Math.Max(0.001, visibleDuration), 0, 1);
                 var insertX = timelineLeft + (int)Math.Round(insertRatio * timelineWidth);
                 var targetLane = _previewTrack == 2 ? v2 : v1;
                 var targetAudioLane = _previewTrack == 2 ? a2 : a1;
@@ -4790,7 +4802,7 @@ public sealed class QuickEditForm : Form
             }
 
             var (visibleStart, visibleDuration) = GetVisibleRange(totalDuration);
-            var threshold = Math.Max(0.05, visibleDuration * 0.02);
+            var threshold = Math.Max(0.02, visibleDuration * 0.01);
             var snapPoints = new List<double> { 0, totalDuration };
             foreach (var segment in _segments)
             {

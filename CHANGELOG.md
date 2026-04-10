@@ -1,5 +1,10 @@
 # VELO Uploader - Changelog
 
+## Version 1.7.47 (2026-04-09)
+- NLE: declutter the media bin controls by removing duplicate import actions, spacing the buttons into cleaner rows, and improving the wording for a files-first workflow
+- NLE: leave more breathing room below the thumbnail strip so the bin actions are visually separated and easier to hit
+- NLE: smooth out timeline movement by stopping clip reloads during drag, using exact drop-time positioning, and reducing overly sticky snap behavior
+
 ## Version 1.7.46 (2026-04-09)
 - NLE: switch the media bin to a files-only import flow by removing the folder import action and routing import entry points through the file picker
 - NLE: stop auto-loading the watch/output folder into the editor on launch; media-bin population is now fully manual unless you click `Load watch`
