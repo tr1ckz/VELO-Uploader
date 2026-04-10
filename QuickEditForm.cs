@@ -773,8 +773,8 @@ public sealed class QuickEditForm : Form
             var panelHeight = Math.Max(520, ClientSize.Height - top - footerHeight);
             var centerLeft = sideWidth + separator;
             var centerWidth = Math.Max(520, ClientSize.Width - (sideWidth * 2) - (separator * 2));
-            var topRowHeight = Math.Max(220, panelHeight / 2);
-            var bottomRowHeight = Math.Max(220, panelHeight - topRowHeight);
+            var topRowHeight = Math.Max(210, (int)Math.Round(panelHeight * 0.46));
+            var bottomRowHeight = Math.Max(250, panelHeight - topRowHeight);
 
             leftPanel.Bounds = new Rectangle(0, top, sideWidth, panelHeight);
             leftSplitter.Bounds = new Rectangle(leftPanel.Right, top, separator, panelHeight);
@@ -815,11 +815,11 @@ public sealed class QuickEditForm : Form
             trimHint.Location = new Point(margin, 24);
             trimHint.Size = new Size(timelinePanel.ClientSize.Width - (margin * 2), 22);
 
-            _trimTimelineView.Bounds = new Rectangle(margin, 48, timelinePanel.ClientSize.Width - (margin * 2), 82);
-            _refreshPreviewButton.Location = new Point(timelinePanel.ClientSize.Width - margin - _refreshPreviewButton.Width, _trimTimelineView.Bottom + 6);
-            _timelineBar.Bounds = new Rectangle(margin, _trimTimelineView.Bottom + 6, Math.Max(220, _refreshPreviewButton.Left - margin - 6), 24);
+            _trimTimelineView.Bounds = new Rectangle(margin, 48, timelinePanel.ClientSize.Width - (margin * 2), 70);
+            _refreshPreviewButton.Location = new Point(timelinePanel.ClientSize.Width - margin - _refreshPreviewButton.Width, _trimTimelineView.Bottom + 4);
+            _timelineBar.Bounds = new Rectangle(margin, _trimTimelineView.Bottom + 4, Math.Max(220, _refreshPreviewButton.Left - margin - 6), 22);
 
-            var transportY = _timelineBar.Bottom + 6;
+            var transportY = _timelineBar.Bottom + 4;
             _playPauseButton.Location = new Point(margin, transportY);
             _jumpBackButton.Location = new Point(_playPauseButton.Right + 6, transportY);
             _jumpForwardButton.Location = new Point(_jumpBackButton.Right + 6, transportY);
@@ -828,14 +828,14 @@ public sealed class QuickEditForm : Form
             _rollingToolButton.Location = new Point(_rippleToolButton.Right + 6, transportY);
             _slipToolButton.Location = new Point(_rollingToolButton.Right + 6, transportY);
             _razorToolButton.Location = new Point(_slipToolButton.Right + 6, transportY);
-            _timelineModeLabel.Location = new Point(margin, _selectToolButton.Bottom + 6);
-            _timelineModeLabel.Size = new Size(Math.Max(120, timelinePanel.ClientSize.Width - (margin * 2)), 18);
+            _timelineModeLabel.Location = new Point(margin, _selectToolButton.Bottom + 4);
+            _timelineModeLabel.Size = new Size(Math.Max(120, timelinePanel.ClientSize.Width - (margin * 2)), 16);
 
             var toolRowBottom = Math.Max(_timelineModeLabel.Bottom, Math.Max(_razorToolButton.Bottom, _playPauseButton.Bottom));
-            sequenceSectionLabel.Location = new Point(margin, toolRowBottom + 8);
+            sequenceSectionLabel.Location = new Point(margin, toolRowBottom + 6);
             timelineHint.Location = new Point(margin, sequenceSectionLabel.Bottom + 1);
-            timelineHint.Size = new Size(timelinePanel.ClientSize.Width - (margin * 2), 22);
-            _sequenceTimelineView.Bounds = new Rectangle(margin, timelineHint.Bottom + 2, timelinePanel.ClientSize.Width - (margin * 2), Math.Max(120, timelinePanel.ClientSize.Height - timelineHint.Bottom - 8));
+            timelineHint.Size = new Size(timelinePanel.ClientSize.Width - (margin * 2), 20);
+            _sequenceTimelineView.Bounds = new Rectangle(margin, timelineHint.Bottom + 2, timelinePanel.ClientSize.Width - (margin * 2), Math.Max(132, timelinePanel.ClientSize.Height - timelineHint.Bottom - 6));
 
             _statusLabel.Location = new Point(8, ClientSize.Height - 20);
             _statusLabel.Size = new Size(ClientSize.Width - 16, 16);
@@ -4476,71 +4476,87 @@ public sealed class QuickEditForm : Form
 
             var totalDuration = Math.Max(0.1, _segments.Max(segment => segment.SequenceEndSec));
             var timelineLeft = 72;
-            var timelineWidth = Math.Max(120, Width - timelineLeft - 14);
+            var timelineWidth = Math.Max(120, Width - timelineLeft - 10);
             var (visibleStart, visibleDuration) = GetVisibleRange(totalDuration);
-            var rulerTop = 12;
-            var laneTop = 34;
-            var laneGap = Math.Max(6, Height / 24);
-            var laneAreaHeight = Math.Max(96, Height - laneTop - 16);
-            var videoLaneHeight = Math.Clamp((int)Math.Round(laneAreaHeight * 0.28), 30, 46);
-            var audioLaneHeight = Math.Clamp((laneAreaHeight - (videoLaneHeight * 2) - (laneGap * 3)) / 2, 14, 24);
+            var rulerTop = 8;
+            var laneTop = 30;
+            var laneGap = 4;
+            var laneAreaHeight = Math.Max(88, Height - laneTop - 10);
+            var videoLaneHeight = Math.Clamp((int)Math.Round(laneAreaHeight * 0.29), 26, 38);
+            var audioLaneHeight = Math.Clamp((laneAreaHeight - (videoLaneHeight * 2) - (laneGap * 3)) / 2, 12, 18);
             var v1 = new Rectangle(timelineLeft, laneTop, timelineWidth, videoLaneHeight);
             var v2 = new Rectangle(timelineLeft, v1.Bottom + laneGap, timelineWidth, videoLaneHeight);
             var a1 = new Rectangle(timelineLeft, v2.Bottom + laneGap, timelineWidth, audioLaneHeight);
             var a2 = new Rectangle(timelineLeft, a1.Bottom + laneGap, timelineWidth, audioLaneHeight);
 
-            var rulerRect = new Rectangle(timelineLeft, 10, timelineWidth, 18);
-            using var rulerBrush = new SolidBrush(Color.FromArgb(17, 17, 17));
-            using var labelBadgeBrush = new SolidBrush(Color.FromArgb(17, 17, 17));
-            using var labelBorderPen = new Pen(Color.FromArgb(51, 51, 51));
+            var rulerRect = new Rectangle(timelineLeft, rulerTop, timelineWidth, 16);
+            using var rulerBrush = new SolidBrush(Color.FromArgb(15, 15, 18));
+            using var labelBadgeBrush = new SolidBrush(Color.FromArgb(19, 19, 24));
+            using var labelBorderPen = new Pen(Color.FromArgb(54, 54, 66));
+            using var activeBadgeBrush = new SolidBrush(Color.FromArgb(124, 58, 237));
+            using var laneLabelFont = new Font("Segoe UI", 6.5f, FontStyle.Bold);
+            using var patchFont = new Font("Segoe UI", 5.5f, FontStyle.Bold);
             e.Graphics.FillRectangle(rulerBrush, rulerRect);
             e.Graphics.DrawRectangle(borderPen, rulerRect);
 
-            _v1BadgeRect = new Rectangle(10, v1.Top + 6, 42, 18);
-            _v2BadgeRect = new Rectangle(10, v2.Top + 6, 42, 18);
-            _a1BadgeRect = new Rectangle(10, a1.Top, 42, 16);
-            _a2BadgeRect = new Rectangle(10, a2.Top, 42, 16);
-            using var activeBadgeBrush = new SolidBrush(Color.FromArgb(124, 58, 237));
-            e.Graphics.FillRectangle(_targetVideoTrack == 1 ? activeBadgeBrush : labelBadgeBrush, _v1BadgeRect);
-            e.Graphics.FillRectangle(_targetVideoTrack == 2 ? activeBadgeBrush : labelBadgeBrush, _v2BadgeRect);
-            e.Graphics.FillRectangle(_targetAudioTrack == 1 ? activeBadgeBrush : labelBadgeBrush, _a1BadgeRect);
-            e.Graphics.FillRectangle(_targetAudioTrack == 2 ? activeBadgeBrush : labelBadgeBrush, _a2BadgeRect);
-            e.Graphics.DrawRectangle(labelBorderPen, _v1BadgeRect);
-            e.Graphics.DrawRectangle(labelBorderPen, _v2BadgeRect);
-            e.Graphics.DrawRectangle(labelBorderPen, _a1BadgeRect);
-            e.Graphics.DrawRectangle(labelBorderPen, _a2BadgeRect);
-            TextRenderer.DrawText(e.Graphics, $"V1{(_targetVideoTrack == 1 ? "*" : string.Empty)}", Font, _v1BadgeRect, Color.FromArgb(191, 219, 254), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
-            TextRenderer.DrawText(e.Graphics, $"V2{(_targetVideoTrack == 2 ? "*" : string.Empty)}", Font, _v2BadgeRect, Color.FromArgb(191, 219, 254), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
-            TextRenderer.DrawText(e.Graphics, $"A1{(_targetAudioTrack == 1 ? "*" : string.Empty)}", Font, _a1BadgeRect, Color.FromArgb(191, 219, 254), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
-            TextRenderer.DrawText(e.Graphics, $"A2{(_targetAudioTrack == 2 ? "*" : string.Empty)}", Font, _a2BadgeRect, Color.FromArgb(191, 219, 254), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            void DrawLaneHeader(string label, Rectangle lane, bool active, bool audio, ref Rectangle badgeRect)
+            {
+                var headerRect = new Rectangle(8, lane.Top, 56, lane.Height);
+                using var headerBrush = new SolidBrush(active
+                    ? (audio ? Color.FromArgb(52, 38, 56, 68) : Color.FromArgb(66, 54, 40, 88))
+                    : (audio ? Color.FromArgb(22, 22, 24) : Color.FromArgb(24, 24, 28)));
+                e.Graphics.FillRectangle(headerBrush, headerRect);
+                e.Graphics.DrawRectangle(labelBorderPen, headerRect);
+                TextRenderer.DrawText(e.Graphics, label, laneLabelFont, new Rectangle(headerRect.Left + 6, headerRect.Top + 1, 18, headerRect.Height - 2), Color.FromArgb(214, 214, 226), TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
 
-            e.Graphics.FillRectangle(railBrush, v1);
-            e.Graphics.FillRectangle(railBrush, v2);
-            e.Graphics.FillRectangle(railBrush, a1);
-            e.Graphics.FillRectangle(railBrush, a2);
+                badgeRect = new Rectangle(headerRect.Right - 28, headerRect.Top + Math.Max(1, (headerRect.Height - 14) / 2), 22, 14);
+                e.Graphics.FillRectangle(active ? activeBadgeBrush : labelBadgeBrush, badgeRect);
+                e.Graphics.DrawRectangle(labelBorderPen, badgeRect);
+                TextRenderer.DrawText(e.Graphics, active ? "ON" : "--", patchFont, badgeRect, active ? Color.White : Color.FromArgb(145, 145, 160), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
+            }
+
+            DrawLaneHeader("V1", v1, _targetVideoTrack == 1, false, ref _v1BadgeRect);
+            DrawLaneHeader("V2", v2, _targetVideoTrack == 2, false, ref _v2BadgeRect);
+            DrawLaneHeader("A1", a1, _targetAudioTrack == 1, true, ref _a1BadgeRect);
+            DrawLaneHeader("A2", a2, _targetAudioTrack == 2, true, ref _a2BadgeRect);
+
+            using var videoRailBrush = new SolidBrush(Color.FromArgb(30, 33, 38));
+            using var audioRailBrush = new SolidBrush(Color.FromArgb(26, 26, 30));
+            using var railLinePen = new Pen(Color.FromArgb(42, 42, 52));
+            e.Graphics.FillRectangle(videoRailBrush, v1);
+            e.Graphics.FillRectangle(videoRailBrush, v2);
+            e.Graphics.FillRectangle(audioRailBrush, a1);
+            e.Graphics.FillRectangle(audioRailBrush, a2);
             e.Graphics.DrawRectangle(borderPen, v1);
             e.Graphics.DrawRectangle(borderPen, v2);
             e.Graphics.DrawRectangle(borderPen, a1);
             e.Graphics.DrawRectangle(borderPen, a2);
+            e.Graphics.DrawLine(railLinePen, timelineLeft, v1.Bottom + 1, timelineLeft + timelineWidth, v1.Bottom + 1);
+            e.Graphics.DrawLine(railLinePen, timelineLeft, v2.Bottom + 1, timelineLeft + timelineWidth, v2.Bottom + 1);
+            e.Graphics.DrawLine(railLinePen, timelineLeft, a1.Bottom + 1, timelineLeft + timelineWidth, a1.Bottom + 1);
 
-            using var secondPen = new Pen(Color.FromArgb(38, 38, 42));
-            using var majorPen = new Pen(Color.FromArgb(64, 64, 72));
-            var tickStart = Math.Floor(visibleStart);
-            var tickEnd = Math.Ceiling(visibleStart + visibleDuration);
-            for (var second = tickStart; second <= tickEnd; second += 1d)
+            using var minorPen = new Pen(Color.FromArgb(30, 30, 36));
+            using var secondPen = new Pen(Color.FromArgb(42, 42, 48));
+            using var majorPen = new Pen(Color.FromArgb(68, 68, 78));
+            using var tickFont = new Font("Segoe UI", 6.5f);
+            var tickStep = visibleDuration <= 12 ? 0.5d : 1d;
+            var tickStart = Math.Floor(visibleStart / tickStep) * tickStep;
+            var tickEnd = Math.Ceiling((visibleStart + visibleDuration) / tickStep) * tickStep;
+            for (var tick = tickStart; tick <= tickEnd + 0.001d; tick += tickStep)
             {
-                var ratio = (second - visibleStart) / Math.Max(0.001, visibleDuration);
+                var ratio = (tick - visibleStart) / Math.Max(0.001, visibleDuration);
                 if (ratio < 0 || ratio > 1)
                     continue;
 
                 var x = timelineLeft + (int)Math.Round(ratio * timelineWidth);
-                var isMajor = Math.Abs(second % 5d) < 0.001d;
-                e.Graphics.DrawLine(isMajor ? majorPen : secondPen, x, rulerTop + 10, x, a2.Bottom);
+                var isSecondTick = Math.Abs(tick % 1d) < 0.001d;
+                var isMajor = Math.Abs(tick % 5d) < 0.001d;
+                e.Graphics.DrawLine(isMajor ? majorPen : (isSecondTick ? secondPen : minorPen), x, isSecondTick ? rulerTop + 8 : rulerTop + 11, x, a2.Bottom);
 
-                if (isMajor || visibleDuration <= 15)
+                if (isSecondTick && (isMajor || visibleDuration <= 18))
                 {
-                    var stamp = FormatTime(second);
-                    TextRenderer.DrawText(e.Graphics, stamp, new Font("Segoe UI", 7f), new Point(Math.Max(0, x - 16), rulerTop), Color.FromArgb(120, 120, 135));
+                    var stamp = FormatTime(tick);
+                    TextRenderer.DrawText(e.Graphics, stamp, tickFont, new Point(Math.Max(timelineLeft, x - 16), rulerTop - 1), Color.FromArgb(128, 128, 142));
                 }
             }
 
@@ -4567,8 +4583,8 @@ public sealed class QuickEditForm : Form
                 var blockWidth = Math.Max(38, endX - startX);
                 var videoLane = segment.SafeTrack == 2 ? v2 : v1;
                 var audioLane = segment.SafeTrack == 2 ? a2 : a1;
-                var rect = new Rectangle(Math.Max(videoLane.Left, startX), videoLane.Top + 4, Math.Min(blockWidth, videoLane.Right - Math.Max(videoLane.Left, startX) - 1), videoLane.Height - 8);
-                var audioBlock = new Rectangle(rect.Left, audioLane.Top + 2, rect.Width, audioLane.Height - 4);
+                var rect = new Rectangle(Math.Max(videoLane.Left, startX), videoLane.Top + 2, Math.Min(blockWidth, videoLane.Right - Math.Max(videoLane.Left, startX) - 1), Math.Max(18, videoLane.Height - 4));
+                var audioBlock = new Rectangle(rect.Left, audioLane.Top + 1, rect.Width, Math.Max(8, audioLane.Height - 2));
 
                 var fill = index == _selectedIndex ? Color.FromArgb(145, 88, 255) : (segment.SafeTrack == 2 ? Color.FromArgb(20, 184, 220) : Color.FromArgb(59, 130, 246));
                 using var shadowBrush = new SolidBrush(Color.FromArgb(46, 0, 0, 0));
@@ -4592,30 +4608,30 @@ public sealed class QuickEditForm : Form
 
                 if (index == _selectedIndex)
                 {
-                    var leftGrip = new Rectangle(rect.Left - 4, rect.Top + 3, 8, rect.Height - 6);
-                    var rightGrip = new Rectangle(rect.Right - 4, rect.Top + 3, 8, rect.Height - 6);
+                    var leftGrip = new Rectangle(rect.Left - 3, rect.Top + 2, 6, rect.Height - 4);
+                    var rightGrip = new Rectangle(rect.Right - 3, rect.Top + 2, 6, rect.Height - 4);
                     e.Graphics.FillRectangle(handleBrush, leftGrip);
                     e.Graphics.FillRectangle(handleBrush, rightGrip);
                     e.Graphics.DrawRectangle(Pens.Black, leftGrip);
                     e.Graphics.DrawRectangle(Pens.Black, rightGrip);
-                    for (var grip = 0; grip < 3; grip++)
+                    for (var grip = 0; grip < 2; grip++)
                     {
                         var leftX = leftGrip.Left + 2 + (grip * 2);
                         var rightX = rightGrip.Left + 2 + (grip * 2);
-                        e.Graphics.DrawLine(Pens.DimGray, leftX, leftGrip.Top + 4, leftX, leftGrip.Bottom - 4);
-                        e.Graphics.DrawLine(Pens.DimGray, rightX, rightGrip.Top + 4, rightX, rightGrip.Bottom - 4);
+                        e.Graphics.DrawLine(Pens.DimGray, leftX, leftGrip.Top + 3, leftX, leftGrip.Bottom - 3);
+                        e.Graphics.DrawLine(Pens.DimGray, rightX, rightGrip.Top + 3, rightX, rightGrip.Bottom - 3);
                     }
                 }
 
-                var tagRect = new Rectangle(rect.Left + 6, rect.Top + Math.Max(16, rect.Height - 18), Math.Min(Math.Max(52, rect.Width - 12), 78), 12);
-                using var tagBrush = new SolidBrush(Color.FromArgb(96, 15, 23, 42));
-                using var labelBackBrush = new SolidBrush(Color.FromArgb(165, 0, 0, 0));
+                var tagRect = new Rectangle(rect.Left + 5, rect.Bottom - 14, Math.Min(Math.Max(48, rect.Width - 10), 82), 10);
+                using var tagBrush = new SolidBrush(Color.FromArgb(102, 15, 23, 42));
+                using var labelBackBrush = new SolidBrush(Color.FromArgb(170, 0, 0, 0));
                 var label = Path.GetFileName(segment.SourceFile);
-                var labelRect = new Rectangle(rect.Left + 4, rect.Top + 4, Math.Max(24, rect.Width - 8), 14);
+                var labelRect = new Rectangle(rect.Left + 4, rect.Top + 3, Math.Max(24, rect.Width - 8), 12);
                 e.Graphics.FillRectangle(labelBackBrush, labelRect);
-                TextRenderer.DrawText(e.Graphics, label, new Font("Segoe UI", 7f, FontStyle.Bold), labelRect, Color.White, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine);
+                TextRenderer.DrawText(e.Graphics, label, new Font("Segoe UI", 6.5f, FontStyle.Bold), labelRect, Color.White, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine);
                 e.Graphics.FillRectangle(tagBrush, tagRect);
-                TextRenderer.DrawText(e.Graphics, $"V{segment.SafeTrack} @ {FormatTime(segment.SequenceStartSec)}", new Font("Segoe UI", 6.25f, FontStyle.Bold), tagRect, Color.FromArgb(226, 232, 240), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+                TextRenderer.DrawText(e.Graphics, $"{FormatTime(segment.SequenceStartSec)} • V{segment.SafeTrack}", new Font("Segoe UI", 5.8f, FontStyle.Bold), tagRect, Color.FromArgb(226, 232, 240), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
                 _hitTargets.Add((rect, index));
             }
 

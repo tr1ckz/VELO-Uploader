@@ -1,5 +1,10 @@
 # VELO Uploader - Changelog
 
+## Version 1.7.48 (2026-04-10)
+- UI: tighten the NLE timeline into a denser, more Premiere-like layout with slimmer trim and transport chrome plus more vertical room for the sequence canvas
+- NLE: restyle the sequence lanes with compact V/A patch headers, finer ruler ticks, and tighter clip handles/tags for a higher-density editing view
+- UX: keep track targeting visible while reducing wasted gutter space so the timeline feels less bulky during longer edits
+
 ## Version 1.7.47 (2026-04-09)
 - NLE: declutter the media bin controls by removing duplicate import actions, spacing the buttons into cleaner rows, and improving the wording for a files-first workflow
 - NLE: leave more breathing room below the thumbnail strip so the bin actions are visually separated and easier to hit
