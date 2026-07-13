@@ -42,3 +42,4 @@ jobs:
           files: VeloUploader-${{ env.TAG }}-win-x64.zip
           generate_release_notes: true
           tag_name: ${{ env.TAG }}
+          make_latest: true
