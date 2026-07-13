@@ -3,6 +3,11 @@ name: Build & Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g., v1.8.0)"
+        required: true
 
 permissions:
   contents: write
@@ -20,17 +25,20 @@ jobs:
       - name: Derive app version from tag
         shell: pwsh
         run: |
-          $v = "${{ github.ref_name }}".TrimStart('v', 'V')
+          $tag = if ("${{ github.event_name }}" -eq "workflow_dispatch") { "${{ github.event.inputs.tag }}" } else { "${{ github.ref_name }}" }
+          $v = $tag.TrimStart('v', 'V')
           "APP_VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Publish
         run: dotnet publish VeloUploader.csproj -c Release -r win-x64 --self-contained -o publish -p:Version=${{ env.APP_VERSION }}
 
       - name: Zip release
-        run: Compress-Archive -Path publish/* -DestinationPath VeloUploader-${{ github.ref_name }}-win-x64.zip
+        run: Compress-Archive -Path publish/* -DestinationPath VeloUploader-${{ env.TAG }}-win-x64.zip
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: VeloUploader-${{ github.ref_name }}-win-x64.zip
+          files: VeloUploader-${{ env.TAG }}-win-x64.zip
           generate_release_notes: true
+          tag_name: ${{ env.TAG }}
