@@ -1,5 +1,18 @@
 # VELO Uploader - Changelog
 
+## Version 1.8.0 (2026-07-13)
+- NLE: full editor overhaul — the 5,200-line monolithic form is split into a proper architecture (`Editor/` folder: `SequenceModel` edit engine, `SequenceExporter`, `FfmpegService`, `EditorTheme`, and standalone timeline/preview controls)
+- NLE: real application chrome — menu bar (File/Edit/Timeline/Help), tool strip with Select/Ripple/Roll/Slip/Razor toggles, snapping and zoom controls, and a status bar with live sequence stats
+- NLE: resizable dock layout via splitters (media bin | monitors | inspector, timeline dock below) replacing hand-computed pixel positions; fixes Roll/Slip buttons being parented to the wrong panel
+- NLE: sequence edit engine rewritten with undo **and redo** (Ctrl+Z / Ctrl+Y), coalesced drag edits (one undo step per drag), and gap deletion by timeline position
+- NLE: the sequence playhead now lives in sequence time end-to-end — scrubbing the timeline renders a composited preview (V2 over V1 with motion/opacity) in the program monitor, including black for gaps
+- NLE: timeline export rewritten — frame-accurate re-encoded cuts (no more keyframe-snapped `-c copy` drift), V2 track composited over V1 with position/scale/opacity applied, silent audio synthesized for gaps and audio-less clips, uniform codec so concat can't fail on mismatched sources
+- NLE: media bin rebuilt as a single searchable list (live filename filter) with thumbnails, drag-drop import, and a context menu — removes the old hidden off-screen ListBox that doubled as the data model
+- NLE: keyboard handling fixed — shortcuts no longer fire while typing in text fields; added `,`/`.` insert/overwrite, `M` marker, arrow-key frame stepping, Home/End, and a Help > Keyboard shortcuts reference
+- NLE: slip-tool drags no longer compound their delta (clips slid far faster than the mouse); trim-edge drags no longer flood the undo history
+- NLE: ffprobe/ffmpeg hardening — JSON-based probing (duration, fps, audio presence), correct Windows argument quoting for paths with quotes, and cancellation now kills the ffmpeg process tree
+- NLE: fixed leaks — preview CancellationTokenSource disposal, image replacement on the program monitor, and cache cleanup on close
+
 ## Version 1.7.48 (2026-04-10)
 - UI: tighten the NLE timeline into a denser, more Premiere-like layout with slimmer trim and transport chrome plus more vertical room for the sequence canvas
 - NLE: restyle the sequence lanes with compact V/A patch headers, finer ruler ticks, and tighter clip handles/tags for a higher-density editing view
