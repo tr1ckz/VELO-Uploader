@@ -98,6 +98,7 @@ public sealed class QuickEditForm : Form
     private ToolStripMenuItem _undoMenuItem = null!;
     private ToolStripMenuItem _redoMenuItem = null!;
     private readonly List<ToolStripItem> _busySensitiveItems = [];
+    private readonly List<Button> _busySensitiveButtons = [];
 
     private readonly System.Windows.Forms.Timer _previewDebounceTimer;
     private readonly System.Windows.Forms.Timer _playerTimer;
@@ -650,6 +651,7 @@ public sealed class QuickEditForm : Form
         // Export card
         var browseButton = EditorTheme.ToolButton("Browse…", (_, _) => PickOutputFolder());
         var exportButton = EditorTheme.PrimaryButton("Export timeline (Ctrl+E)", async (_, _) => await ExportSequenceAsync());
+        _busySensitiveButtons.Add(exportButton);
         AddCard("Export", Grid(2,
             (EditorTheme.FieldLabel("Name"), 0, 0, 2),
             (_outputNameBox, 0, 1, 2),
@@ -665,6 +667,10 @@ public sealed class QuickEditForm : Form
         var overwriteButton = EditorTheme.ToolButton("Overwrite  (.)", (_, _) => AddCurrentCutToSequence(overwrite: true));
         var saveTrimButton = EditorTheme.ToolButton("Save IN/OUT as clip", async (_, _) => await RunTrimAsync());
         var mergeButton = EditorTheme.ToolButton("Merge selected clips", async (_, _) => await RunMergeAsync());
+        _busySensitiveButtons.Add(insertButton);
+        _busySensitiveButtons.Add(overwriteButton);
+        _busySensitiveButtons.Add(saveTrimButton);
+        _busySensitiveButtons.Add(mergeButton);
         AddCard("Source clip", Grid(2,
             (EditorTheme.FieldLabel("In (sec)"), 0, 0, 1),
             (EditorTheme.FieldLabel("Out (sec)"), 1, 0, 1),
@@ -691,6 +697,7 @@ public sealed class QuickEditForm : Form
         var aspect11 = EditorTheme.ToolButton("1:1", (_, _) => ApplyAspectCrop(1, 1));
         var aspectReset = EditorTheme.ToolButton("Full", (_, _) => ResetCropToFullFrame());
         var saveCropButton = EditorTheme.ToolButton("Save cropped clip", async (_, _) => await RunCropAsync());
+        _busySensitiveButtons.Add(saveCropButton);
         AddCard("Crop", Grid(4,
             (_enableCropBox, 0, 0, 4),
             (aspect169, 0, 1, 1),
@@ -2313,6 +2320,8 @@ public sealed class QuickEditForm : Form
             case Keys.Delete:
                 if (_markerList.Focused)
                     RemoveSelectedMarker();
+                else if (_binList.Focused)
+                    RemoveSelectedFromBin();
                 else
                     RippleDeleteSelected();
                 break;
@@ -2566,6 +2575,8 @@ public sealed class QuickEditForm : Form
         _busy = busy;
         foreach (var item in _busySensitiveItems)
             item.Enabled = !busy;
+        foreach (var button in _busySensitiveButtons)
+            button.Enabled = !busy;
         _undoMenuItem.Enabled = !busy && _sequence.CanUndo;
         _redoMenuItem.Enabled = !busy && _sequence.CanRedo;
         UseWaitCursor = busy;
